@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "schema-diff"
+version = "0.1.0"
+description = "Diff schemas or sample data with helpful reports"
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+  "ijson",
+  "deepdiff",
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]         # not installed by default; use for dev
+
+[project.scripts]
+schema-diff = "schema_diff.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["schema_diff*"]
