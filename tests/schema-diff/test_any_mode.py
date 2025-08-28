@@ -3,8 +3,6 @@ import json
 import gzip
 import subprocess
 import sys
-import textwrap
-import os
 
 
 def _w(tmp_path, name, text, gz=False):
@@ -42,8 +40,8 @@ def test_any_any_data_vs_jsonschema(tmp_path):
     # explicit kinds: left=data, right=jsonschema
     res = _run(exe + [
         data, str(js),
-        "--left-kind", "data",
-        "--right-kind", "jsonschema",
+        "--left", "data",
+        "--right", "jsonschema",
         "--first-record",
         "--no-color",
     ])
@@ -77,9 +75,9 @@ def test_any_any_jsonschema_vs_sql(tmp_path):
     exe = [sys.executable, "-m", "schema_diff.cli"]
     res = _run(exe + [
         str(js), str(sqlp),
-        "--left-kind", "jsonschema",
-        "--right-kind", "sql",
-        "--right-sql-table", "p",
+        "--left", "jsonschema",
+        "--right", "sql",
+        "--right-table", "p",
         "--no-color",
     ])
     assert res.returncode == 0, res.stderr
@@ -107,7 +105,7 @@ def test_any_any_auto_detect_jsonschema_vs_sql(tmp_path):
     exe = [sys.executable, "-m", "schema_diff.cli"]
     res = _run(exe + [
         str(js), str(sqlp),
-        "--right-sql-table", "users",   # table still needed
+        "--right-table", "users",   # table still needed
         "--no-color",
     ])
     assert res.returncode == 0, res.stderr
@@ -140,9 +138,9 @@ CREATE TABLE b (
     # Compare against table a -> should match (no diffs)
     res_ok = _run(exe + [
         str(js), str(sqlp),
-        "--left-kind", "jsonschema",
-        "--right-kind", "sql",
-        "--right-sql-table", "a",
+        "--left", "jsonschema",
+        "--right", "sql",
+        "--right-table", "a",
         "--no-color",
     ])
     assert res_ok.returncode == 0, res_ok.stderr
@@ -152,9 +150,9 @@ CREATE TABLE b (
     # Compare against table b -> should mismatch (int vs str)
     res_bad = _run(exe + [
         str(js), str(sqlp),
-        "--left-kind", "jsonschema",
-        "--right-kind", "sql",
-        "--right-sql-table", "b",
+        "--left", "jsonschema",
+        "--right", "sql",
+        "--right-table", "b",
         "--no-color",
     ])
     assert res_bad.returncode == 0, res_bad.stderr
@@ -175,8 +173,8 @@ def test_any_any_mismatch_data_vs_jsonschema(tmp_path):
     exe = [sys.executable, "-m", "schema_diff.cli"]
     res = _run(exe + [
         data, str(js),
-        "--left-kind", "data",
-        "--right-kind", "jsonschema",
+        "--left", "data",
+        "--right", "jsonschema",
         "--first-record",
         "--no-color",
     ])
@@ -199,9 +197,9 @@ def test_any_any_data_vs_sql(tmp_path):
     exe = [sys.executable, "-m", "schema_diff.cli"]
     res = _run(exe + [
         data, str(sqlp),
-        "--left-kind", "data",
-        "--right-kind", "sql",
-        "--right-sql-table", "p",
+        "--left", "data",
+        "--right", "sql",
+        "--right-table", "p",
         "--first-record",
         "--no-color",
     ])

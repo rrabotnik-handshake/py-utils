@@ -1,6 +1,4 @@
 # tests/test_spark_sql_parsers.py
-import json
-import sys
 from schema_diff.sql_schema_parser import schema_from_sql_schema_file
 from schema_diff.normalize import walk_normalize
 from schema_diff.spark_schema_parser import schema_from_spark_schema_file
@@ -67,12 +65,12 @@ def test_spark_parser_presence(tmp_path):
 """
     p = tmp_path / "spark.txt"
     p.write_text(spark, encoding="utf-8")
-    tree, req = schema_from_spark_schema_file(str(p))
+    tree, required = schema_from_spark_schema_file(str(p))
     n = walk_normalize(tree)
     assert n["id"] == "int"
     assert n["ts"] == "timestamp"              # pure type
     assert n["tags"] in (["str"], "array")
-    assert req == {"id"}
+    assert required == {"id"}
 
 
 def test_bq_simple_types(tmp_path):
@@ -139,10 +137,10 @@ CREATE TABLE myds.files (
     p = tmp_path / "bq3.sql"
     p.write_text(sql, encoding="utf-8")
 
-    tree, req = schema_from_sql_schema_file(str(p), table="files")
+    tree, required = schema_from_sql_schema_file(str(p), table="files")
     n = walk_normalize(tree)
 
     assert n["name"] == "str"
     assert n["data"] == "str"
-    assert req == {"name"}
+    assert required == {"name"}
 # presence only

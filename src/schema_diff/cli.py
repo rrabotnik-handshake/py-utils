@@ -77,6 +77,8 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
                      help="force ANSI colors even if stdout is not a TTY or NO_COLOR is set")
     out.add_argument("--no-presence", action="store_true",
                      help="suppress 'Missing / optional (presence)' section (show only true schema mismatches)")
+    out.add_argument("--show-common", action="store_true",
+                     help="print the sorted list of fields that appear in both sides")
 
     # Export
     exp = parser.add_argument_group("Export")
@@ -98,14 +100,14 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
 
     # General two-source mode (any ↔ any)
     gen = parser.add_argument_group("General two-source mode (any ↔ any)")
-    gen.add_argument("--left-kind",  choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml"],
+    gen.add_argument("--left",  choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml"],
                      help="kind of file1 (default: auto-detect)")
-    gen.add_argument("--right-kind", choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml"],
+    gen.add_argument("--right", choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml"],
                      help="kind of file2 (default: auto-detect)")
-    gen.add_argument("--left-sql-table",
-                     help="table to select for file1 when --left-kind sql")
-    gen.add_argument("--right-sql-table",
-                     help="table to select for file2 when --right-kind sql")
+    gen.add_argument("--left-table",
+                     help="table to select for file1 when --left sql")
+    gen.add_argument("--right-table",
+                     help="table to select for file2 when --right sql")
     gen.add_argument("--left-dbt-model",
                      help="model name for file1 when using dbt manifest/schema.yml")
     gen.add_argument("--right-dbt-model",
@@ -131,8 +133,8 @@ def main():
 
     # “General mode” is enabled if any per-side kind/selector is given
     general_mode = any([
-        args.left_kind, args.right_kind,
-        args.left_sql_table, args.right_sql_table,
+        args.left, args.right,
+        args.left_table, args.right_table,
         args.left_dbt_model, args.right_dbt_model,
     ])
 
@@ -166,29 +168,29 @@ def main():
         # Load left (data or schema)
         left_tree, left_required, left_label = load_left_or_right(
             args.file1,
-            kind=args.left_kind,
+            kind=args.left,
             cfg=cfg,
             samples=args.samples,
             first_record=(r1_idx or 1) if r1_idx is not None else None,
-            sql_table=args.left_sql_table,
+            sql_table=args.left_table,
             dbt_model=args.left_dbt_model,
         )
 
         # Load right (data or schema)
         right_tree, right_required, right_label = load_left_or_right(
             args.file2,
-            kind=args.right_kind,
+            kind=args.right,
             cfg=cfg,
             samples=args.samples,
             first_record=(r2_idx or 1) if r2_idx is not None else None,
-            sql_table=args.right_sql_table,
+            sql_table=args.right_table,
             dbt_model=args.right_dbt_model,
         )
 
         # Optionally print selected samples for DATA sources
         if args.show_samples:
             # For left
-            if args.left_kind in (None, "auto", "data"):
+            if args.left in (None, "auto", "data"):
                 if r1_idx is None:
                     print_samples(args.file1, sample_records(
                         args.file1, args.samples), colors=cfg.colors())
@@ -196,7 +198,7 @@ def main():
                     print_samples(args.file1, nth_record(
                         args.file1, r1_idx or 1), colors=cfg.colors())
             # For right
-            if args.right_kind in (None, "auto", "data"):
+            if args.right in (None, "auto", "data"):
                 if r2_idx is None:
                     print_samples(args.file2, sample_records(
                         args.file2, args.samples), colors=cfg.colors())
@@ -213,6 +215,7 @@ def main():
             dump_schemas=args.dump_schemas,
             json_out=args.json_out,
             title_suffix="",  # labels already include sample/record info for DATA
+            show_common=args.show_common,
         )
         return
 
@@ -229,9 +232,9 @@ def main():
                 args.json_schema)
             label = args.json_schema
         elif args.spark_schema:
-            ref_schema = schema_from_spark_schema_file(args.spark_schema)
+            ref_schema, required_paths = schema_from_spark_schema_file(
+                args.spark_schema)
             label = args.spark_schema
-            required_paths = None
         else:
             ref_schema, required_paths = schema_from_sql_schema_file(
                 args.sql_schema, table=args.sql_table)
@@ -252,6 +255,7 @@ def main():
             json_out=args.json_out,
             title_suffix=title1,
             required_paths=required_paths,
+            show_common=args.show_common,
         )
         return
 
@@ -263,7 +267,6 @@ def main():
     # file2 chosen set
     s2 = nth_record(args.file2, r2_idx or 1) if r2_idx is not None else sample_records(
         args.file2, args.samples)
-    title2 = f"; record #{r2_idx or 1}" if r2_idx is not None else f"; random {args.samples}-record samples"
 
     runs = [(s1, s2, title1)]
     if args.both_modes and (r1_idx is not None or r2_idx is not None):

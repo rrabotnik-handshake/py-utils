@@ -21,16 +21,16 @@ schema-diff file1.json file2.json --first-record
 schema-diff file1.json file2.json -k 5 --show-samples
 
 # Data vs JSON Schema
-schema-diff data.ndjson schema.json --right-kind jsonschema --first-record
+schema-diff data.ndjson schema.json --right jsonschema --first-record
 
 # Data vs SQL (choose table)
-schema-diff data.json schema.sql --right-kind sql --right-sql-table my_table --first-record
+schema-diff data.json schema.sql --right sql --right-table my_table --first-record
 
 # JSON Schema vs SQL (multi-table file)
-schema-diff schema.json db.sql --left-kind jsonschema --right-kind sql --right-sql-table users
+schema-diff schema.json db.sql --left jsonschema --right sql --right-table users
 
 # Spark schema vs data
-schema-diff data.json spark_schema.txt --left-kind data --right-kind spark
+schema-diff data.json spark_schema.txt --left data --right spark
 ```
 
 ### Supported inputs
@@ -59,11 +59,11 @@ schema-diff <left_path> <right_path> [options]
 ### Input kinds (auto or explicit)
 Left/right can be auto-detected from extension or forced:
 
-- `--left-kind/--right-kind`: one of
+- `--left/--right`: one of
   - `data` | `jsonschema` | `spark` | `sql` | `dbt-manifest` | `dbt-yml` | `auto` (default)
 
 Extra selectors:
-- `--right-sql-table NAME` — choose table from SQL DDL when file has multiple tables
+- `--right-table NAME` — choose table from SQL DDL when file has multiple tables
 - `--right-dbt-model NAME` (or `--left-dbt-model`) — choose dbt model when needed
 
 ### Output control
@@ -110,15 +110,15 @@ You can mix any two inputs:
 
 ```bash
 # Data vs SQL
-schema-diff data.ndjson schema.sql --left-kind data --right-kind sql --right-sql-table users
+schema-diff data.ndjson schema.sql --left data --right sql --right-table users
 
 # JSON Schema vs Spark
-schema-diff schema.json spark.txt --left-kind jsonschema --right-kind spark
+schema-diff schema.json spark.txt --left jsonschema --right spark
 
 # dbt model vs SQL
 schema-diff manifest.json warehouse.sql \
-  --left-kind dbt-manifest --left-dbt-model analytics.users \
-  --right-kind sql --right-sql-table users
+  --left dbt-manifest --left-dbt-model analytics.users \
+  --right sql --right-table users
 ```
 
 KIND auto-detection by extension:
@@ -136,13 +136,13 @@ KIND auto-detection by extension:
 schema-diff a.ndjson.gz b.ndjson.gz -k 5 --seed 42 --show-samples
 
 # Compare to JSON Schema
-schema-diff data.ndjson schema.json --right-kind jsonschema --first-record
+schema-diff data.ndjson schema.json --right jsonschema --first-record
 
 # Compare to SQL (table chosen)
-schema-diff users.ndjson model.sql --right-kind sql --right-sql-table users --first-record
+schema-diff users.ndjson model.sql --right sql --right-table users --first-record
 
 # Compare two external schemas (no data involved)
-schema-diff schema.json spark.txt --left-kind jsonschema --right-kind spark
+schema-diff schema.json spark.txt --left jsonschema --right spark
 ```
 
 ---
@@ -150,7 +150,7 @@ schema-diff schema.json spark.txt --left-kind jsonschema --right-kind spark
 ## JSON output
 
 ```bash
-schema-diff data.json schema.sql --right-kind sql --right-sql-table p --json-out diff.json
+schema-diff data.json schema.sql --right sql --right-table p --json-out diff.json
 ```
 
 `diff.json` contains the same sections printed to the console plus metadata. Use this for CI and auditing.
@@ -214,6 +214,6 @@ Tests include:
 
 ## Troubleshooting
 
-- **Wrong kind detection for `.json`:** Use `--left-kind/--right-kind` to force `jsonschema` or `dbt-manifest`.
+- **Wrong kind detection for `.json`:** Use `--left/--right` to force `jsonschema` or `dbt-manifest`.
 - **“Table not found” for SQL:** Provide `--*-sql-table` when the DDL file defines multiple tables.
 - **Presence noise from data:** Increase `-k/--samples` and consider `--infer-datetimes` if timestamps are formatted strings.

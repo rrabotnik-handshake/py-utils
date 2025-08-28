@@ -1,16 +1,12 @@
 # schema_diff/loader.py
 
 from __future__ import annotations
-from .io_utils import sample_records, nth_record
-from typing import Any, Dict, Optional, Set, Tuple
+from .io_utils import sample_records, nth_record, open_text
+from typing import Any, Optional, Set, Tuple
 
 import json
-import os
-import pathlib
 
-from .io_utils import sample_records, nth_record, open_text
 from .schema_from_data import merged_schema_from_samples
-from .normalize import walk_normalize
 from .json_schema_parser import schema_from_json_schema_file
 from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
@@ -25,6 +21,23 @@ KIND_DBT_YML = "dbt-yml"
 KIND_AUTO = "auto"
 
 
+def _ensure_tree_required(x) -> tuple[Any, set[str]]:
+    """
+    Accept a value that might be:
+      - a pure type tree (dict/list/str/...), or
+      - a (tree, required_iterable) tuple.
+    Always return (tree, required_set).
+    """
+    if isinstance(x, tuple) and len(x) == 2:
+        tree, req = x
+        try:
+            req = set(req)
+        except TypeError:
+            req = set()
+        return tree, req
+    return x, set()
+
+
 def _is_probably_ndjson(sample_text: str) -> bool:
     # two non-empty lines both starting with "{"
     lines = [ln.strip() for ln in sample_text.splitlines() if ln.strip()]
@@ -33,46 +46,85 @@ def _is_probably_ndjson(sample_text: str) -> bool:
 
 def _sniff_json_kind(path: str) -> Optional[str]:
     """
-    Peek into a .json / .json.gz file and distinguish:
-      - dbt manifest (nodes/sources)
-      - JSON Schema (type=object + properties dict)
+    Peek into a .json/.json.gz and try to distinguish:
+      - dbt manifest (nodes/sources/child_map or metadata.dbt_version)
+      - JSON Schema (common JSON Schema signatures)
+      - NDJSON
       - otherwise: data
     Returns KIND_* or None if not JSON-like.
     """
     try:
         with open_text(path) as f:
-            buf = f.read(65536)  # small peek; enough for top-level keys
-            s = buf.lstrip()
-            if not s:
-                return KIND_DATA  # empty -> treat as data
-            if s.startswith("{"):
-                # Try parsing a small JSON object
-                obj = json.loads(buf)
-                if isinstance(obj, dict):
-                    # dbt manifest?
-                    if ("nodes" in obj and isinstance(obj["nodes"], dict)) or \
-                       ("sources" in obj and isinstance(obj["sources"], dict)) or \
-                       ("child_map" in obj):
-                        return KIND_DBT_MANIFEST
-                    # JSON Schema?
-                    if obj.get("type") == "object" and isinstance(obj.get("properties"), dict):
-                        return KIND_JSONSCHEMA
-                    # else: likely a single JSON record (data)
-                    return KIND_DATA
-                # non-dict root → treat as data
-                return KIND_DATA
-            # Not a single JSON object; could be NDJSON
-            if _is_probably_ndjson(buf):
-                return KIND_DATA
+            # Small peek: enough to include most roots but not the whole file
+            buf = f.read(131072)  # 128 KiB
     except Exception:
-        pass
+        return None
+
+    if not buf or not buf.strip():
+        return KIND_DATA  # empty → treat as data
+
+    s = buf.lstrip()
+
+    # Quick NDJSON heuristic first (works even if JSON object parse will fail)
+    if _is_probably_ndjson(buf):
+        return KIND_DATA
+
+    # If root looks like an array, treat as data (JSON array of objects)
+    if s.startswith("["):
+        return KIND_DATA
+
+    # Try to parse a *small* object to inspect top-level keys.
+    # If this fails, we still might have NDJSON or non-JSON; fall back.
+    if s.startswith("{"):
+        try:
+            obj = json.loads(buf)
+        except Exception:
+            # Could be a very large single JSON object that we truncated.
+            # Fall back to "data" (single JSON object) rather than guessing schema.
+            return KIND_DATA
+
+        if not isinstance(obj, dict):
+            return KIND_DATA
+
+        # dbt manifest signatures
+        if (
+            ("nodes" in obj and isinstance(obj["nodes"], dict)) or
+            ("sources" in obj and isinstance(obj["sources"], dict)) or
+            ("child_map" in obj) or
+            (isinstance(obj.get("metadata"), dict)
+             and "dbt_version" in obj["metadata"])
+        ):
+            return KIND_DBT_MANIFEST
+
+        # JSON Schema signatures (beyond just type/properties)
+        if (
+            obj.get("$schema") or
+            obj.get("$id") or
+            (obj.get("type") == "object" and isinstance(obj.get("properties"), dict)) or
+            any(k in obj for k in ("oneOf", "anyOf",
+                "allOf", "definitions", "$defs", "items"))
+        ):
+            # Heuristic: prefer JSON Schema only if it's not obviously plain data.
+            # If it has 'properties' or '$schema', it’s almost certainly a schema.
+            if (obj.get("type") == "object" and isinstance(obj.get("properties"), dict)) or obj.get("$schema"):
+                return KIND_JSONSCHEMA
+            # If it has items/oneOf/etc., it’s very likely a schema too.
+            if any(k in obj for k in ("oneOf", "anyOf", "allOf", "definitions", "$defs", "items")):
+                return KIND_JSONSCHEMA
+
+        # Otherwise treat it as "data" (single JSON object file)
+        return KIND_DATA
+
+    # Didn’t look like JSON object/array; maybe NDJSON or something else
+    if _is_probably_ndjson(buf):
+        return KIND_DATA
+
     return None
+
 
 
 def _guess_kind(path: str) -> str:
     p = path.lower()
-    # supports .json.gz, .ndjson.gz, etc.
-    ext = "".join(pathlib.Path(p).suffixes)
 
     # SQL & YAML are unambiguous
     if p.endswith(".sql"):
@@ -129,27 +181,31 @@ def load_left_or_right(
         return tree, set(), f"{path}{title}"
 
     if chosen == KIND_JSONSCHEMA:
-        tree, required = schema_from_json_schema_file(path)
+        tree, required = _ensure_tree_required(schema_from_json_schema_file(path))
         return tree, required, path
 
     if chosen == KIND_SPARK:
-        tree = schema_from_spark_schema_file(path)
-        return tree, set(), path
+        tree, required = schema_from_spark_schema_file(path)
+        return tree, required, path
 
     if chosen == KIND_SQL:
-        tree, required = schema_from_sql_schema_file(path, table=sql_table)
+        tree, required = _ensure_tree_required(
+            schema_from_sql_schema_file(path, table=sql_table))
         label = path if not sql_table else f"{path}#{sql_table}"
         return tree, required, label
 
     if chosen == KIND_DBT_MANIFEST:
-        tree, required = schema_from_dbt_manifest(path, model=dbt_model)
+        tree, required = _ensure_tree_required(
+            schema_from_dbt_manifest(path, model=dbt_model))
         label = path if not dbt_model else f"{path}#{dbt_model}"
         return tree, required, label
 
     if chosen == KIND_DBT_YML:
-        tree, required = schema_from_dbt_schema_yml(path, model=dbt_model)
+        tree, required = _ensure_tree_required(
+            schema_from_dbt_schema_yml(path, model=dbt_model))
         label = path if not dbt_model else f"{path}#{dbt_model}"
         return tree, required, label
+
 
     raise ValueError(f"Unknown kind: {kind}")
 

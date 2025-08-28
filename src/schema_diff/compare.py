@@ -5,9 +5,40 @@ from .normalize import walk_normalize
 from .schema_from_data import merged_schema_from_samples
 from .report import build_report_struct, print_report_text
 from deepdiff import DeepDiff
-from .presence import apply_presence
 import json
 
+
+def _coerce_root_list_to_dict(tree: Any) -> Any:
+    """
+    If the root is a list of field entries, convert it to a {name: type} dict.
+    Supports two common shapes:
+      1) [{'name': 'id', 'type': ...}, ...]
+      2) [{'id': 'int'}, {'name': 'str'}, ...]
+    If the list doesn't look like fields, return it unchanged.
+    """
+
+    if not isinstance(tree, list) or not tree:
+        return tree
+
+    # case 1: [{'name': ..., 'type': ...}, ...]
+    if all(isinstance(el, dict) and "name" in el for el in tree):
+        out = {}
+        for el in tree:
+            name = str(el["name"])
+            # prefer 'type', but tolerate other common keys
+            t = el.get("type", el.get("dataType", el.get("dtype", "any")))
+            out[name] = t
+        return out
+
+    # case 2: [{'id': 'int'}, {'name': 'str'}, ...]
+    if all(isinstance(el, dict) and len(el) == 1 for el in tree):
+        out = {}
+        for el in tree:
+            (name, t) = next(iter(el.items()))
+            out[str(name)] = t
+        return out
+
+    return tree
 
 def _wrap_optional(t: Any) -> Any:
     """Wrap a scalar or array type with union(...|missing) if not already wrapped."""
@@ -72,13 +103,25 @@ def compare_data_to_ref(
     json_out: str | None = None,
     title_suffix: str = "",
     required_paths: Optional[Set[str]] = None,
+    show_common: bool = False,
 ):
+
+    # Coerce root list-of-fields into dicts so diffs are per-path, not list indices
+    ref_schema = _coerce_root_list_to_dict(ref_schema)
+
     # Apply presence to reference to align with data-side unions that include 'missing'
     ref_for_diff = _inject_presence_for_diff(ref_schema, required_paths)
     sch2n = walk_normalize(ref_for_diff)
 
     sch1 = merged_schema_from_samples(s1_records, cfg)
     sch1n = walk_normalize(sch1)
+
+    sch1n = _coerce_root_list_to_dict(sch1n)
+    sch2n = _coerce_root_list_to_dict(sch2n)
+
+    # Optionally show common fields (works for any parser, after normalization)
+    if show_common:
+        _print_common_fields(file1, ref_label, sch1n, sch2n, cfg.colors())
 
     diff = DeepDiff(sch1n, sch2n, ignore_order=True)
     if not diff:
@@ -121,69 +164,91 @@ def compare_trees(
     right_required: Set[str],
     *,
     cfg,
-    dump_schemas: str | None = None,
-    json_out: str | None = None,
+    dump_schemas: Optional[str] = None,
+    json_out: Optional[str] = None,
     title_suffix: str = "",
-):
+    show_common: bool = False,
+) -> None:
     """
-    Pure schema-vs-schema comparison that respects presence:
-    - Inject '|missing' for fields NOT in required sets
-    - Normalize both sides
-    - DeepDiff + report
+    Compare two *type trees* (schemas) and print a diff.
+
+    Notes:
+      - Only the TYPE TREES are diffed (left_tree vs right_tree).
+      - `left_required` / `right_required` are currently not merged into the diff;
+        they’re available if you later want to add a presence-only section based
+        on external constraints. For now we keep behavior consistent with other modes:
+        presence section comes from the trees (i.e., unions with 'missing'), not required sets.
     """
-    # Inject presence expectations
-    lt = apply_presence(left_tree, left_required)
-    rt = apply_presence(right_tree, right_required)
+    # Coerce root list-of-fields into dicts on both sides
+    left_tree = _coerce_root_list_to_dict(left_tree)
+    right_tree = _coerce_root_list_to_dict(right_tree)
 
-    ln = walk_normalize(lt)
-    rn = walk_normalize(rt)
+    # Normalize *trees only*
+    sch1n = walk_normalize(left_tree)
+    sch2n = walk_normalize(right_tree)
 
-    diff = DeepDiff(ln, rn, ignore_order=True)
-    RED, GRN, YEL, CYN, RST = cfg.colors()
+    sch1n = _coerce_root_list_to_dict(sch1n)
+    sch2n = _coerce_root_list_to_dict(sch2n)
+
+    if show_common:
+        _print_common_fields(left_label, right_label,
+                             sch1n, sch2n, cfg.colors())
+    diff = DeepDiff(sch1n, sch2n, ignore_order=True)
 
     direction = f"{left_label} -> {right_label}"
+    RED, GRN, YEL, CYN, RST = cfg.colors()
+
     if not diff:
         print(
             f"\n{CYN}=== Schema diff (types only, {direction}{title_suffix}) ==={RST}\nNo differences.")
         if dump_schemas:
             with open(dump_schemas, "w", encoding="utf-8") as fh:
-                json.dump({"left": ln, "right": rn}, fh,
-                          ensure_ascii=False, indent=2)
+                json.dump({"left": sch1n, "right": sch2n},
+                          fh, ensure_ascii=False, indent=2)
         if json_out:
             with open(json_out, "w", encoding="utf-8") as fh:
-                json.dump({"meta": {"direction": direction, "mode": title_suffix.strip('; ').strip()},
-                           "note": "No differences"}, fh, ensure_ascii=False, indent=2)
+                json.dump(
+                    {"meta": {"direction": direction, "mode": title_suffix.strip("; ").strip()},
+                     "note": "No differences"},
+                    fh, ensure_ascii=False, indent=2,
+                )
         return
 
+    # Build and print human-friendly report
     report = build_report_struct(
         diff, left_label, right_label, include_presence=cfg.show_presence)
     report["meta"]["mode"] = title_suffix.strip("; ").strip()
-    print_report_text(report, left_label, right_label, colors=cfg.colors(
-    ), show_presence=cfg.show_presence, title_suffix=title_suffix)
+
+    print_report_text(
+        report,
+        left_label,
+        right_label,
+        colors=cfg.colors(),
+        show_presence=cfg.show_presence,
+        title_suffix=title_suffix,
+    )
 
     if dump_schemas:
         with open(dump_schemas, "w", encoding="utf-8") as fh:
-            json.dump({"left": ln, "right": rn}, fh,
-                      ensure_ascii=False, indent=2)
+            json.dump({"left": sch1n, "right": sch2n},
+                      fh, ensure_ascii=False, indent=2)
+
     if json_out:
         with open(json_out, "w", encoding="utf-8") as fh:
             json.dump(report, fh, ensure_ascii=False, indent=2)
 
 
-def compare_data_to_ref(file1: str, ref_label: str, ref_schema: Any, *, cfg,
-                        s1_records, dump_schemas: str | None = None,
-                        json_out: str | None = None, title_suffix: str = "",
-                        required_paths=None):
-    # Data left:
-    from .schema_from_data import merged_schema_from_samples
-    left_tree = merged_schema_from_samples(s1_records, cfg)
-    left_required: Set[str] = set()
+def _as_field_dict(x: Any) -> dict:
+    """Return a dict of fields if root is a dict; otherwise empty (for non-object roots)."""
+    return x if isinstance(x, dict) else {}
 
-    # Ref right:
-    right_tree = ref_schema
-    right_required: Set[str] = required_paths or set()
 
-    compare_trees(
-        file1, ref_label, left_tree, left_required, right_tree, right_required,
-        cfg=cfg, dump_schemas=dump_schemas, json_out=json_out, title_suffix=title_suffix
-    )
+def _print_common_fields(left_label: str, right_label: str, sch1n: Any, sch2n: Any, colors: tuple[str, str, str, str, str]) -> None:
+    RED, GRN, YEL, CYN, RST = colors
+    d1 = _as_field_dict(sch1n)
+    d2 = _as_field_dict(sch2n)
+    common = sorted(set(d1.keys()) & set(d2.keys()))
+    print(
+        f"\n{YEL}-- Common fields in {left_label} ∩ {right_label} -- ({len(common)}){RST}")
+    for k in common:
+        print(f"  {CYN}{k}{RST}")
