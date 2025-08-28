@@ -1,24 +1,22 @@
-# schema_diff/io_utils.py
 from __future__ import annotations
-
 import io
 import gzip
 import json
 from typing import Any, List, Iterator
-
 import ijson
-
 
 def open_text(path: str):
     """
-    Open a path as a text stream (UTF-8), auto-detecting gzip via magic bytes.
+    Return a text stream for either plain UTF-8 or gzip-compressed files,
+    regardless of file extension.
     """
     f = open(path, "rb")
-    head = f.read(2)
+    magic = f.read(2)
     f.seek(0)
-    if head == b"\x1f\x8b":  # gzip magic
-        return io.TextIOWrapper(gzip.GzipFile(fileobj=f), encoding="utf-8")
-    return io.TextIOWrapper(f, encoding="utf-8")
+    if magic == b"\x1f\x8b":
+        return io.TextIOWrapper(gzip.GzipFile(fileobj=f), encoding="utf-8-sig", errors="strict")
+    else:
+        return io.TextIOWrapper(f, encoding="utf-8-sig", errors="strict")
 
 
 def open_binary(path: str):
