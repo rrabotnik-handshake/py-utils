@@ -36,7 +36,7 @@ schema-diff data.json spark_schema.txt --left data --right spark
 ### Supported inputs
 - **Data:** `.json`, `.ndjson`, `.jsonl`, and their `.gz` variants
 - **JSON Schema:** `.json` (draft formats supported for `type`, `format`, `properties`, `required`, `oneOf/anyOf/allOf`, `enum`)
-- **Spark:** output of `df.printSchema()` (or similar text)
+- **Spark:** output of `df.printSchema()` (or similar text) — now with deep nested `array<struct<...>>` parsing
 - **SQL:** Postgres-like DDL and **BigQuery DDL** (incl. `ARRAY<...>`, `STRUCT<...>`, backticked names)
 - **dbt:** `manifest.json` or `schema.yml`
 
@@ -63,12 +63,13 @@ Left/right can be auto-detected from extension or forced:
   - `data` | `jsonschema` | `spark` | `sql` | `dbt-manifest` | `dbt-yml` | `auto` (default)
 
 Extra selectors:
-- `--right-table NAME` — choose table from SQL DDL when file has multiple tables
-- `--right-dbt-model NAME` (or `--left-dbt-model`) — choose dbt model when needed
+- `--left-table NAME` / `--right-table NAME` — choose table from SQL DDL when file has multiple tables
+- `--left-dbt-model NAME` / `--right-dbt-model NAME` — choose dbt model when needed
 
 ### Output control
 - `--no-color`, `--force-color`
 - `--no-presence` — hide the presence/optionality section
+- `--show-common` — print fields present in both schemas with matching types
 - `--json-out PATH` — save diff JSON
 - `--dump-schemas PATH` — save the two normalized schemas to a file
 
@@ -82,7 +83,7 @@ Extra selectors:
 1. **Each side is loaded to a _type tree_** (pure types: `int|float|bool|str|date|time|timestamp|object|array`).
    - **Data** → inferred by sampling; fields seen absent are *not* treated as missing here.
    - **JSON Schema** → converted from schema (`format: date-time` → `timestamp`, etc.).
-   - **Spark** → parsed & mapped to internal types.
+   - **Spark** → parsed & mapped to internal types, now with recursive `array<struct<...>>` parsing.
    - **SQL** → parsed & mapped to internal types; arrays become `[elem_type]`, `STRUCT<...>` → `object`.
    - **dbt** → built from manifest/schema.yml (columns + tests).
 
@@ -100,6 +101,7 @@ Extra selectors:
 4. **DeepDiff** compares the two normalized type trees.
    - “Only in left/right” — keys present on one side only
    - “Missing / optional (presence)” — _only_ when the type is the same but optionality differs
+   - “Common” — fields present in both sides with matching types (`--show-common`)
    - “True schema mismatches” — real type conflicts (e.g., `int` vs `str`)
 
 ---
@@ -125,7 +127,7 @@ KIND auto-detection by extension:
 - `.ndjson`, `.jsonl`, `.json(.gz)` → `data`
 - `.sql` → `sql`
 - `.yml` / `.yaml` → `dbt-yml`
-- `.json` may also be `jsonschema` or `dbt-manifest` — use explicit `--*-kind` to be precise.
+- `.json` may also be `jsonschema` or `dbt-manifest` — use explicit `--left/--right` to be precise.
 
 ---
 
@@ -143,6 +145,44 @@ schema-diff users.ndjson model.sql --right sql --right-table users --first-recor
 
 # Compare two external schemas (no data involved)
 schema-diff schema.json spark.txt --left jsonschema --right spark
+```
+
+### Spark deep struct/array parsing
+
+The parser supports **recursive parsing of nested arrays and structs**, including BigQuery-like types:
+
+```bash
+# Spark schema with nested array<struct<...>>
+cat > spark_nested.txt <<'EOF'
+root
+ |-- id: long (nullable = false)
+ |-- tags: array<string> (nullable = true)
+ |-- events: array<struct<
+ |    ts: timestamp,
+ |    meta: struct<
+ |      key: string,
+ |      value: string
+ |    >
+ |  >> (nullable = true)
+EOF
+
+# Compare Spark schema to data
+schema-diff data.json spark_nested.txt --left data --right spark --show-common
+```
+
+**Example output:**
+
+```
+=== Schema diff (types only, data.json → spark_nested.txt) ===
+
+-- Only in spark_nested.txt --
+  events[0].ts
+  events[0].meta.key
+  events[0].meta.value
+
+-- Common fields (types agree) --
+  id: int
+  tags: [str]
 ```
 
 ---
@@ -167,7 +207,7 @@ pytest -q
 ```
 
 Tests include:
-- **Parsers:** SQL (Postgres & BigQuery), Spark, JSON Schema
+- **Parsers:** SQL (Postgres & BigQuery), Spark (with deep nested types), JSON Schema
 - **Data I/O:** NDJSON/JSON/arrays, gz handling
 - **Integration:** CLI flows (`data↔data`, `data↔jsonschema`, `jsonschema↔sql`, etc.)
 - **Determinism:** seeded sampling produces stable results
@@ -187,27 +227,12 @@ Tests include:
 
 ---
 
-## 🛠 Internals
-
-- **`schema_from_data`** – infers schema by merging *k* sample records (reservoir sampling, optional ISO datetime inference).
-- **`normalize`** – converts types into a comparable normalized tree (collapses empties, tames unions, handles arrays).
-- **`compare`** – computes diffs via `DeepDiff` across normalized trees, separating presence-only vs real type mismatches.
-- **`report`** – prints human-readable diffs (Only in left/right, Presence, True schema mismatches) and supports color/JSON export.
-- **`loader`** – resolves file type → `(type_tree, required_paths, label)` by delegating to the appropriate parser/inference path.
-- **`required_paths`**
-  - **JSON Schema:** from `"required"` arrays (recursively for nested objects).
-  - **SQL:** from `NOT NULL` columns.
-  - **dbt:** from `not_null` tests in manifest/schema.yml.
-  - **Data:** *no required info* (presence is inferred only by sampling, not enforced).
-
----
-
 ## ⚠️ Limitations
 
 - **Sampling-based inference:** Types are inferred from sampled records; noisy data can under/over-report unions or presence.
 - **Union explosion:** If many distinct types appear (e.g., 20 unique shapes in 20 samples), unions can grow.
 - **SQL dialects:** Postgres + BigQuery DDL covered; other dialects may need regex additions (PRs welcome).
-- **Arrays/structs:** Arrays map to `[elem_type]`; BigQuery `STRUCT<...>` currently maps to `"object"` (no deep field parsing yet).
+- **Arrays/structs:** Arrays map to `[elem_type]`; BigQuery `STRUCT<...>` maps to `"object"` only (no deep parsing yet).
 - **dbt support:** Requires `manifest.json` or `schema.yml`; we currently honor `not_null` tests for presence, not full assertion semantics.
 
 ---
@@ -215,5 +240,5 @@ Tests include:
 ## Troubleshooting
 
 - **Wrong kind detection for `.json`:** Use `--left/--right` to force `jsonschema` or `dbt-manifest`.
-- **“Table not found” for SQL:** Provide `--*-sql-table` when the DDL file defines multiple tables.
+- **“Table not found” for SQL:** Provide `--*-table` when the DDL file defines multiple tables.
 - **Presence noise from data:** Increase `-k/--samples` and consider `--infer-datetimes` if timestamps are formatted strings.
