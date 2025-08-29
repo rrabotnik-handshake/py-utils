@@ -1,5 +1,4 @@
-# schema_diff/normalize.py
-from typing import Any, List, Dict
+from typing import Any, List
 
 BASE_OF_EMPTY = {"empty_array": "array",
                  "empty_object": "object", "empty_string": "str"}

@@ -1,8 +1,7 @@
-# schema_diff/compare.py
 from copy import deepcopy
 from typing import Any, Iterable, Optional, Set
 from .normalize import walk_normalize
-from .schema_from_data import merged_schema_from_samples
+from .json_data_file_parser import merged_schema_from_samples
 from .report import build_report_struct, print_report_text
 from deepdiff import DeepDiff
 import json

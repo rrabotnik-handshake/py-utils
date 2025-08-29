@@ -1,7 +1,19 @@
-# schema_diff/report.py
-from typing import Any, Dict, Tuple
-from .normalize import _has_any, is_presence_issue
+from typing import Any, Set, Tuple, Dict
 import json
+
+from .normalize import _has_any, is_presence_issue
+
+
+def _fmt_path(p: str) -> str:
+    """Ensure root-level keys show as `.key` for consistency with dot-paths."""
+    if not p:
+        return p
+    if p.startswith("."):
+        return p
+    # Only prefix when the path starts with an identifier (avoid '.[0]' for arrays)
+    if p[0].isalpha() or p[0] == "_":
+        return "." + p
+    return p
 
 
 def _clean(path: str) -> str:
@@ -127,13 +139,13 @@ def print_report_text(
         pres = report["presence_issues"]
         print(f"\n{YEL}-- Missing / optional (presence) -- ({len(pres)}){RST}")
         for e in pres:
-            print(f"  {CYN}{e['path']}{RST}: {e['file1']} → {e['file2']}")
+            print(f"  {CYN}{_fmt_path(e['path'])}{RST}: {e['file1']} → {e['file2']}")
 
     mism = report["schema_mismatches"]
     print(f"\n{YEL}-- True schema mismatches -- ({len(mism)}){RST}")
     for e in mism:
         print(
-            f"  {CYN}{e['path']}{RST}: {RED}{e['file1']}{RST} → {GRN}{e['file2']}{RST}")
+            f"  {CYN}{_fmt_path(e['path'])}{RST}: {RED}{e['file1']}{RST} → {GRN}{e['file2']}{RST}")
 
 
 # ---- Samples printing (color-safe) ----
@@ -148,3 +160,41 @@ def print_samples(tag: str, recs, *, colors: tuple[str, str, str, str, str] = ("
         else:
             js_to_show = js
         print(f"{YEL}-- {tag} sample {i}{RST}\n{js_to_show}")
+
+
+def _collect_paths(tree: Any, prefix: str = "") -> Set[str]:
+    out: Set[str] = set()
+    if isinstance(tree, dict):
+        for k, v in tree.items():
+            p = f"{prefix}.{k}" if prefix else k
+            out.add(p)
+            if isinstance(v, dict):
+                out |= _collect_paths(v, p)
+    return out
+
+
+def print_common_fields(
+    left_label: str,
+    right_label: str,
+    left_tree,
+    right_tree,
+    *,
+    colors=None,
+) -> None:
+    """
+    Print the intersection of *top-level* field names between two trees.
+
+    Output format must match the tests:
+      -- Common fields in <left> ∩ <right> -- (N)
+        key1
+        key2
+    """
+    def _top_level_keys(tree):
+        return set(tree.keys()) if isinstance(tree, dict) else set()
+
+    common = sorted(_top_level_keys(left_tree) & _top_level_keys(right_tree))
+    print(
+        f"-- Common fields in {left_label} ∩ {right_label} -- ({len(common)})")
+    for k in common:
+        print(f"  {k}")
+    print()

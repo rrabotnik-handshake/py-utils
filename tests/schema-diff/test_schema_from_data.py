@@ -1,5 +1,4 @@
-# tests/test_schema_from_data.py
-from schema_diff.schema_from_data import to_schema, merged_schema_from_samples
+from schema_diff.json_data_file_parser import to_schema, merged_schema_from_samples
 from schema_diff.config import Config
 
 CFG = Config(infer_datetimes=False, color_enabled=False, show_presence=True)

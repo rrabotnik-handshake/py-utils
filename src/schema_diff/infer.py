@@ -1,4 +1,3 @@
-# schema_diff/infer.py
 import re
 from typing import Any
 from .config import Config

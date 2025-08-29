@@ -1,8 +1,8 @@
-# tests/test_cli_integration.py
 import json
 import gzip
-import subprocess
 import sys
+
+from schema_diff.io_utils import _run
 
 
 def _w(tmp_path, name, text, gz=False) -> str:
@@ -14,12 +14,6 @@ def _w(tmp_path, name, text, gz=False) -> str:
     else:
         p.write_text(text, encoding="utf-8")
     return str(p)
-
-
-def _run(args, cwd=None):
-    """Run a subprocess and capture stdout/stderr as text."""
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True)
-
 
 def test_cli_first_record_show_samples(tmp_path):
     f1 = _w(tmp_path, "a.ndjson.gz",

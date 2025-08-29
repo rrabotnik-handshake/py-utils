@@ -1,5 +1,5 @@
-# schema_diff/schema_from_data.py
-from typing import Any, List, Dict
+# schema_diff/json_data_file_parser.py
+from typing import Any, List
 from .infer import tname
 from .config import Config
 

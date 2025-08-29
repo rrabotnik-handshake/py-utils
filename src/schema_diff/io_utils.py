@@ -2,8 +2,49 @@ from __future__ import annotations
 import io
 import gzip
 import json
-from typing import Any, List, Iterator
 import ijson
+import subprocess
+
+from typing import Any, List, Iterator
+
+class CommandError(Exception):
+    """Raised when _run fails with non-zero exit code."""
+
+    def __init__(self, cmd, returncode, stdout, stderr):
+        self.cmd = cmd
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        super().__init__(
+            f"Command {cmd} failed with {returncode}: {stderr.strip()}")
+
+def _run(args, cwd=None, env=None, check_untrusted=True):
+    """
+    Run a subprocess safely.
+
+    - args: list of strings (no shell=True)
+    - Raises CommandError if exit != 0
+    - Optionally sanity-check args if `check_untrusted=True`
+    """
+    # validate args
+    if not isinstance(args, (list, tuple)) or not args:
+        raise ValueError("args must be a non-empty list of strings")
+
+    for a in args:
+        if not isinstance(a, str):
+            raise ValueError(f"Non-string arg: {a!r}")
+        if check_untrusted:
+            # crude guard against control chars, semicolons, pipes, etc.
+            if any(c in a for c in [';', '|', '&', '\n', '\r']):
+                raise ValueError(f"Suspicious characters in arg: {a!r}")
+        res = subprocess.run(
+            args, cwd=cwd, capture_output=True, text=True, env=env)
+
+    if res.returncode != 0:
+        raise CommandError(args, res.returncode, res.stdout, res.stderr)
+
+    return res
+
 
 def open_text(path: str):
     """

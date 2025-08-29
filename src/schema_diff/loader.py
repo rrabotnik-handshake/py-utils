@@ -1,16 +1,19 @@
-# schema_diff/loader.py
-
 from __future__ import annotations
-from .io_utils import sample_records, nth_record, open_text
 from typing import Any, Optional, Set, Tuple
-
 import json
 
-from .schema_from_data import merged_schema_from_samples
+from .json_data_file_parser import merged_schema_from_samples
 from .json_schema_parser import schema_from_json_schema_file
 from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
 from .dbt_schema_parser import schema_from_dbt_manifest, schema_from_dbt_schema_yml
+from .io_utils import sample_records, nth_record, open_text
+
+__all__ = [
+    "load_left_or_right",
+    "KIND_DATA", "KIND_JSONSCHEMA", "KIND_SPARK",
+    "KIND_SQL", "KIND_DBT_MANIFEST", "KIND_DBT_YML", "KIND_AUTO",
+]
 
 KIND_DATA = "data"
 KIND_JSONSCHEMA = "jsonschema"
@@ -19,6 +22,27 @@ KIND_SQL = "sql"
 KIND_DBT_MANIFEST = "dbt-manifest"
 KIND_DBT_YML = "dbt-yml"
 KIND_AUTO = "auto"
+
+
+def _coerce_root_list_to_dict(obj):
+    if not isinstance(obj, list) or not obj:
+        return obj
+    # case 1: [{'name': ..., 'type': ...}, ...]
+    if all(isinstance(el, dict) and "name" in el for el in obj):
+        out = {}
+        for el in obj:
+            name = str(el["name"])
+            t = el.get("type", el.get("dataType", el.get("dtype", "any")))
+            out[name] = t
+        return out
+    # case 2: [{'id': 'int'}, {'name': 'str'}, ...]
+    if all(isinstance(el, dict) and len(el) == 1 for el in obj):
+        out = {}
+        for el in obj:
+            (name, t) = next(iter(el.items()))
+            out[str(name)] = t
+        return out
+    return obj
 
 
 def _ensure_tree_required(x) -> tuple[Any, set[str]]:
@@ -180,8 +204,23 @@ def load_left_or_right(
         tree = merged_schema_from_samples(recs, cfg)
         return tree, set(), f"{path}{title}"
 
+
     if chosen == KIND_JSONSCHEMA:
-        tree, required = _ensure_tree_required(schema_from_json_schema_file(path))
+        # If the file is actually a list-of-fields, accept it directly.
+        try:
+            with open_text(path) as f:
+                raw = json.load(f)
+            coerced = _coerce_root_list_to_dict(raw)
+            # Only short-circuit if the original root is a list and coercion produced a dict
+            if isinstance(raw, list) and isinstance(coerced, dict) and coerced:
+                # Treat as a plain type tree with no explicit required info
+                return coerced, set(), path
+        except Exception:
+            # If we can't read/parse here, fall through to the schema parser which will surface errors.
+            pass
+
+        # Otherwise, parse as a proper JSON Schema
+        tree, required = schema_from_json_schema_file(path)
         return tree, required, path
 
     if chosen == KIND_SPARK:
@@ -208,10 +247,3 @@ def load_left_or_right(
 
 
     raise ValueError(f"Unknown kind: {kind}")
-
-
-__all__ = [
-    "load_left_or_right",
-    "KIND_DATA", "KIND_JSONSCHEMA", "KIND_SPARK",
-    "KIND_SQL", "KIND_DBT_MANIFEST", "KIND_DBT_YML", "KIND_AUTO",
-]

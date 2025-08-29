@@ -17,13 +17,13 @@ def test_json_schema_simple(tmp_path):
     p = tmp_path / "schema.json"
     p.write_text(json.dumps(schema), encoding="utf-8")
 
-    # NEW: unpack (tree, required_paths)
     tree, required = schema_from_json_schema_file(str(p))
     n = walk_normalize(tree)
 
     # Pure types (no presence mixed in)
     assert n["id"] == "int"
     assert n["name"] == "str"
+
     # type-level only; presence is separate
     assert n["ts"] == "timestamp"
     assert n["tags"] in (["str"], "array")  # depending on normalization policy
@@ -56,3 +56,22 @@ def test_json_schema_presence(tmp_path):
 
     # Only 'id' is presence-required (since only it is in the "required" list)
     assert required == {"id"}
+
+
+def test_nested_required(tmp_path):
+    js = {
+        "type": "object",
+        "properties": {
+            "user": {
+                "type": "object",
+                "required": ["id"],
+                "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}
+            }
+        }
+    }
+    p = tmp_path / "sch.json"
+    p.write_text(json.dumps(js), encoding="utf-8")
+    tree, required = schema_from_json_schema_file(str(p))
+    n = walk_normalize(tree)
+    assert n["user"]["id"] == "int"
+    assert "user.id" in required and "user.name" not in required

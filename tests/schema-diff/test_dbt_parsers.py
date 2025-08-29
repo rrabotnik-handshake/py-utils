@@ -1,4 +1,3 @@
-# tests/test_dbt_parsers.py
 import json
 import textwrap
 import pytest

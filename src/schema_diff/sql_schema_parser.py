@@ -1,7 +1,7 @@
-# schema_diff/sql_schema_parser.py
 from __future__ import annotations
 import re
 from typing import Any, Dict, Optional, Tuple, Set
+
 from .io_utils import open_text
 
 # --- Regexes ---------------------------------------------------------------

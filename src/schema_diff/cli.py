@@ -1,4 +1,3 @@
-# schema_diff/cli.py
 from __future__ import annotations
 
 import argparse
@@ -16,10 +15,11 @@ from .json_schema_parser import schema_from_json_schema_file
 from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
 from .normalize import walk_normalize
-from .schema_from_data import merged_schema_from_samples
+from .json_data_file_parser import merged_schema_from_samples
 from .report import build_report_struct, print_report_text, print_samples
 from .loader import load_left_or_right
 from .compare import compare_trees, compare_data_to_ref
+from .report import print_common_fields
 
 
 def _auto_colors(force_color: bool, no_color: bool) -> bool:
@@ -205,6 +205,10 @@ def main():
                 else:
                     print_samples(args.file2, nth_record(
                         args.file2, r2_idx or 1), colors=cfg.colors())
+
+        if getattr(args, "show_common", False):
+            print_common_fields(left_label, right_label,
+                                left_tree, right_tree, colors=cfg.colors())
 
         # Presence-aware compare of two trees
         compare_trees(

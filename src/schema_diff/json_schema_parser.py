@@ -1,11 +1,10 @@
-# schema_diff/json_schema_parser.py
 from __future__ import annotations
 
 import json
 from typing import Any, Dict, List, Set, Tuple
 
 from .io_utils import open_text
-from .schema_from_data import merge_schema
+from .json_data_file_parser import merge_schema
 from .infer import tname
 
 # -------- JSON Schema -> internal tree --------

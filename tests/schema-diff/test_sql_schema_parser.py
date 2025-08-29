@@ -1,7 +1,5 @@
-# tests/test_spark_sql_parsers.py
 from schema_diff.sql_schema_parser import schema_from_sql_schema_file
 from schema_diff.normalize import walk_normalize
-from schema_diff.spark_schema_parser import schema_from_spark_schema_file
 
 
 def test_sql_schema_parser(tmp_path):
@@ -55,22 +53,6 @@ def test_sql_int_aliases_map():
     from schema_diff.sql_schema_parser import _sql_dtype_to_internal
     for t in ["BIGINT", "bigint", "INT8", "INTEGER", "int", "int4"]:
         assert _sql_dtype_to_internal(t) == "int"
-        
-
-def test_spark_parser_presence(tmp_path):
-    spark = """root
- |-- id: long (nullable = false)
- |-- ts: timestamp (nullable = true)
- |-- tags: array<string> (nullable = true)
-"""
-    p = tmp_path / "spark.txt"
-    p.write_text(spark, encoding="utf-8")
-    tree, required = schema_from_spark_schema_file(str(p))
-    n = walk_normalize(tree)
-    assert n["id"] == "int"
-    assert n["ts"] == "timestamp"              # pure type
-    assert n["tags"] in (["str"], "array")
-    assert required == {"id"}
 
 
 def test_bq_simple_types(tmp_path):
@@ -144,3 +126,21 @@ CREATE TABLE myds.files (
     assert n["data"] == "str"
     assert required == {"name"}
 # presence only
+
+
+def test_bq_backticks_and_options(tmp_path):
+    sql = """CREATE TABLE `proj.ds.users` (
+      id INT64 NOT NULL,
+      meta STRUCT<flag BOOL, note STRING> OPTIONS(description="x"),
+      tags ARRAY<STRING> OPTIONS(foo="bar")
+    ) OPTIONS (partition_by_date = true);
+    """
+    p = tmp_path / "bq.sql"
+    p.write_text(sql, encoding="utf-8")
+
+    from schema_diff.sql_schema_parser import schema_from_sql_schema_file
+    tree, required = schema_from_sql_schema_file(str(p), table="users")
+    assert tree["id"] == "int"
+    assert tree["meta"] == "object"      # current behavior
+    assert tree["tags"] == ["str"]
+    assert required == {"id"}

@@ -1,7 +1,4 @@
-# schema_diff/helpfmt.py
 import argparse
-
-
 class ColorDefaultsFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawTextHelpFormatter):
     def __init__(self, *a, **k):
         k.setdefault("max_help_position", 40)

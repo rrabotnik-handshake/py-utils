@@ -1,15 +1,11 @@
-# schema_diff/dbt_schemaparser.py
 from __future__ import annotations
 
 import json
 from typing import Any, Dict, Optional, Tuple, Set, List
+import yaml
 
 from .io_utils import open_text
 
-try:
-    import yaml  # pyyaml
-except Exception:  # pragma: no cover
-    yaml = None
 
 # Reuse a SQL-like mapping; dbt adapters emit database-native types.
 TYPE_MAP_DBT: Dict[str, str] = {
