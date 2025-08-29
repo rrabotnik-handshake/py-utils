@@ -107,13 +107,13 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
                      help="table to select for file1 when --left sql")
     gen.add_argument("--right-table",
                      help="table to select for file2 when --right sql")
-    gen.add_argument("--left-dbt-model",
+    gen.add_argument("--left-model",
                      help="model name for file1 when using dbt manifest/schema.yml")
-    gen.add_argument("--right-dbt-model",
+    gen.add_argument("--right-model",
                      help="model name for file2 when using dbt manifest/schema.yml")
-    gen.add_argument("--left-proto-message",
+    gen.add_argument("--left-message",
                      help="When --left is protobuf (or auto-detected .proto), choose the Protobuf message to use.")
-    gen.add_argument("--right-proto-message",
+    gen.add_argument("--right-message",
                      help="When --right is protobuf (or auto-detected .proto), choose the Protobuf message to use.")
 
     # Inference
@@ -138,7 +138,8 @@ def main():
     general_mode = any([
         args.left, args.right,
         args.left_table, args.right_table,
-        args.left_dbt_model, args.right_dbt_model,
+        args.left_model, args.right_model,
+        args.left_message, args.right_message,
     ])
 
     # file2 is required unless you are in classic data→schema mode
@@ -176,8 +177,8 @@ def main():
             samples=args.samples,
             first_record=(r1_idx or 1) if r1_idx is not None else None,
             sql_table=args.left_table,
-            dbt_model=args.left_dbt_model,
-            proto_message=args.left_proto_message,
+            dbt_model=args.left_model,
+            proto_message=args.left_message,
         )
 
         # Load right (data or schema)
@@ -188,8 +189,8 @@ def main():
             samples=args.samples,
             first_record=(r2_idx or 1) if r2_idx is not None else None,
             sql_table=args.right_table,
-            dbt_model=args.right_dbt_model,
-            proto_message=args.right_proto_message,
+            dbt_model=args.right_model,
+            proto_message=args.right_message,
         )
 
         # Optionally print selected samples for DATA sources

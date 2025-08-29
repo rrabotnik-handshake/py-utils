@@ -1,6 +1,6 @@
 # schema-diff
 
-Compare schemas across **JSON/NDJSON data**, **JSON Schema**, **Spark/Databricks schemas**, **SQL DDL**, and **dbt models**.  
+Compare schemas across **JSON/NDJSON data**, **JSON Schema**, **Spark/Databricks schemas**, **SQL DDL**, **dbt models**, and **Protobuf (.proto)**.
 Works with large files (streams arrays/NDJSON, gz OK), infers types from samples, aligns optionality vs. presence constraints, and prints clean diffs.
 
 ---
@@ -31,6 +31,9 @@ schema-diff schema.json db.sql --left jsonschema --right sql --right-table users
 
 # Spark schema vs data
 schema-diff data.json spark_schema.txt --left data --right spark
+
+# Protobuf schema vs data
+schema-diff data.json demo.proto --right proto --right-message User
 ```
 
 ### Supported inputs
@@ -39,6 +42,7 @@ schema-diff data.json spark_schema.txt --left data --right spark
 - **Spark:** output of `df.printSchema()` (or similar text) — now with deep nested `array<struct<...>>` parsing
 - **SQL:** Postgres-like DDL and **BigQuery DDL** (incl. `ARRAY<...>`, `STRUCT<...>`, backticked names)
 - **dbt:** `manifest.json` or `schema.yml`
+- **Protobuf:** `.proto` files with explicit message selection (`--left-message` / `--right-message`)
 
 ---
 
@@ -60,11 +64,12 @@ schema-diff <left_path> <right_path> [options]
 Left/right can be auto-detected from extension or forced:
 
 - `--left/--right`: one of
-  - `data` | `jsonschema` | `spark` | `sql` | `dbt-manifest` | `dbt-yml` | `auto` (default)
+  - `data` | `jsonschema` | `spark` | `sql` | `dbt-manifest` | `dbt-yml` | `proto` | `auto` (default)
 
 Extra selectors:
 - `--left-table NAME` / `--right-table NAME` — choose table from SQL DDL when file has multiple tables
-- `--left-dbt-model NAME` / `--right-dbt-model NAME` — choose dbt model when needed
+- `--left-model NAME` / `--right-model NAME` — choose dbt model when needed
+- `--left-message NAME` / `--right-message NAME` — choose Protobuf message to diff
 
 ### Output control
 - `--no-color`, `--force-color`
@@ -80,27 +85,31 @@ Extra selectors:
 
 ## How comparisons work
 
-1. **Each side is loaded to a _type tree_** (pure types: `int|float|bool|str|date|time|timestamp|object|array`).
+1. **Each side is loaded to a _type tree_** (pure types: `int|float|bool|str|date|time|timestamp|object|array`).  
+   Sources:
    - **Data** → inferred by sampling; fields seen absent are *not* treated as missing here.
    - **JSON Schema** → converted from schema (`format: date-time` → `timestamp`, etc.).
    - **Spark** → parsed & mapped to internal types, now with recursive `array<struct<...>>` parsing.
    - **SQL** → parsed & mapped to internal types; arrays become `[elem_type]`, `STRUCT<...>` → `object`.
    - **dbt** → built from manifest/schema.yml (columns + tests).
+   - **Protobuf** → parsed from `.proto` files, expanding nested messages, handling `repeated`, `map<K,V>`, `enum`, and `oneof`.
 
 2. **Presence constraints** are collected separately as a set of **`required_paths`**:
    - JSON Schema → `required` arrays
    - SQL → `NOT NULL` columns
    - dbt → `not_null` tests
+   - Protobuf → `required` fields (proto2)
    - Data → *(no presence info)*
 
 3. **Normalization** makes both sides comparable:
-   - Collapses empties like `empty_array → array`, `empty_string → str`
+   - Collapses empties like `empty_array → array`, `empty_object → object`, `empty_string → str`
    - Flattens and sorts unions (`union(str|missing)`), deduplicates `"any"`
    - Arrays remain `[elem_type]` if known, otherwise `"array"`
 
-4. **DeepDiff** compares the two normalized type trees.
+4. **DeepDiff** compares the two normalized type trees.  
+   Output sections:
    - “Only in left/right” — keys present on one side only
-   - “Missing / optional (presence)” — _only_ when the type is the same but optionality differs
+   - “Missing / optional (presence)” — when type is the same but optionality differs
    - “Common” — fields present in both sides with matching types (`--show-common`)
    - “True schema mismatches” — real type conflicts (e.g., `int` vs `str`)
 
@@ -118,15 +127,17 @@ schema-diff data.ndjson schema.sql --left data --right sql --right-table users
 schema-diff schema.json spark.txt --left jsonschema --right spark
 
 # dbt model vs SQL
-schema-diff manifest.json warehouse.sql \
-  --left dbt-manifest --left-dbt-model analytics.users \
-  --right sql --right-table users
+schema-diff manifest.json warehouse.sql   --left dbt-manifest --left-model analytics.users   --right sql --right-table users
+
+# Protobuf vs JSON Schema
+schema-diff demo.proto schema.json --left proto --left-message User --right jsonschema
 ```
 
 KIND auto-detection by extension:
 - `.ndjson`, `.jsonl`, `.json(.gz)` → `data`
 - `.sql` → `sql`
 - `.yml` / `.yaml` → `dbt-yml`
+- `.proto` → `proto`
 - `.json` may also be `jsonschema` or `dbt-manifest` — use explicit `--left/--right` to be precise.
 
 ---
@@ -134,17 +145,11 @@ KIND auto-detection by extension:
 ## Examples
 
 ```bash
-# Compare records (sample 5 from each), with samples shown:
-schema-diff a.ndjson.gz b.ndjson.gz -k 5 --seed 42 --show-samples
+# Compare Protobuf schema vs Data
+schema-diff data.json demo.proto --right proto --right-message User
 
-# Compare to JSON Schema
-schema-diff data.ndjson schema.json --right jsonschema --first-record
-
-# Compare to SQL (table chosen)
-schema-diff users.ndjson model.sql --right sql --right-table users --first-record
-
-# Compare two external schemas (no data involved)
-schema-diff schema.json spark.txt --left jsonschema --right spark
+# Compare Protobuf vs SQL table
+schema-diff demo.proto model.sql --left proto --left-message User --right sql --right-table users
 ```
 
 ### Spark deep struct/array parsing
@@ -207,9 +212,9 @@ pytest -q
 ```
 
 Tests include:
-- **Parsers:** SQL (Postgres & BigQuery), Spark (with deep nested types), JSON Schema
+- **Parsers:** SQL (Postgres & BigQuery), Spark (with deep nested types), JSON Schema, Protobuf
 - **Data I/O:** NDJSON/JSON/arrays, gz handling
-- **Integration:** CLI flows (`data↔data`, `data↔jsonschema`, `jsonschema↔sql`, etc.)
+- **Integration:** CLI flows (`data↔data`, `data↔jsonschema`, `jsonschema↔sql`, `proto↔data`, etc.)
 - **Determinism:** seeded sampling produces stable results
 
 ---
@@ -234,6 +239,7 @@ Tests include:
 - **SQL dialects:** Postgres + BigQuery DDL covered; other dialects may need regex additions (PRs welcome).
 - **Arrays/structs:** Arrays map to `[elem_type]`; BigQuery `STRUCT<...>` maps to `"object"` only (no deep parsing yet).
 - **dbt support:** Requires `manifest.json` or `schema.yml`; we currently honor `not_null` tests for presence, not full assertion semantics.
+- **Protobuf support:** Only `proto2`/`proto3` message/enum/map/oneof basics are supported. Complex options and extensions are ignored.
 
 ---
 

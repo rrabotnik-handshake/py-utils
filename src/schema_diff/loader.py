@@ -264,7 +264,7 @@ def load_left_or_right(
             elif len(msgs) > 1:
                 raise ValueError(
                     f"Multiple Protobuf messages in {path}. "
-                    f"Choose one with --left-proto-message/--right-proto-message. "
+                    f"Choose one with --left-message/--right-message. "
                     f"Available: {', '.join(msgs[:50])}"
                 )
             # else: zero (unusual) → let parser raise a clear error
