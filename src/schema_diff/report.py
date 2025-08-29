@@ -161,6 +161,20 @@ def print_samples(tag: str, recs, *, colors: tuple[str, str, str, str, str] = ("
             js_to_show = js
         print(f"{YEL}-- {tag} sample {i}{RST}\n{js_to_show}")
 
+def _as_field_dict(x: Any) -> dict:
+    """Return a dict of fields if root is a dict; otherwise empty (for non-object roots)."""
+    return x if isinstance(x, dict) else {}
+
+def print_common_fields(left_label: str, right_label: str, sch1n: Any, sch2n: Any, colors: tuple[str, str, str, str, str]) -> None:
+    RED, GRN, YEL, CYN, RST = colors
+    d1 = _as_field_dict(sch1n)
+    d2 = _as_field_dict(sch2n)
+    common = sorted(set(d1.keys()) & set(d2.keys()))
+    print(
+        f"\n{YEL}-- Common fields in {left_label} ∩ {right_label} -- ({len(common)}){RST}")
+    for k in common:
+        print(f"  {CYN}{k}{RST}")
+
 
 def _collect_paths(tree: Any, prefix: str = "") -> Set[str]:
     out: Set[str] = set()
@@ -171,30 +185,3 @@ def _collect_paths(tree: Any, prefix: str = "") -> Set[str]:
             if isinstance(v, dict):
                 out |= _collect_paths(v, p)
     return out
-
-
-def print_common_fields(
-    left_label: str,
-    right_label: str,
-    left_tree,
-    right_tree,
-    *,
-    colors=None,
-) -> None:
-    """
-    Print the intersection of *top-level* field names between two trees.
-
-    Output format must match the tests:
-      -- Common fields in <left> ∩ <right> -- (N)
-        key1
-        key2
-    """
-    def _top_level_keys(tree):
-        return set(tree.keys()) if isinstance(tree, dict) else set()
-
-    common = sorted(_top_level_keys(left_tree) & _top_level_keys(right_tree))
-    print(
-        f"-- Common fields in {left_label} ∩ {right_label} -- ({len(common)})")
-    for k in common:
-        print(f"  {k}")
-    print()

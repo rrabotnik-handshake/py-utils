@@ -2,10 +2,9 @@ from copy import deepcopy
 from typing import Any, Iterable, Optional, Set
 from .normalize import walk_normalize
 from .json_data_file_parser import merged_schema_from_samples
-from .report import build_report_struct, print_report_text
+from .report import build_report_struct, print_report_text, print_common_fields
 from deepdiff import DeepDiff
 import json
-
 
 def _coerce_root_list_to_dict(tree: Any) -> Any:
     """
@@ -120,7 +119,7 @@ def compare_data_to_ref(
 
     # Optionally show common fields (works for any parser, after normalization)
     if show_common:
-        _print_common_fields(file1, ref_label, sch1n, sch2n, cfg.colors())
+        print_common_fields(file1, ref_label, sch1n, sch2n, cfg.colors())
 
     diff = DeepDiff(sch1n, sch2n, ignore_order=True)
     if not diff:
@@ -190,8 +189,9 @@ def compare_trees(
     sch2n = _coerce_root_list_to_dict(sch2n)
 
     if show_common:
-        _print_common_fields(left_label, right_label,
-                             sch1n, sch2n, cfg.colors())
+        print_common_fields(left_label, right_label,
+            sch1n, sch2n, cfg.colors())
+
     diff = DeepDiff(sch1n, sch2n, ignore_order=True)
 
     direction = f"{left_label} -> {right_label}"
@@ -235,19 +235,3 @@ def compare_trees(
     if json_out:
         with open(json_out, "w", encoding="utf-8") as fh:
             json.dump(report, fh, ensure_ascii=False, indent=2)
-
-
-def _as_field_dict(x: Any) -> dict:
-    """Return a dict of fields if root is a dict; otherwise empty (for non-object roots)."""
-    return x if isinstance(x, dict) else {}
-
-
-def _print_common_fields(left_label: str, right_label: str, sch1n: Any, sch2n: Any, colors: tuple[str, str, str, str, str]) -> None:
-    RED, GRN, YEL, CYN, RST = colors
-    d1 = _as_field_dict(sch1n)
-    d2 = _as_field_dict(sch2n)
-    common = sorted(set(d1.keys()) & set(d2.keys()))
-    print(
-        f"\n{YEL}-- Common fields in {left_label} ∩ {right_label} -- ({len(common)}){RST}")
-    for k in common:
-        print(f"  {CYN}{k}{RST}")

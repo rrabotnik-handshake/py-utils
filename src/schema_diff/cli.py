@@ -19,7 +19,6 @@ from .json_data_file_parser import merged_schema_from_samples
 from .report import build_report_struct, print_report_text, print_samples
 from .loader import load_left_or_right
 from .compare import compare_trees, compare_data_to_ref
-from .report import print_common_fields
 
 
 def _auto_colors(force_color: bool, no_color: bool) -> bool:
@@ -112,6 +111,10 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
                      help="model name for file1 when using dbt manifest/schema.yml")
     gen.add_argument("--right-dbt-model",
                      help="model name for file2 when using dbt manifest/schema.yml")
+    gen.add_argument("--left-proto-message",
+                     help="When --left is protobuf (or auto-detected .proto), choose the Protobuf message to use.")
+    gen.add_argument("--right-proto-message",
+                     help="When --right is protobuf (or auto-detected .proto), choose the Protobuf message to use.")
 
     # Inference
     inf = parser.add_argument_group("Inference")
@@ -174,6 +177,7 @@ def main():
             first_record=(r1_idx or 1) if r1_idx is not None else None,
             sql_table=args.left_table,
             dbt_model=args.left_dbt_model,
+            proto_message=args.left_proto_message,
         )
 
         # Load right (data or schema)
@@ -185,6 +189,7 @@ def main():
             first_record=(r2_idx or 1) if r2_idx is not None else None,
             sql_table=args.right_table,
             dbt_model=args.right_dbt_model,
+            proto_message=args.right_proto_message,
         )
 
         # Optionally print selected samples for DATA sources
@@ -205,10 +210,6 @@ def main():
                 else:
                     print_samples(args.file2, nth_record(
                         args.file2, r2_idx or 1), colors=cfg.colors())
-
-        if getattr(args, "show_common", False):
-            print_common_fields(left_label, right_label,
-                                left_tree, right_tree, colors=cfg.colors())
 
         # Presence-aware compare of two trees
         compare_trees(

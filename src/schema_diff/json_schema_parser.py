@@ -118,38 +118,37 @@ def _schema_from_js(node: Any, *, optional: bool) -> Any:
 
 # ----- required paths collection -----
 
-def _collect_required_paths(js: Any) -> Set[str]:
+def _collect_required_paths_json(node: Any, prefix: str="") -> Set[str]:
     """
-    Walk a JSON Schema and collect dotted paths that are presence-required.
+    Return dotted paths that are required by the JSON Schema.
+    - For object nodes, add each property listed in "required".
+    - Recurse into "properties" to collect nested requireds (e.g., "user.id").
+    - For oneOf/anyOf/allOf, take the union of branch requirements.
+    - Arrays don't contribute required paths themselves; we don't expand item paths.
     """
-    out: Set[str] = set()
+    req: Set[str] = set()
+    if not isinstance(node, dict):
+        return req
 
-    def walk(node: Any, prefix: str) -> None:
-        if not isinstance(node, dict):
-            return
+    # combinators: union of branch requirements
+    for key in ("allOf", "oneOf", "anyOf"):
+        if isinstance(node.get(key), list):
+            for sub in node[key]:
+                req |= _collect_required_paths_json(sub, prefix)
 
-        props = node.get("properties")
-        if isinstance(props, dict):
-            req_list = node.get("required") or []
-            if isinstance(req_list, list):
-                for name in req_list:
-                    if isinstance(name, str):
-                        out.add(
-                            f"{prefix}{name}" if not prefix else f"{prefix}.{name}")
+    # object properties
+    props = node.get("properties")
+    if isinstance(props, dict):
+        # add direct required properties at this level
+        for name in node.get("required", []) or []:
+            if isinstance(name, str):
+                req.add(f"{prefix}.{name}" if prefix else name)
+        # recurse into children to gather nested requireds (e.g., user.id)
+        for name, sub in props.items():
+            child_prefix = f"{prefix}.{name}" if prefix else name
+            req |= _collect_required_paths_json(sub, child_prefix)
 
-            # Recurse into children regardless; nested objects may have their own 'required'
-            for name, subschema in props.items():
-                child_prefix = f"{prefix}{name}" if not prefix else f"{prefix}.{name}"
-                walk(subschema, child_prefix)
-
-        # Traverse any combinators
-        for key in ("oneOf", "anyOf", "allOf"):
-            if key in node and isinstance(node[key], list):
-                for sub in node[key]:
-                    walk(sub, prefix)
-
-    walk(js, "")
-    return out
+    return req
 
 
 def load_json_schema(path: str) -> Any:
@@ -167,5 +166,5 @@ def schema_from_json_schema_file(path: str) -> Tuple[Any, Set[str]]:
     # pure types (value-nullability allowed)
     tree = _schema_from_js(js, optional=False)
     # presence (required) as dotted set
-    required = _collect_required_paths(js)
+    required = _collect_required_paths_json(js)
     return tree, required

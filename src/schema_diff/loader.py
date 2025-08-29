@@ -8,11 +8,12 @@ from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
 from .dbt_schema_parser import schema_from_dbt_manifest, schema_from_dbt_schema_yml
 from .io_utils import sample_records, nth_record, open_text
+from .protobuf_schema_parser import schema_from_protobuf_file, list_protobuf_messages
 
 __all__ = [
     "load_left_or_right",
     "KIND_DATA", "KIND_JSONSCHEMA", "KIND_SPARK",
-    "KIND_SQL", "KIND_DBT_MANIFEST", "KIND_DBT_YML", "KIND_AUTO",
+    "KIND_SQL", "KIND_DBT_MANIFEST", "KIND_DBT_YML", "KIND_AUTO", "KIND_PROTOBUF",
 ]
 
 KIND_DATA = "data"
@@ -22,6 +23,7 @@ KIND_SQL = "sql"
 KIND_DBT_MANIFEST = "dbt-manifest"
 KIND_DBT_YML = "dbt-yml"
 KIND_AUTO = "auto"
+KIND_PROTOBUF = "protobuf"
 
 
 def _coerce_root_list_to_dict(obj):
@@ -171,6 +173,9 @@ def _guess_kind(path: str) -> str:
         # default for .json/.json.gz if we couldn't parse
         return KIND_DATA
 
+    if p.endswith(".proto"):
+        return KIND_PROTOBUF
+
     # Last resort: assume data
     return KIND_DATA
 
@@ -183,6 +188,7 @@ def load_left_or_right(
     first_record: Optional[int] = None,
     sql_table: Optional[str] = None,
     dbt_model: Optional[str] = None,
+    proto_message: Optional[str] = None,
 ) -> Tuple[Any, Set[str], str]:
     """
     Returns (type_tree, required_paths, label)
@@ -244,6 +250,29 @@ def load_left_or_right(
             schema_from_dbt_schema_yml(path, model=dbt_model))
         label = path if not dbt_model else f"{path}#{dbt_model}"
         return tree, required, label
+
+
+    if chosen == KIND_PROTOBUF:
+        if not proto_message:
+            # If there’s more than one message, ask user to choose.
+            try:
+                msgs = list_protobuf_messages(path)  # returns List[str]
+            except Exception:
+                msgs = []
+            if len(msgs) == 1:
+                proto_message = msgs[0]
+            elif len(msgs) > 1:
+                raise ValueError(
+                    f"Multiple Protobuf messages in {path}. "
+                    f"Choose one with --left-proto-message/--right-proto-message. "
+                    f"Available: {', '.join(msgs[:50])}"
+                )
+            # else: zero (unusual) → let parser raise a clear error
+        tree, required, selected = schema_from_protobuf_file(
+            path, message=proto_message)
+        label = f"{path}#{selected or proto_message}" if (
+            selected or proto_message) else path
+        return tree, required or set(), label
 
 
     raise ValueError(f"Unknown kind: {kind}")
