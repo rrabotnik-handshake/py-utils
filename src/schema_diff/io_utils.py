@@ -1,17 +1,30 @@
 from __future__ import annotations
+
 import io
 import gzip
 import json
 import ijson
 import subprocess
+from typing import Any, List, Iterator, Sequence
 
-from typing import Any, List, Iterator
+
+__all__ = [
+    "CommandError",
+    "_run",
+    "open_text",
+    "open_binary",
+    "sniff_ndjson",
+    "iter_records",
+    "sample_records",
+    "nth_record",
+]
+
 
 class CommandError(Exception):
-    """Raised when _run fails with non-zero exit code."""
+    """Raised when `_run` fails with a non-zero exit code."""
 
-    def __init__(self, cmd, returncode, stdout, stderr):
-        self.cmd = cmd
+    def __init__(self, cmd: Sequence[str], returncode: int, stdout: str, stderr: str):
+        self.cmd = list(cmd)
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
@@ -20,25 +33,37 @@ class CommandError(Exception):
 
 def _run(args, cwd=None, env=None, check_untrusted=True):
     """
-    Run a subprocess safely.
+    Run a subprocess safely (no shell). Returns CompletedProcess or raises CommandError.
 
-    - args: list of strings (no shell=True)
-    - Raises CommandError if exit != 0
-    - Optionally sanity-check args if `check_untrusted=True`
+    Parameters
+    ----------
+    args : list[str]
+        Command and arguments; must be non-empty.
+    cwd : str | None
+        Working directory for the child process.
+    env : mapping | None
+        Environment variables for the child process.
+    check_untrusted : bool
+        If True, reject args containing control/shell metacharacters.
+
+    Raises
+    ------
+    ValueError
+        If args is empty or contains non-strings (or suspicious chars when enabled).
+    CommandError
+        If the command exits with non-zero status.
     """
-    # validate args
     if not isinstance(args, (list, tuple)) or not args:
         raise ValueError("args must be a non-empty list of strings")
 
     for a in args:
         if not isinstance(a, str):
             raise ValueError(f"Non-string arg: {a!r}")
-        if check_untrusted:
-            # crude guard against control chars, semicolons, pipes, etc.
-            if any(c in a for c in [';', '|', '&', '\n', '\r']):
-                raise ValueError(f"Suspicious characters in arg: {a!r}")
-        res = subprocess.run(
-            args, cwd=cwd, capture_output=True, text=True, env=env)
+        if check_untrusted and any(c in a for c in [';', '|', '&', '\n', '\r']):
+            raise ValueError(f"Suspicious characters in arg: {a!r}")
+
+    res = subprocess.run(
+        args, cwd=cwd, capture_output=True, text=True, env=env)
 
     if res.returncode != 0:
         raise CommandError(args, res.returncode, res.stdout, res.stderr)
@@ -46,24 +71,25 @@ def _run(args, cwd=None, env=None, check_untrusted=True):
     return res
 
 
-def open_text(path: str):
+def open_text(path: str) -> io.TextIOWrapper:
     """
-    Return a text stream for either plain UTF-8 or gzip-compressed files,
-    regardless of file extension.
+    Open a path as text, auto-detecting gzip via magic bytes.
+
+    - Uses UTF-8 with BOM support (`utf-8-sig`)
+    - Raises UnicodeDecodeError on invalid sequences (`errors='strict'`)
     """
     f = open(path, "rb")
     magic = f.read(2)
     f.seek(0)
     if magic == b"\x1f\x8b":
         return io.TextIOWrapper(gzip.GzipFile(fileobj=f), encoding="utf-8-sig", errors="strict")
-    else:
-        return io.TextIOWrapper(f, encoding="utf-8-sig", errors="strict")
+    return io.TextIOWrapper(f, encoding="utf-8-sig", errors="strict")
 
 
 def open_binary(path: str):
     """
-    Open a path as a *binary* stream, auto-detecting gzip via magic bytes.
-    Use this for ijson, which prefers bytes.
+    Open a path as *binary*, auto-detecting gzip via magic bytes.
+    Useful for `ijson`, which prefers bytes streams.
     """
     f = open(path, "rb")
     head = f.read(2)
@@ -75,7 +101,7 @@ def open_binary(path: str):
 
 def sniff_ndjson(sample: str) -> bool:
     """
-    Heuristic: if the first two non-empty lines start with '{', assume NDJSON.
+    Heuristic: if the first two non-empty lines both start with '{', treat as NDJSON.
     """
     lines = [ln.strip() for ln in sample.splitlines() if ln.strip()]
     return len(lines) >= 2 and lines[0].startswith("{") and lines[1].startswith("{")
@@ -83,12 +109,12 @@ def sniff_ndjson(sample: str) -> bool:
 
 def iter_records(path: str) -> Iterator[Any]:
     """
-    Yield records from a JSON file that could be:
-      - NDJSON (one JSON object per line)
-      - A single JSON object
-      - A JSON array of objects (streamed with ijson)
-    Includes a fallback for NDJSON where the first record is larger than
-    the initial sniff buffer (so json.load() raises JSONDecodeError).
+    Yield records from a JSON-ish file that could be:
+      1) NDJSON (one JSON object per line)
+      2) A single JSON object
+      3) A JSON array of objects (streamed with ijson)
+
+    Includes a fallback for NDJSON where the first record is longer than the sniff buffer.
     """
     with open_text(path) as f:
         buf = f.read(8192)
@@ -99,7 +125,7 @@ def iter_records(path: str) -> Iterator[Any]:
             return
         s = buf.lstrip()
 
-        # 1) Typical NDJSON case (short lines)
+        # 1) Typical NDJSON (short lines)
         if sniff_ndjson(buf):
             for line in f:
                 line = line.strip()
@@ -110,11 +136,10 @@ def iter_records(path: str) -> Iterator[Any]:
         # 2) Single object OR NDJSON with a very long first line
         if s.startswith("{"):
             try:
-                # Try to parse as a single JSON object
-                yield json.load(f)
+                yield json.load(f)  # single JSON object
                 return
             except json.JSONDecodeError:
-                # Fallback: it's actually NDJSON (first newline beyond sniff window)
+                # Fallback: actually NDJSON (first newline beyond sniff window)
                 f.seek(0)
                 for line in f:
                     line = line.strip()
@@ -122,15 +147,15 @@ def iter_records(path: str) -> Iterator[Any]:
                         yield json.loads(line)
                 return
 
-        # 3) JSON array
+        # 3) Top-level JSON array
         if s.startswith("["):
-            # Reopen as binary for ijson to avoid the warning
+            # Reopen as binary for ijson
             with open_binary(path) as fb:
                 for item in ijson.items(fb, "item"):
                     yield item
             return
 
-        # 4) Last resort: line-by-line NDJSON-ish
+        # 4) Last resort: line-by-line JSON-ish
         for line in f:
             line = line.strip()
             if line:
@@ -139,9 +164,10 @@ def iter_records(path: str) -> Iterator[Any]:
 
 def sample_records(path: str, k: int) -> List[Any]:
     """
-    Reservoir-sample k records from the file without loading everything.
+    Reservoir-sample `k` records from the file without loading everything.
     """
     import random
+
     reservoir: List[Any] = []
     n = 0
     for rec in iter_records(path):

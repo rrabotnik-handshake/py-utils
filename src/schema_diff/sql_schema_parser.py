@@ -2,7 +2,34 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional, Tuple, Set
 
+from .utils import strip_quotes_ident
 from .io_utils import open_text
+
+"""
+SQL DDL schema parser.
+
+This module extracts a **pure type tree** and a set of **presence-required** paths
+from SQL `CREATE TABLE` statements (and from loose column lists if no `CREATE TABLE`
+is present). It aims to be adapter-agnostic and tolerant to common dialect quirks.
+
+Outputs:
+    schema_tree: Dict[str, Any]
+        - scalars: 'int' | 'float' | 'bool' | 'str' | 'date' | 'time' | 'timestamp'
+        - arrays:  [elem_type], e.g. ['str']
+        - complex types we don't explode (e.g., STRUCT) -> 'object'
+    required_paths: Set[str]
+        - flat set of column names marked NOT NULL (Spark-style inner-nullability is
+          not represented here; only top-level column constraints are tracked)
+
+Notes:
+    - BigQuery ARRAY<...> / STRUCT<...> are supported, nested angle brackets ok.
+    - Postgres-style arrays like TEXT[] are supported.
+    - Precision/length in types (e.g., VARCHAR(255), NUMERIC(10,2)) is ignored for
+      mapping purposes.
+    - Table selection:
+        * If multiple CREATE TABLE blocks exist, you can pass `table=` to select.
+        * If none exist, the parser treats the file as a loose column list.
+"""
 
 # --- Regexes ---------------------------------------------------------------
 
@@ -23,18 +50,23 @@ SQL_CREATE_RE_ST = re.compile(
 SQL_COL_RE = re.compile(
     r'^\s*'
     r'(?P<col>["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?)\s+'
-    # dtype: non-greedy, stop before NULL/NOT NULL/DEFAULT/OPTIONS/CONSTRAINT/etc, or comma/end
+    # dtype: stop before NULL/NOT NULL/DEFAULT/OPTIONS/... or comma/EOL
     r'(?P<dtype>.+?)(?=\s+(?:NOT\s+NULL|NULL|DEFAULT|OPTIONS|CONSTRAINT|PRIMARY|UNIQUE|FOREIGN\s+KEY|CHECK|REFERENCES|GENERATED|AS|IDENTITY|ON\s+UPDATE|ON\s+DELETE)\b|,|$)'
     r'(?:\s+(?P<null>NOT\s+NULL|NULL))?'
+    # NEW: allow trailing tokens like OPTIONS(...), DEFAULT ..., etc., before comma/EOL
+    r'(?:\s+(?:DEFAULT|OPTIONS|CONSTRAINT|PRIMARY|UNIQUE|FOREIGN\s+KEY|CHECK|REFERENCES|GENERATED|AS|IDENTITY|ON\s+UPDATE|ON\s+DELETE)\b[^\n,]*)*'
     r'\s*(?:,|$)',
     re.IGNORECASE
 )
+
 
 # Constraint-only lines we skip inside CREATE TABLE
 SQL_CONSTRAINT_LINE_RE = re.compile(
     r'^\s*(PRIMARY\s+KEY|UNIQUE|FOREIGN\s+KEY|CHECK|CONSTRAINT)\b',
     re.IGNORECASE
 )
+
+NOT_NULL_RE = re.compile(r'\bNOT\s+NULL\b', re.IGNORECASE)
 
 # Comments
 SQL_BLOCK_COMMENT_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
@@ -72,7 +104,7 @@ TYPE_MAP_SQL: Dict[str, str] = {
 }
 
 # Trim tokens that may trail the dtype on the same line
-_DTYPE_TRAILERS = re.compile(
+_DTYPE_TRAILERS_RE = re.compile(
     r'\s+(DEFAULT|COLLATE|REFERENCES|GENERATED|AS|IDENTITY|ON\s+UPDATE|ON\s+DELETE|OPTIONS|NOT\s+NULL|NULL)\b',
     re.IGNORECASE
 )
@@ -81,23 +113,16 @@ _DTYPE_TRAILERS = re.compile(
 
 
 def _strip_sql_comments(s: str) -> str:
+    """Remove /* ... */ block comments and -- line comments from SQL text."""
     s = SQL_BLOCK_COMMENT_RE.sub(" ", s)
     s = SQL_LINE_COMMENT_RE.sub("", s)
     return s
 
 
-def _normalize_ident(s: str) -> str:
-    """Strip quotes/backticks/brackets from an identifier."""
-    s = s.strip()
-    if s and s[0] in "'\"`[" and s[-1:] in "'\"`]":
-        return s[1:-1]
-    return s
-
-
 def _clean_dtype_token(dt: str) -> str:
-    """Trim trailers like DEFAULT/COLLATE/REFERENCES/etc."""
+    """Trim trailers after the dtype (DEFAULT/COLLATE/REFERENCES/etc.)."""
     dt = dt.strip()
-    m = _DTYPE_TRAILERS.search(dt)
+    m = _DTYPE_TRAILERS_RE.search(dt)
     if m:
         dt = dt[:m.start()].rstrip()
     return dt
@@ -105,14 +130,15 @@ def _clean_dtype_token(dt: str) -> str:
 
 def _balanced_inner(s: str, start: int) -> tuple[str, int] | tuple[None, int]:
     """
-    Given s and index start pointing at '<', return (inner, end_index_after_closing_gt).
-    Handles nested angle brackets. Returns (None, start) on failure.
+    Return (inner, end_index_after_closing_gt) for the angle-bracket segment
+    starting at `start`, handling nested angle brackets. If unbalanced, return
+    (None, start).
     """
     if start >= len(s) or s[start] != '<':
         return None, start
     depth = 0
     i = start
-    inner_chars = []
+    inner_chars: list[str] = []
     while i < len(s):
         ch = s[i]
         if ch == '<':
@@ -132,12 +158,19 @@ def _balanced_inner(s: str, start: int) -> tuple[str, int] | tuple[None, int]:
 
 
 def _sql_dtype_to_internal(dtype_raw: str) -> Any:
+    """
+    Normalize an SQL dtype token to the internal type label/tree.
+
+    Returns:
+        - scalar label: 'int'|'float'|'bool'|'str'|'date'|'time'|'timestamp'|'any'
+        - array: [elem_type]
+        - struct-like: 'object'
+    """
     dt = " ".join(_clean_dtype_token(dtype_raw).split()).lower()
 
-    # BigQuery ARRAY<...> / STRUCT<...> with nesting
+    # BigQuery ARRAY<...> (supports nested)
     if dt.startswith("array<"):
-        inner, end = _balanced_inner(dt, dt.find("<"))
-        # if we fail to balance, fall back to simple slice
+        inner, _ = _balanced_inner(dt, dt.find("<"))
         inner = inner if inner is not None else dt[6:-1].strip()
         inner_m = _sql_dtype_to_internal(inner)
         if isinstance(inner_m, list) and inner_m:
@@ -146,37 +179,48 @@ def _sql_dtype_to_internal(dtype_raw: str) -> Any:
             inner_m = "any"
         return [inner_m]
 
+    # BigQuery STRUCT<...> -> treat as opaque object
     if dt.startswith("struct<"):
-        # We treat structs as an opaque object (we don’t explode fields here)
         return "object"
 
-    # Postgres style arrays: text[], varchar(255)[]
+    # Postgres-style arrays: text[] / varchar(255)[]
     is_array = dt.endswith("[]")
     if is_array:
         dt = dt[:-2].strip()
 
+    # Strip precision/length (e.g., varchar(255) -> varchar)
     base = re.sub(r'\([^)]*\)', '', dt).strip()
     mapped = TYPE_MAP_SQL.get(base, TYPE_MAP_SQL.get(dt, "any"))
-    if is_array:
-        return [mapped]
+
+    return [mapped] if is_array else mapped
+
+
+def _as_pure_type(mapped: Any) -> Any:
+    """
+    Convert a mapper result (scalar or [elem]) into a consistent "pure type".
+    Ensures arrays normalize to ['any'] instead of ['any', ...] or [].
+    """
+    if isinstance(mapped, list):
+        elem = mapped[0] if mapped else "any"
+        return ["any" if elem == "any" else elem]
     return mapped
 
 
 # --- Main API --------------------------------------------------------------
 
-
 def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple[Dict[str, Any], Set[str]]:
     """
     Parse SQL schema content from `path`.
 
-    Returns: (schema_tree, required_paths)
-      - schema_tree: pure type tree (NO 'missing' injection).
-        * scalars: 'int'|'float'|'bool'|'str'|'date'|'time'|'timestamp'
-        * arrays: [elem_type], e.g. ['str']
-      - required_paths: set of NOT NULL column names (flat paths)
+    Args:
+        path: File with SQL DDL (or loose column list).
+        table: Optional selector for a particular CREATE TABLE block. Case-insensitive.
+               Accepts fully-qualified (e.g., project.dataset.table) or simple table name.
 
-    If multiple CREATE TABLE blocks exist, choose with `table` (case-insensitive).
-    If none exist, parse as a loose column list.
+    Returns:
+        (schema_tree, required_paths)
+          - schema_tree: pure type tree (no presence 'missing' injection)
+          - required_paths: set of NOT NULL column names (flat)
     """
     with open_text(path) as f:
         text = f.read()
@@ -194,7 +238,8 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
     paren_depth = 0
     in_block = False
 
-    def _finish_block():
+    def _finish_block() -> None:
+        """Close the current CREATE TABLE block and stash its results."""
         nonlocal current, current_required, current_name, in_block, paren_depth
         if current_name and current is not None:
             tables[current_name] = current
@@ -220,26 +265,61 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
 
             if m_full:
                 full_raw = m_full.group("full")
-                full_name = _normalize_ident(full_raw)
-                # use last dotted component as short table name
+                full_name = strip_quotes_ident(full_raw)
                 table_name = full_name.split(".")[-1].strip("`")
+                # position of the first '(' to slice remainder
+                hdr_open_idx = raw.upper().find("(")
             else:
-                schema_name = _normalize_ident(m_std.group("schema") or "")
-                table_name = _normalize_ident(m_std.group("table"))
+                schema_name = strip_quotes_ident(m_std.group("schema") or "")
+                table_name = strip_quotes_ident(m_std.group("table"))
                 full_name = f"{schema_name}.{table_name}" if schema_name else table_name
+                hdr_open_idx = raw.upper().find("(")
 
             current = {}
             current_required = set()
             current_name = full_name
             in_block = True
 
-            # case-insensitive lookup aliases
             name_lc_to_full[full_name.lower()] = full_name
             name_lc_to_full[table_name.lower()] = full_name
 
-            paren_depth += raw.count("(") - raw.count(")")
+            # We will process the remainder of this *same* line as if we were already inside the block.
+            # Start with depth=1 (we just consumed the header's '('), then adjust with the remainder.
+            paren_depth = 1
+
+            remainder = raw[hdr_open_idx + 1:] if hdr_open_idx != -1 else ""
+            rem_line = remainder.strip()
+
+            if rem_line:
+                # ---- same logic as the in_block section, but applied to this remainder ----
+                paren_depth += remainder.count("(") - remainder.count(")")
+
+                # Skip table-level constraints
+                if SQL_CONSTRAINT_LINE_RE.match(rem_line):
+                    if paren_depth <= 0:
+                        _finish_block()
+                else:
+                    m_col = SQL_COL_RE.match(rem_line)
+                    if m_col and current is not None and current_required is not None:
+                        col_raw = m_col.group("col")
+                        dtype_raw = m_col.group("dtype") or ""
+                        col = strip_quotes_ident(col_raw)
+
+                        mapped = _sql_dtype_to_internal(dtype_raw)
+                        current[col] = _as_pure_type(mapped)
+
+                        # Presence: regex-captured group first; fallback to raw search
+                        null_grp = (m_col.group("null") or "").upper()
+                        if null_grp == "NOT NULL" or (not null_grp and NOT_NULL_RE.search(remainder)):
+                            current_required.add(col)
+
+                    if paren_depth <= 0:
+                        _finish_block()
+
+            # Done handling this header line; move to next input line
             continue
         # ---- END CREATE TABLE header handling ----
+
 
         if in_block:
             paren_depth += raw.count("(") - raw.count(")")
@@ -255,20 +335,14 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
             if m_col and current is not None and current_required is not None:
                 col_raw = m_col.group("col")
                 dtype_raw = m_col.group("dtype") or ""
-                col = _normalize_ident(col_raw)
+                col = strip_quotes_ident(col_raw)
 
                 mapped = _sql_dtype_to_internal(dtype_raw)
+                current[col] = _as_pure_type(mapped)
 
-                # Build pure type (do NOT inject 'missing' here):
-                if isinstance(mapped, list):
-                    t: Any = ["any" if mapped[0] == "any" else mapped[0]]
-                else:
-                    t = mapped
-
-                current[col] = t
-
-                # Presence constraint (NOT NULL) tracked separately:
-                if "NOT NULL" in line.upper():
+                # Presence: rely on the regex-captured nullability
+                null_grp = (m_col.group("null") or "").upper()
+                if null_grp == "NOT NULL" or (not null_grp and NOT_NULL_RE.search(raw)):
                     current_required.add(col)
 
             if paren_depth <= 0:
@@ -284,17 +358,14 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
                 required_by_table[full] = set()
                 name_lc_to_full[full] = full
 
-            col = _normalize_ident(m_col.group("col"))
+            col = strip_quotes_ident(m_col.group("col"))
             dtype_raw = m_col.group("dtype") or ""
             mapped = _sql_dtype_to_internal(dtype_raw)
 
-            if isinstance(mapped, list):
-                t = ["any" if mapped[0] == "any" else mapped[0]]
-            else:
-                t = mapped
+            tables[full][col] = _as_pure_type(mapped)
 
-            tables[full][col] = t
-            if "NOT NULL" in line.upper():
+            null_grp = (m_col.group("null") or "").upper()
+            if null_grp == "NOT NULL" or (not null_grp and NOT_NULL_RE.search(raw)):
                 required_by_table[full].add(col)
 
     if in_block:
@@ -313,5 +384,6 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
             )
         return tables[key], required_by_table.get(key, set())
 
+    # Default: pick the first table by name (stable for tests)
     first = sorted(tables.keys())[0]
     return tables[first], required_by_table.get(first, set())

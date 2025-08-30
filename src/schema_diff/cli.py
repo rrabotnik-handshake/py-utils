@@ -1,3 +1,25 @@
+"""
+CLI entrypoint for schema-diff.
+
+This module implements the `schema-diff` command-line tool, which compares
+schemas across multiple formats and sources:
+
+- DATA files (NDJSON, JSON, JSONL, GZIP-compressed) — can infer schema by sampling records
+- JSON Schema documents
+- Spark schema dumps (text format)
+- SQL CREATE TABLE definitions
+- dbt manifest.json or schema.yml files
+- (future) Protobuf message definitions
+
+Comparison modes supported:
+  * DATA ↔ DATA  (record-level type comparison)
+  * DATA ↔ schema (classic mode, back-compat)
+  * any ↔ any    (general mode with --left/--right kinds)
+
+Main entrypoint: `main()` — builds argparse parser, interprets args,
+and dispatches to the proper comparison function.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -22,6 +44,12 @@ from .compare import compare_trees, compare_data_to_ref
 
 
 def _auto_colors(force_color: bool, no_color: bool) -> bool:
+    """
+    Decide whether to enable ANSI colors in output.
+    - Explicit --no-color disables
+    - Explicit --force-color enables
+    - Otherwise: enabled only if stdout is a TTY and NO_COLOR is not set
+    """
     if no_color:
         return False
     if force_color:
@@ -30,6 +58,11 @@ def _auto_colors(force_color: bool, no_color: bool) -> bool:
 
 
 def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
+    """
+    Build the argparse parser for schema-diff.
+    Groups flags by functional area (record selection, sampling, output, etc.).
+    Returns the ready-to-use parser.
+    """
     desc = (
         "Compare schema (types) of JSON/NDJSON files (gzip, arrays, NDJSON supported), "
         "or validate against a JSON/Spark/SQL/dbt schema. "
@@ -41,12 +74,16 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
         formatter_class=ColorDefaultsFormatter,
     )
 
-    # Positional
+    # ----------------------------------------------------------------------
+    # Positional arguments
+    # ----------------------------------------------------------------------
     parser.add_argument("file1", help="left input (data or schema)")
     parser.add_argument("file2", nargs="?", default=None,
                         help="right input (data or schema)")
 
-    # Record selection (for DATA sources)
+    # ----------------------------------------------------------------------
+    # Record selection (DATA-only sources)
+    # ----------------------------------------------------------------------
     sel = parser.add_argument_group("Record selection")
     sel.add_argument("--first-record", action="store_true",
                      help="compare only the first record from each DATA file (same as --record 1)")
@@ -59,7 +96,9 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
     sel.add_argument("--both-modes", action="store_true",
                      help="(DATA↔DATA only) run two comparisons: chosen record(s) AND random sampled records")
 
-    # Sampling
+    # ----------------------------------------------------------------------
+    # Sampling controls
+    # ----------------------------------------------------------------------
     samp = parser.add_argument_group("Sampling")
     samp.add_argument("-k", "--samples", type=int, default=3, metavar="N",
                       help="records to sample per DATA file")
@@ -68,25 +107,31 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
     samp.add_argument("--show-samples", action="store_true",
                       help="print the chosen/sampled records")
 
-    # Output control
+    # ----------------------------------------------------------------------
+    # Output formatting controls
+    # ----------------------------------------------------------------------
     out = parser.add_argument_group("Output control")
     out.add_argument("--no-color", action="store_true",
                      help="disable ANSI colors")
     out.add_argument("--force-color", action="store_true",
                      help="force ANSI colors even if stdout is not a TTY or NO_COLOR is set")
     out.add_argument("--no-presence", action="store_true",
-                     help="suppress 'Missing / optional (presence)' section (show only true schema mismatches)")
+                     help="suppress 'Missing / optional (presence)' section")
     out.add_argument("--show-common", action="store_true",
                      help="print the sorted list of fields that appear in both sides")
 
-    # Export
+    # ----------------------------------------------------------------------
+    # Export (structured output)
+    # ----------------------------------------------------------------------
     exp = parser.add_argument_group("Export")
     exp.add_argument("--json-out", type=str, metavar="PATH",
                      help="write diff JSON to this path")
     exp.add_argument("--dump-schemas", type=str, metavar="PATH",
                      help="write normalized left/right schemas to this path")
 
-    # “Classic” external schema options (back-compat)
+    # ----------------------------------------------------------------------
+    # Classic external-schema options (DATA → schema)
+    # ----------------------------------------------------------------------
     sch = parser.add_argument_group("External schema (reference)")
     sch.add_argument("--json-schema", type=str, metavar="JSON_SCHEMA.json",
                      help="compare DATA file1 vs a JSON Schema file")
@@ -97,7 +142,9 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
     sch.add_argument("--sql-table",   type=str, metavar="TABLE",
                      help="table name to select if --sql-schema has multiple tables")
 
+    # ----------------------------------------------------------------------
     # General two-source mode (any ↔ any)
+    # ----------------------------------------------------------------------
     gen = parser.add_argument_group("General two-source mode (any ↔ any)")
     gen.add_argument("--left",  choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml"],
                      help="kind of file1 (default: auto-detect)")
@@ -116,7 +163,9 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
     gen.add_argument("--right-message",
                      help="When --right is protobuf (or auto-detected .proto), choose the Protobuf message to use.")
 
-    # Inference
+    # ----------------------------------------------------------------------
+    # Inference options
+    # ----------------------------------------------------------------------
     inf = parser.add_argument_group("Inference")
     inf.add_argument("--infer-datetimes", action="store_true",
                      help="treat ISO-like strings as timestamp/date/time on the DATA side")
@@ -125,16 +174,23 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
 
 
 def main():
+    """
+    CLI entrypoint.
+    1. Parse arguments
+    2. Decide which comparison mode to run (general, classic data→schema, or data↔data)
+    3. Dispatch to the appropriate compare function
+    """
     parser = build_parser(True)
     args = parser.parse_args()
 
-    # classic external-schema switches are mutually exclusive
+    # ------------------------------------------------------------------
+    # Input validation and mode selection
+    # ------------------------------------------------------------------
     classic_selected = [args.json_schema, args.spark_schema, args.sql_schema]
     if sum(1 for x in classic_selected if x) > 1:
         parser.error(
             "Use only one of --json-schema, --spark-schema, or --sql-schema.")
 
-    # “General mode” is enabled if any per-side kind/selector is given
     general_mode = any([
         args.left, args.right,
         args.left_table, args.right_table,
@@ -142,12 +198,10 @@ def main():
         args.left_message, args.right_message,
     ])
 
-    # file2 is required unless you are in classic data→schema mode
     if not args.file2 and not (args.json_schema or args.spark_schema or args.sql_schema):
         parser.error(
             "file2 is required unless you pass --json-schema / --spark-schema / --sql-schema.")
 
-    # Seed RNG if requested
     if args.seed is not None:
         random.seed(args.seed)
 
@@ -158,18 +212,16 @@ def main():
     )
     RED, GRN, YEL, CYN, RST = cfg.colors()
 
-    # Record selection indices for DATA sources
     if args.first_record and args.record is None:
         args.record = 1
     r1_idx = args.record1 if args.record1 is not None else args.record
     r2_idx = args.record2 if args.record2 is not None else args.record
 
-    # ── General two-source mode ───────────────────────────────────────────
+    # ------------------------------------------------------------------
+    # Mode 1: General any ↔ any comparison
+    # ------------------------------------------------------------------
     if general_mode:
-        if not args.file2:
-            parser.error("file2 is required in general two-source mode.")
-
-        # Load left (data or schema)
+        # Load left + right sides via loader
         left_tree, left_required, left_label = load_left_or_right(
             args.file1,
             kind=args.left,
@@ -180,8 +232,6 @@ def main():
             dbt_model=args.left_model,
             proto_message=args.left_message,
         )
-
-        # Load right (data or schema)
         right_tree, right_required, right_label = load_left_or_right(
             args.file2,
             kind=args.right,
@@ -193,26 +243,17 @@ def main():
             proto_message=args.right_message,
         )
 
-        # Optionally print selected samples for DATA sources
+        # Optionally print sampled records
         if args.show_samples:
-            # For left
             if args.left in (None, "auto", "data"):
-                if r1_idx is None:
-                    print_samples(args.file1, sample_records(
-                        args.file1, args.samples), colors=cfg.colors())
-                else:
-                    print_samples(args.file1, nth_record(
-                        args.file1, r1_idx or 1), colors=cfg.colors())
-            # For right
+                recs = nth_record(args.file1, r1_idx or 1) if r1_idx else sample_records(
+                    args.file1, args.samples)
+                print_samples(args.file1, recs, colors=cfg.colors())
             if args.right in (None, "auto", "data"):
-                if r2_idx is None:
-                    print_samples(args.file2, sample_records(
-                        args.file2, args.samples), colors=cfg.colors())
-                else:
-                    print_samples(args.file2, nth_record(
-                        args.file2, r2_idx or 1), colors=cfg.colors())
+                recs = nth_record(args.file2, r2_idx or 1) if r2_idx else sample_records(
+                    args.file2, args.samples)
+                print_samples(args.file2, recs, colors=cfg.colors())
 
-        # Presence-aware compare of two trees
         compare_trees(
             left_label, right_label,
             left_tree, left_required,
@@ -220,14 +261,15 @@ def main():
             cfg=cfg,
             dump_schemas=args.dump_schemas,
             json_out=args.json_out,
-            title_suffix="",  # labels already include sample/record info for DATA
+            title_suffix="",
             show_common=args.show_common,
         )
         return
 
-    # ── Classic external schema branch (DATA → schema) ───────────────────
+    # ------------------------------------------------------------------
+    # Mode 2: Classic DATA → external schema
+    # ------------------------------------------------------------------
     if args.json_schema or args.spark_schema or args.sql_schema:
-        # Choose file1 record(s)
         s1 = nth_record(args.file1, r1_idx or 1) if r1_idx is not None else sample_records(
             args.file1, args.samples)
         title1 = f"; record #{r1_idx or 1}" if r1_idx is not None else f"; random {args.samples}-record samples"
@@ -246,11 +288,9 @@ def main():
                 args.sql_schema, table=args.sql_table)
             label = args.sql_schema if not args.sql_table else f"{args.sql_schema}#{args.sql_table}"
 
-        # Show the chosen records for file1 if requested
         if args.show_samples:
             print_samples(args.file1, s1, colors=cfg.colors())
 
-        # Delegate to presence-aware compare adapter
         compare_data_to_ref(
             args.file1,
             label,
@@ -265,12 +305,12 @@ def main():
         )
         return
 
-    # ── Classic DATA ↔ DATA comparison ───────────────────────────────────
-    # file1 chosen set
+    # ------------------------------------------------------------------
+    # Mode 3: Classic DATA ↔ DATA
+    # ------------------------------------------------------------------
     s1 = nth_record(args.file1, r1_idx or 1) if r1_idx is not None else sample_records(
         args.file1, args.samples)
     title1 = f"; record #{r1_idx or 1}" if r1_idx is not None else f"; random {args.samples}-record samples"
-    # file2 chosen set
     s2 = nth_record(args.file2, r2_idx or 1) if r2_idx is not None else sample_records(
         args.file2, args.samples)
 

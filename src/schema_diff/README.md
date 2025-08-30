@@ -106,12 +106,12 @@ Extra selectors:
    - Flattens and sorts unions (`union(str|missing)`), deduplicates `"any"`
    - Arrays remain `[elem_type]` if known, otherwise `"array"`
 
-4. **DeepDiff** compares the two normalized type trees.  
+4. **DeepDiff** compares the two normalized type trees.
    Output sections:
    - “Only in left/right” — keys present on one side only
    - “Missing / optional (presence)” — when type is the same but optionality differs
    - “Common” — fields present in both sides with matching types (`--show-common`)
-   - “True schema mismatches” — real type conflicts (e.g., `int` vs `str`)
+   - “Type mismatches” — real type conflicts (e.g., `int` vs `str`)
 
 ---
 

@@ -1,10 +1,43 @@
+"""
+Spark schema (pretty-printed) → internal type tree.
+
+What this module does
+---------------------
+Parses a text dump of a Spark schema like:
+
+    root
+     |-- id: long (nullable = false)
+     |-- ts: timestamp (nullable = true)
+     |-- tags: array<string> (nullable = true)
+     |-- info: struct<foo:int,bar:array<string>> (nullable = false)
+
+…into:
+  - a *pure type* tree (no presence/`|missing` injection), where
+      * scalars map to: 'int' | 'float' | 'bool' | 'str' | 'date' | 'timestamp' | 'any'
+      * arrays are represented as: [elem_type]
+      * structs are represented as: {field: type, ...}
+      * maps are simplified to: "object"
+  - a set of *required* top-level field names where `(nullable = false)`.
+
+Notes & constraints
+-------------------
+- Spark prints nullability only on the top-level field declaration lines;
+  nested struct field nullability is not present in this text format, so
+  only top-level required paths are returned.
+- Unknown/unsupported tokens (including intervals and exotic types) become "any".
+- Arrays of arrays (e.g., `array<array<int>>`) are preserved as nested lists.
+"""
+
 from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Set, Tuple
 
+__all__ = ["schema_from_spark_schema_file"]
+
 # ---------- Type mapping (Spark -> internal) ----------
 _SPARK_TO_INTERNAL = {
+    # integers
     "byte": "int",
     "short": "int",
     "int": "int",
@@ -12,23 +45,24 @@ _SPARK_TO_INTERNAL = {
     "long": "int",
     "bigint": "int",
 
+    # floats / decimals
     "float": "float",
     "double": "float",
-    "decimal": "float",  # no precision captured here; we treat as numeric
+    "decimal": "float",  # precision/scale not tracked; treat as numeric
 
+    # booleans
     "boolean": "bool",
     "bool": "bool",
 
+    # strings / bytes-ish
     "string": "str",
-    "binary": "str",     # treat as bytes-ish string
+    "binary": "str",     # treat Spark binary as base64-able string
     "varchar": "str",
     "char": "str",
 
+    # date/time
     "timestamp": "timestamp",
     "date": "date",
-
-    # anything else we don't recognize:
-    #  - interval, map, etc. will be handled below; unknown scalars => "any"
 }
 
 # Matches lines like:
@@ -46,19 +80,29 @@ _NULLABLE_RE = re.compile(r'\bnullable\s*=\s*(true|false)\b', re.IGNORECASE)
 # ---------- Type string parser (recursive) ----------
 
 def _parse_scalar_type(tok: str) -> str:
-    """Map a scalar/leaf Spark type token to internal label."""
+    """
+    Map a scalar/leaf Spark type token to an internal label.
+
+    - Strips any precision/length parentheses (e.g., "decimal(10,2)" → "decimal").
+    - Returns one of: 'int' | 'float' | 'bool' | 'str' | 'date' | 'timestamp' | 'any'.
+    """
     t = tok.strip().lower()
-    return _SPARK_TO_INTERNAL.get(t, "any")
+    # Drop "(...)" precision/length from tokens like decimal(10,2) / varchar(255)
+    base = re.split(r"\s*\(", t, maxsplit=1)[0].strip()
+    return _SPARK_TO_INTERNAL.get(base, "any")
 
 
 def _split_top_level_commas(s: str) -> List[str]:
     """
     Split by commas that are NOT inside angle brackets (for struct fields).
-    Example: "a:int,b:array<string>,c:struct<x:int,y:string>" ->
-             ["a:int", "b:array<string>", "c:struct<x:int,y:string>"]
+
+    Example
+    -------
+    "a:int,b:array<string>,c:struct<x:int,y:string>"
+      -> ["a:int", "b:array<string>", "c:struct<x:int,y:string>"]
     """
     parts: List[str] = []
-    buf = []
+    buf: List[str] = []
     depth = 0
     for ch in s:
         if ch == '<':
@@ -79,11 +123,16 @@ def _split_top_level_commas(s: str) -> List[str]:
 
 def _parse_dtype(dtype: str) -> Any:
     """
-    Parse a Spark dtype string recursively into internal tree:
-      - "int", "string", "timestamp" -> "int"/"str"/"timestamp"
-      - "array<T>" -> [ parsed(T) ]
-      - "struct<a:int,b:array<string>>" -> {"a": "int", "b": ["str"]}
-      - Unsupported/unknown -> "any"
+    Parse a Spark dtype string into the internal type tree.
+
+    Returns
+    -------
+    Any
+        - "int" / "str" / "timestamp" / … for scalars
+        - [elem_type] for arrays
+        - {field: type, ...} for structs
+        - "object" for maps and malformed structs
+        - "any" for unknown scalars
     """
     s = dtype.strip()
     s_lower = s.lower()
@@ -92,10 +141,8 @@ def _parse_dtype(dtype: str) -> Any:
     if s_lower.startswith("array<") and s_lower.endswith(">"):
         inner = s[6:-1].strip()
         elem = _parse_dtype(inner)
-        # Represent arrays as [elem_type] (consistent with other parsers)
-        if isinstance(elem, list) and elem:
-            # If elem was itself an array (array<array<...>>), elem could be list
-            # Keep nested lists as-is (downstream normalizer can collapse to "array" if needed)
+        # Preserve nested array structure (normalizer may collapse if needed)
+        if isinstance(elem, list) and elem:  # array<array<...>>
             return [elem]
         return [elem]
 
@@ -107,13 +154,12 @@ def _parse_dtype(dtype: str) -> Any:
         fields = _split_top_level_commas(inner)
         obj: Dict[str, Any] = {}
         for f in fields:
-            # each f like: "name:type" (Spark DDL struct syntax doesn't include nullability here)
+            # each f is "name:type"
             if ":" not in f:
-                # malformed; fallback
+                # malformed; fallback conservatively
                 return "object"
             name, ft = f.split(":", 1)
-            name = name.strip()
-            obj[name] = _parse_dtype(ft.strip())
+            obj[name.strip()] = _parse_dtype(ft.strip())
         return obj if obj else "object"
 
     # map<k,v>  -> treat as object (keyed collection)
@@ -128,26 +174,37 @@ def _parse_dtype(dtype: str) -> Any:
 
 def schema_from_spark_schema_file(path: str) -> Tuple[Any, Set[str]]:
     """
-    Parse a Spark schema text dump like:
+    Parse a Spark schema text dump into (type_tree, required_paths).
 
-        root
-         |-- id: long (nullable = false)
-         |-- ts: timestamp (nullable = true)
-         |-- tags: array<string> (nullable = true)
-         |-- info: struct<foo:int,bar:array<string>> (nullable = false)
+    Parameters
+    ----------
+    path : str
+        Path to the file containing Spark's printed schema (e.g., from `df.printSchema()`).
 
-    Returns: (type_tree, required_paths)
-      - type_tree: pure types (no '|missing' injection)
-      - required_paths: dotted paths (here only top-level field names) with nullable=false
-        (Spark's printed schema puts nullability only at the field declaration line)
+    Returns
+    -------
+    (type_tree, required_paths) : Tuple[Any, Set[str]]
+        type_tree:
+            Pure type tree (no presence injection):
+            - scalars as strings ('int' | 'float' | 'bool' | 'str' | 'date' | 'timestamp' | 'any')
+            - arrays as [elem_type]
+            - structs as {field: type, ...}
+            - maps as "object"
+        required_paths:
+            Set of top-level field names with `(nullable = false)`.
+
+    Notes
+    -----
+    - The printed format only exposes nullability at the top-level field lines,
+      so nested required paths are not derivable here.
     """
-    lines = []
+    # Collect meaningful lines (skip blank lines and the 'root' header)
+    lines: List[str] = []
     with open(path, "r", encoding="utf-8") as f:
         for raw in f:
             line = raw.rstrip("\n")
             if not line.strip():
                 continue
-            # skip the first "root" line if present
             if line.strip().lower() == "root":
                 continue
             lines.append(line)
@@ -158,14 +215,14 @@ def schema_from_spark_schema_file(path: str) -> Tuple[Any, Set[str]]:
     for ln in lines:
         m = _LINE_RE.match(ln)
         if not m:
-            # ignore non-matching lines (comments/blank/indent noise)
+            # ignore non-matching lines (comments/indent noise, etc.)
             continue
 
         name = m.group("name")
         dtype = (m.group("dtype") or "").strip()
         attrs = (m.group("attrs") or "")
 
-        # nullability
+        # nullability (default: nullable)
         nullable = True
         nm = _NULLABLE_RE.search(attrs)
         if nm:
@@ -178,7 +235,7 @@ def schema_from_spark_schema_file(path: str) -> Tuple[Any, Set[str]]:
         if not nullable:
             required.add(name)
 
-    # Empty schema? Return generic object + empty required set
+    # Empty schema → generic object + empty required set
     if not tree:
         return "object", set()
 

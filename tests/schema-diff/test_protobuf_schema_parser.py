@@ -1,10 +1,10 @@
-# tests/schema-diff/test_protobuf_parser.py
 from schema_diff.protobuf_schema_parser import (
     list_protobuf_messages,
     schema_from_protobuf_file,
 )
 from pathlib import Path
 import textwrap
+import json
 
 
 def test_proto_basic(tmp_path):
@@ -59,12 +59,6 @@ def test_proto_required_proto2(tmp_path):
     assert ".id" in {"." + r for r in required}  # sanity
     # exact required paths:
     assert required == {"id", "p", "p.code"}
-
-
-# tests/schema-diff/test_protobuf_parser.py
-
-
-# Adjust these imports to your actual module/file name:
 
 
 PROTO = textwrap.dedent(
@@ -219,3 +213,13 @@ def test_top_level_other_message(tmp_path: Path):
     assert chosen == "foo.bar.Other"
     assert tree == {"x": "str"}
     assert required == set()
+
+
+def test_dbt_manifest_array_angle(tmp_path):
+    man = {"nodes": {"model.x.y": {"resource_type": "model",
+                                   "name": "y", "columns": {"tags": {"data_type": "ARRAY<STRING>"}}}}}
+    p = tmp_path / "m.json"
+    p.write_text(json.dumps(man), encoding="utf-8")
+    from schema_diff.dbt_schema_parser import schema_from_dbt_manifest
+    tree, req = schema_from_dbt_manifest(str(p), model="y")
+    assert tree["tags"] in (["str"], "array")

@@ -1,9 +1,34 @@
+"""
+Protobuf schema parser → internal “type tree”.
+
+Entry points
+-----------
+- list_protobuf_messages(path) -> list[str]
+    Return fully-qualified names (FQNs) of all messages defined in a .proto file.
+
+- schema_from_protobuf_file(path, message=None)
+    Parse a .proto file and build a JSON-like *type tree* for a chosen message.
+    Returns (tree, required_paths, chosen_fqn):
+      - tree: Dict[str, Any] where leaves are 'int'|'float'|'bool'|'str'|'date'|'time'|'timestamp'|'object'
+              and repeated fields are encoded as [elem_type].
+      - required_paths: Set[str] of dotted field paths that are presence-required (proto2 'required' or explicit labels).
+      - chosen_fqn: Fully-qualified name of the resolved message.
+
+Notes
+-----
+- Enums are represented as 'str' (their JSON mapping).
+- Maps are represented as 'object'.
+- Nested messages are inlined structurally (fields expanded).
+- Message references are resolved using lexical scope, package, and absolute FQNs.
+"""
+
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set, Tuple
 import re
 
 __all__ = ["list_protobuf_messages", "schema_from_protobuf_file"]
 
+# Scalar + well-known type mappings to internal labels
 _SCALARS = {
     "double": "float",
     "float": "float",
@@ -19,7 +44,7 @@ _SCALARS = {
     "sfixed64": "int",
     "bool": "bool",
     "string": "str",
-    "bytes": "str",  # JSON mapping is base64 string; keep it simple
+    "bytes": "str",  # JSON mapping is base64 string; treat as plain string
 }
 
 _WELL_KNOWN = {
@@ -28,10 +53,11 @@ _WELL_KNOWN = {
     "google.type.TimeOfDay": "time",
 }
 
+# Field matcher: labels + scalar/qualified types + maps
 _FIELD_RE = re.compile(
     r"""
     ^\s*
-    (?:(required|optional|repeated)\s+)?          # label
+    (?:(required|optional|repeated)\s+)?          # label (proto2/oneof context tolerated)
     (?:
       map<\s*(?P<map_k>[^,\s>]+)\s*,\s*(?P<map_v>[^>]+)\s*>\s+(?P<map_name>[A-Za-z_]\w*)
       |
@@ -42,7 +68,7 @@ _FIELD_RE = re.compile(
     re.VERBOSE,
 )
 
-# single-line statements
+# Single-line statements
 PACKAGE_LINE_RE = re.compile(
     r'^\s*package\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*;\s*$'
 )
@@ -50,40 +76,61 @@ IMPORT_LINE_RE = re.compile(
     r'^\s*import\s+(?:public\s+|weak\s+)?["\']([^"\']+)["\']\s*;\s*$'
 )
 
-# block open/close
+# Block open/close
 MESSAGE_OPEN_RE = re.compile(r'^\s*message\s+([A-Za-z_]\w*)\s*\{\s*$')
 ENUM_OPEN_RE = re.compile(r'^\s*enum\s+([A-Za-z_]\w*)\s*\{\s*$')
 ONEOF_OPEN_RE = re.compile(r'^\s*oneof\s+([A-Za-z_]\w*)\s*\{\s*$')
 BLOCK_CLOSE_RE = re.compile(r'^\s*\}\s*$')
 
-# comments
+# Comments
 LINE_COMMENT_RE = re.compile(r'^\s*//')
 BLOCK_COMMENT_START_RE = re.compile(r'/\*')
 BLOCK_COMMENT_END_RE = re.compile(r'\*/')
 
 
-def _strip_inline_comments(line: str) -> str:
-    # remove // comments
-    if '//' in line:
-        line = line.split('//', 1)[0]
-    # crude block comment stripper on a single line
-    line = re.sub(r'/\*.*?\*/', '', line)
-    return line
+def _strip_comments(text: str) -> str:
+    """Remove /* ... */ block comments and // line comments."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    text = re.sub(r"//.*?$", "", text, flags=re.M)
+    return text
 
 
-def _resolve_ref(type_token: str, field_scope_fqn: str, package: Optional[str], known_msgs: Set[str]) -> Optional[str]:
+def _map_type(t: str) -> str:
     """
-    Resolve a message/enum type token to a known message FQN.
-    Rules:
-      - leading '.' means absolute FQN (strip the dot)
-      - otherwise try lexical scoping: scope, parent scope, ..., then package, then bare
+    Map a protobuf type token to our internal scalar/wkt label.
+    Unknown/complex types are treated as 'object'.
+    """
+    t = t.strip()
+    if t in _WELL_KNOWN:
+        return _WELL_KNOWN[t]
+    # Drop any generic angle brackets (defensive; normally not used on message tokens)
+    t = re.sub(r"<.*>", "", t).strip()
+    if t in _SCALARS:
+        return _SCALARS[t]
+    return "object"
+
+
+def _resolve_ref(
+    type_token: str,
+    field_scope_fqn: str,
+    package: Optional[str],
+    known_msgs: Set[str],
+) -> Optional[str]:
+    """
+    Resolve a message/enum type token to a known message/enum FQN.
+
+    Resolution order:
+      1) Absolute (leading '.') → exact match
+      2) Lexical scope: scope, parent scope, ...
+      3) Package-qualified
+      4) Bare type (already FQN)
     """
     t = type_token.strip()
     if t.startswith("."):
         cand = t[1:]
         return cand if cand in known_msgs else None
 
-    # candidates from inner to outer scope
+    # Scope walk: current -> parent -> ...
     parts = field_scope_fqn.split(".")
     for i in range(len(parts), 0, -1):
         cand = ".".join(parts[:i] + [t])
@@ -95,32 +142,19 @@ def _resolve_ref(type_token: str, field_scope_fqn: str, package: Optional[str], 
         if cand in known_msgs:
             return cand
 
-    # finally bare
     return t if t in known_msgs else None
 
 
 def list_protobuf_messages(path: str) -> List[str]:
+    """
+    Return fully-qualified names of all message definitions in a .proto file.
+    Enums and oneofs are ignored; only messages are returned.
+    """
     with open(path, "r", encoding="utf-8") as f:
-        raw_lines = f.readlines()
+        raw = f.read()
 
-    # strip comments
-    lines: List[str] = []
-    in_block = False
-    for ln in raw_lines:
-        if in_block:
-            if BLOCK_COMMENT_END_RE.search(ln):
-                in_block = False
-            continue
-        if BLOCK_COMMENT_START_RE.search(ln) and not BLOCK_COMMENT_END_RE.search(ln):
-            in_block = True
-            continue
-        if LINE_COMMENT_RE.match(ln):
-            continue
-        # remove inline // and /* ... */ on a single line
-        if '//' in ln:
-            ln = ln.split('//', 1)[0]
-        ln = re.sub(r'/\*.*?\*/', '', ln)
-        lines.append(ln.rstrip('\n'))
+    text = _strip_comments(raw)
+    lines: List[str] = [ln.rstrip("\n") for ln in text.splitlines()]
 
     package: Optional[str] = None
     stack: List[str] = []
@@ -142,16 +176,17 @@ def list_protobuf_messages(path: str) -> List[str]:
         if IMPORT_LINE_RE.match(ln):
             continue
 
-        m = MESSAGE_OPEN_RE.match(ln)
-        if m:
-            stack.append(m.group(1))
+        mm = MESSAGE_OPEN_RE.match(ln)
+        if mm:
+            stack.append(mm.group(1))
             out.append(fq_from_stack())
             continue
 
-        if ENUM_OPEN_RE.match(ln) or ONEOF_OPEN_RE.match(ln):
-            # we don't list enums/oneofs as messages; but keep nesting correct
-            stack.append("(enum)" if ENUM_OPEN_RE.match(
-                ln) else f"oneof:{ONEOF_OPEN_RE.match(ln).group(1)}")
+        me = ENUM_OPEN_RE.match(ln)
+        mo = ONEOF_OPEN_RE.match(ln)
+        if me or mo:
+            # track nesting so subsequent closes pop correctly
+            stack.append("(enum)" if me else f"oneof:{mo.group(1)}")
             continue
 
         if BLOCK_CLOSE_RE.match(ln):
@@ -159,43 +194,8 @@ def list_protobuf_messages(path: str) -> List[str]:
                 stack.pop()
             continue
 
-    # filter out the pseudo "(enum)" / "oneof:..." frames if any leaked (shouldn't)
-    return [m for m in out if "(enum)" not in m and not m.endswith(")")]
-
-
-
-def _strip_comments(text: str) -> str:
-    # Remove // line comments and /* ... */ block comments
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    text = re.sub(r"//.*?$", "", text, flags=re.M)
-    return text
-
-
-def _map_type(t: str) -> Any:
-    """Map protobuf type token to internal base type."""
-    t = t.strip()
-    # well-known fully qualified
-    if t in _WELL_KNOWN:
-        return _WELL_KNOWN[t]
-    # generics in angle brackets (e.g., nested message types aren't generic; ignore <> if ever present)
-    t = re.sub(r"<.*>", "", t).strip()
-    # simple scalar?
-    if t in _SCALARS:
-        return _SCALARS[t]
-    # If it's a qualified message/enum type, treat as object (expand when we inline message schema)
-    return "object"
-
-
-def _merge_object(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
-    for k, v in src.items():
-        if k not in dst:
-            dst[k] = v
-        elif isinstance(dst[k], dict) and isinstance(v, dict):
-            _merge_object(dst[k], v)
-        else:
-            # last one wins (rare: duplicate field names across redefinitions)
-            dst[k] = v
-    return dst
+    # (enum/oneof) frames never went to `out`, this is mostly belt-and-suspenders
+    return [m for m in out if "(enum)" not in m]
 
 
 def _build_message_tree(
@@ -205,9 +205,15 @@ def _build_message_tree(
     package: Optional[str],
     children: Dict[str, List[str]],
 ) -> Dict[str, Any]:
+    """
+    Recursively inline a message definition into a JSON-like type tree.
+    - message fields → nested dict
+    - enum fields   → 'str'
+    - map fields    → 'object'
+    - repeated(*)   → [elem_type]
+    """
     fields = msgs.get(msg_fqn, {})
     out: Dict[str, Any] = {}
-
     known_msgs = set(msgs.keys())
 
     for fname, finfo in fields.items():
@@ -215,7 +221,7 @@ def _build_message_tree(
         repeated = finfo.get("repeated", False)
 
         if fkind == "map":
-            t = "object"
+            t: Any = "object"
         elif fkind == "enum":
             t = "str"
         elif fkind == "message":
@@ -229,7 +235,7 @@ def _build_message_tree(
                     t = _build_message_tree(
                         ref_fqn, msgs, enums, package, children)
                 else:
-                    t = "object"       # external/unknown
+                    t = "object"       # external/unknown type
             else:
                 t = "object"
         else:
@@ -239,7 +245,7 @@ def _build_message_tree(
             t = [t]
         out[fname] = t
 
-    # also expose nested message *definitions* as properties
+    # Expose nested message *definitions* as properties (when not referenced by name)
     for child_fqn in children.get(msg_fqn, []):
         child_name = child_fqn.rsplit(".", 1)[-1]
         out[child_name] = _build_message_tree(
@@ -256,6 +262,15 @@ def _parse_proto_structure(text: str) -> Tuple[
     # children: parent message FQN -> [child message FQNs]
     Dict[str, List[str]],
 ]:
+    """
+    Lightweight parser for .proto structure.
+    Produces:
+      - msgs: fields per message FQN (with coarse kind: scalar|enum|message|map)
+      - enums: enum FQNs
+      - top_order: top-level message FQNs in appearance order
+      - package: declared package (or None)
+      - children: nesting tree for messages (to expose nested defs)
+    """
     text = _strip_comments(text)
     lines = [ln for ln in text.splitlines() if ln.strip()]
 
@@ -265,17 +280,25 @@ def _parse_proto_structure(text: str) -> Tuple[
     top_order: List[str] = []
     children: Dict[str, List[str]] = {}
 
-    # stack of message FQNs; for enums/oneofs we still track that we're inside the msg
-    # ('message'|'enum'|'oneof', fqn_or_name)
+    # Stack of ('message'|'enum'|'oneof', fqn_or_name)
     stack: List[Tuple[str, str]] = []
     cur_msg_fqn: Optional[str] = None
 
-
     def join_nested(parent_fqn: Optional[str], name: str) -> str:
-        # parent_fqn is already fully-qualified; only add package at top-level
+        # parent_fqn is already FQN; only add package at top-level
         if parent_fqn:
             return f"{parent_fqn}.{name}"
         return f"{package}.{name}" if package else name
+
+    # maintain a live set of enum short names for quick checks
+    enum_short_names: Set[str] = set()
+
+    def _is_enum_token(t: str) -> bool:
+        """Return True if type token refers to a known enum (FQN, absolute, or suffix)."""
+        if t in enums or (t.startswith(".") and t[1:] in enums):
+            return True
+        last = t.rsplit(".", 1)[-1]
+        return last in enum_short_names
 
     for ln in lines:
         # package / import
@@ -287,38 +310,39 @@ def _parse_proto_structure(text: str) -> Tuple[
             continue
 
         # opens
-        m = MESSAGE_OPEN_RE.match(ln)
-        if m:
-            name = m.group(1)
+        mm = MESSAGE_OPEN_RE.match(ln)
+        if mm:
+            name = mm.group(1)
             fqn = join_nested(cur_msg_fqn, name)
             stack.append(("message", fqn))
             cur_msg_fqn = fqn
             msgs.setdefault(fqn, {})
             if len([k for k, _ in stack if k == "message"]) == 1:
                 top_order.append(fqn)
-            # register nesting
-            if "." in fqn:
+            if "." in fqn:  # register nesting
                 parent = fqn.rsplit(".", 1)[0]
                 children.setdefault(parent, []).append(fqn)
             continue
 
-        m = ENUM_OPEN_RE.match(ln)
-        if m:
-            name = m.group(1)
+        me = ENUM_OPEN_RE.match(ln)
+        if me:
+            name = me.group(1)
             fqn = join_nested(cur_msg_fqn, name)
             stack.append(("enum", fqn))
             enums.add(fqn)
+            enum_short_names.add(name)  # keep short-name index live
             continue
 
-        if ONEOF_OPEN_RE.match(ln):
-            stack.append(("oneof", ""))  # name unused
+        mo = ONEOF_OPEN_RE.match(ln)
+        if mo:
+            stack.append(("oneof", mo.group(1)))  # name unused downstream
             continue
 
         # closes
         if BLOCK_CLOSE_RE.match(ln):
             if stack:
                 stack.pop()
-            # update current enclosing message fqn
+            # update current enclosing message FQN
             cur_msg_fqn = None
             for k, v in reversed(stack):
                 if k == "message":
@@ -332,12 +356,12 @@ def _parse_proto_structure(text: str) -> Tuple[
             if not fm:
                 continue
 
-            label = fm.group(1)  # required/optional/repeated or None
+            label = fm.group(1)  # required|optional|repeated or None
 
-            if fm.group("map_name"):
-                # map<k,v> name = N;
-                name = fm.group("map_name")
-                msgs[cur_msg_fqn][name] = {
+            # map<k,v> name = N;
+            map_name = fm.group("map_name")
+            if map_name:
+                msgs[cur_msg_fqn][map_name] = {
                     "kind": "map",
                     "key_type": fm.group("map_k"),
                     "value_type": fm.group("map_v"),
@@ -349,16 +373,17 @@ def _parse_proto_structure(text: str) -> Tuple[
 
             t = fm.group("type")
             name = fm.group("name")
-            # classify roughly now; final resolution happens later in _build_message_tree
-            kind = (
-                "scalar" if (t in _SCALARS or t in _WELL_KNOWN)
-                else "enum" 
-                if any(t == e.split(".")[-1] or t == e or t.endswith("." + e.split(".")[-1]) for e in enums)
-                else "message"
-            )
+
+            if t in _SCALARS or t in _WELL_KNOWN:
+                kind = "scalar"
+            elif _is_enum_token(t):
+                kind = "enum"
+            else:
+                kind = "message"
+
             msgs[cur_msg_fqn][name] = {
                 "kind": kind,
-                "type": t,                  # keep raw token for resolution
+                "type": t,                  # raw token; resolution happens later
                 "repeated": (label == "repeated"),
                 "required": (label == "required"),
                 "scope": cur_msg_fqn,       # where this field was declared
@@ -367,44 +392,16 @@ def _parse_proto_structure(text: str) -> Tuple[
     return msgs, enums, top_order, package, children
 
 
-def _choose_message_name(requested: Optional[str],
-                         msgs: Dict[str, Dict[str, Any]],
-                         top: List[str],
-                         package: Optional[str]) -> str:
-    if not requested:
-        return top[0]
-
-    # exact FQN
-    if requested in msgs:
-        return requested
-
-    # dot-absolute ".pkg.Message"
-    if requested.startswith('.') and requested[1:] in msgs:
-        return requested[1:]
-
-    # try package-qualified
-    if package:
-        cand = f"{package}.{requested}"
-        if cand in msgs:
-            return cand
-
-    # unique suffix match (e.g. "Outer.Inner")
-    matches = [m for m in msgs if m.endswith(
-        f".{requested}") or m == requested]
-    if len(matches) == 1:
-        return matches[0]
-
-    raise ValueError(
-        f"Message '{requested}' not found. Available top-level: {', '.join(top)}"
-    )
-    
-
 def _collect_required_paths_proto(
     start_fqn: str,
     msgs: Dict[str, Dict[str, Any]],
     package: Optional[str],
     children: Dict[str, List[str]],
 ) -> Set[str]:
+    """
+    Collect dotted required paths by walking required fields recursively through
+    referenced messages and nested definitions.
+    """
     required: Set[str] = set()
     known_msgs = set(msgs.keys())
 
@@ -417,24 +414,18 @@ def _collect_required_paths_proto(
 
     def walk(msg_fqn: str, prefix: str = ""):
         fields = msgs.get(msg_fqn, {})
-        # 1) field-based traversal (always)
+        # (1) follow declared fields
         for fname, finfo in fields.items():
             path = f"{prefix}.{fname}" if prefix else fname
             if finfo.get("required"):
                 required.add(path)
             if finfo["kind"] == "message":
-                ref = _resolve_ref(
-                    finfo["type"],
-                    finfo.get("scope", msg_fqn),
-                    package,
-                    known_msgs,
-                )
+                ref = _resolve_ref(finfo["type"], finfo.get(
+                    "scope", msg_fqn), package, known_msgs)
                 if ref:
                     walk(ref, path)
-
-        # 2) nested definition traversal — only for children not referenced by any field here
+        # (2) traverse nested message definitions not referenced by a field
         for child_fqn in children.get(msg_fqn, []):
-            # skip if any field resolves to this nested child type
             if any(resolves_to(child_fqn, finfo, msg_fqn) for finfo in fields.values()):
                 continue
             child_name = child_fqn.rsplit(".", 1)[-1]
@@ -446,6 +437,16 @@ def _collect_required_paths_proto(
 
 
 def schema_from_protobuf_file(path: str, message: Optional[str] = None) -> Tuple[Dict[str, Any], Set[str], str]:
+    """
+    Parse a .proto file and produce:
+      - tree: inlined type tree for the chosen message
+      - required paths: dotted paths for required fields
+      - chosen_fqn: fully-qualified name of the resolved message
+    `message` may be:
+      - None (first top-level message)
+      - absolute FQN (e.g., "pkg.Outer.Inner")
+      - unique suffix (e.g., "Outer.Inner")
+    """
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
 
@@ -453,18 +454,16 @@ def schema_from_protobuf_file(path: str, message: Optional[str] = None) -> Tuple
     if not top:
         raise ValueError(f"No messages found in {path}")
 
-    # Resolve desired message → FQN (support absolute and unique suffix)
+    # Resolve desired message → FQN (absolute or unique suffix)
     def pick_fqn(name_or_suffix: Optional[str]) -> str:
-        known = list(msgs.keys())
         if name_or_suffix is None:
             return top[0]
         q = name_or_suffix.lstrip(".")
         # exact match
-        for k in known:
-            if k == q:
-                return k
+        if q in msgs:
+            return q
         # unique suffix match
-        cand = [k for k in known if k.endswith("." + q) or k == q]
+        cand = [k for k in msgs if k.endswith("." + q) or k == q]
         if not cand:
             raise ValueError(
                 f"Message '{name_or_suffix}' not found in {path}. Available: {', '.join(top)}")
@@ -476,6 +475,7 @@ def schema_from_protobuf_file(path: str, message: Optional[str] = None) -> Tuple
     chosen_fqn = pick_fqn(message)
 
     tree = _build_message_tree(chosen_fqn, msgs, enums, package, children)
-    required = _collect_required_paths_proto(chosen_fqn, msgs, package, children)
+    required = _collect_required_paths_proto(
+        chosen_fqn, msgs, package, children)
 
     return tree, required, chosen_fqn

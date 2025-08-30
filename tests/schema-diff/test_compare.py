@@ -1,4 +1,4 @@
-from schema_diff.compare import _inject_presence_for_diff
+from schema_diff.utils import inject_presence_for_diff
 from schema_diff.normalize import walk_normalize
 from schema_diff.compare import compare_trees
 import json
@@ -13,7 +13,7 @@ def test_inject_presence_scalars_and_arrays():
         "meta": {"active": "bool", "note": "str"},
     }
     required = {"id", "meta.active"}  # required paths
-    injected = _inject_presence_for_diff(ref, required)
+    injected = inject_presence_for_diff(ref, required)
     n = walk_normalize(injected)
 
     # required stay plain
@@ -49,10 +49,7 @@ def test_presence_only_diff_jsonschema_vs_sql(tmp_path):
     res = _run(exe + [str(js), str(sql), "--left", "jsonschema",
                "--right", "sql", "--right-table", "t", "--no-color"])
     assert res.returncode == 0
-    assert (
-        "No differences." in res.stdout
-        or "-- True schema mismatches -- (0)" in res.stdout
-    )
+    assert "No differences" in res.stdout or "Type mismatches -- (0)" in res.stdout
     
 
 def test_root_list_fields(tmp_path):
@@ -69,5 +66,5 @@ def test_root_list_fields(tmp_path):
         exe + [str(left), str(right),
                "--left", "jsonschema", "--right", "jsonschema", "--no-color"])
     assert res.returncode == 0
-    assert "True schema mismatches" in res.stdout
+    assert "-- Type mismatches --" in res.stdout
     assert ".id" in res.stdout

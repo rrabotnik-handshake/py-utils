@@ -89,3 +89,13 @@ def test_dbt_schema_yml_presence_and_optional_types(tmp_path):
 
     # Presence
     assert required == {"id"}
+
+
+def test_dbt_manifest_array_angle(tmp_path):
+    man = {"nodes": {"model.x.y": {"resource_type": "model",
+                                   "name": "y", "columns": {"tags": {"data_type": "ARRAY<STRING>"}}}}}
+    p = tmp_path / "m.json"
+    p.write_text(json.dumps(man), encoding="utf-8")
+    from schema_diff.dbt_schema_parser import schema_from_dbt_manifest
+    tree, req = schema_from_dbt_manifest(str(p), model="y")
+    assert tree["tags"] in (["str"], "array")

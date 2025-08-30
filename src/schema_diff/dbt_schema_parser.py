@@ -1,21 +1,44 @@
+"""
+dbt schema parsers.
+
+This module exposes two entry points:
+
+- `schema_from_dbt_manifest(path, model=None) -> (schema_tree, required_paths)`
+    Parses a dbt `target/manifest.json` and extracts per-column *types* from
+    `data_type` (or `type`) and *presence* from not-null tests/constraints.
+
+- `schema_from_dbt_schema_yml(path, model=None) -> (schema_tree, required_paths)`
+    Parses a dbt `schema.yml` (v2). Usually has *tests* but not concrete types,
+    so types default to "any" unless `data_type` or `meta.type` is present.
+
+Both return:
+    schema_tree: Dict[str, Any] with *pure types* e.g. 'int'|'str'|... or ['str'] for arrays
+    required_paths: Set[str] of columns that are presence-required (not null)
+"""
+
 from __future__ import annotations
 
 import json
 from typing import Any, Dict, Optional, Tuple, Set, List
+
 import yaml
+import re
 
 from .io_utils import open_text
 
 
-# Reuse a SQL-like mapping; dbt adapters emit database-native types.
+# Adapter-agnostic normalization of dbt/emitted data types to internal labels.
+# Arrays are represented as [elem_type]; normalizer can later collapse ["any"] -> "array".
 TYPE_MAP_DBT: Dict[str, str] = {
     # integers
     "tinyint": "int", "smallint": "int", "int2": "int", "integer": "int", "int": "int",
     "int4": "int", "bigint": "int", "int8": "int", "serial": "int", "bigserial": "int",
 
     # floats / decimals
-    "float": "float", "float4": "float", "float8": "float", "double": "float",
-    "double precision": "float", "real": "float", "numeric": "float", "decimal": "float",
+    "float": "float", "float4": "float", "float8": "float",
+    "double": "float", "double precision": "float",
+    "real": "float", "numeric": "float", "decimal": "float",
+    "bignumeric": "float",
 
     # boolean
     "boolean": "bool", "bool": "bool",
@@ -24,6 +47,8 @@ TYPE_MAP_DBT: Dict[str, str] = {
     "varchar": "str", "character varying": "str",
     "char": "str", "character": "str", "text": "str", "citext": "str",
     "uuid": "str", "json": "str", "jsonb": "str", "bytea": "str",
+    "string": "str",
+    "bytes": "str",
 
     # date/time
     "date": "date",
@@ -33,56 +58,96 @@ TYPE_MAP_DBT: Dict[str, str] = {
     "datetime": "timestamp",
 }
 
+ARRAY_ANGLE_RE = re.compile(r"^array\s*<\s*([^>]+)\s*>$")
 
-def _normalize_dtype(s: str) -> str:
-    s = " ".join(s.strip().lower().split())
-    # strip (...) suffix (length/precision), keep array markers if any
+
+def _normalize_dtype(dtype: str) -> str | list[str]:
+    """
+    Map a dbt/adapter dtype string to internal type label.
+
+    Returns:
+      - scalar: 'int'|'float'|'bool'|'str'|'date'|'time'|'timestamp'|'any'
+      - array:  [elem_type]  (e.g., ['str'])
+    """
+    s = " ".join((dtype or "").strip().lower().split())
+
+    # 1) Postgres-like: text[] / varchar(255)[]
     is_array = s.endswith("[]")
     if is_array:
         s = s[:-2].strip()
+
+    # 2) BigQuery/Snowflake-like: array<string> / array<varchar(255)>
+    m = ARRAY_ANGLE_RE.match(s)
+    if m:
+        inner = m.group(1).strip()
+        # strip inner precision too
+        inner_base = inner.split("(", 1)[0].strip()
+        mapped_inner = TYPE_MAP_DBT.get(
+            inner_base, TYPE_MAP_DBT.get(inner, "any"))
+        return ["any" if mapped_inner == "any" else mapped_inner]
+
     base = s.split("(", 1)[0].strip()
     mapped = TYPE_MAP_DBT.get(base, TYPE_MAP_DBT.get(s, "any"))
-    if is_array:
-        # represent arrays as element list; normalizer will collapse ["any"] -> "array"
-        # type: ignore[return-value]
-        return ["any" if mapped == "any" else mapped]
-    return mapped
+    return ["any" if mapped == "any" else mapped] if is_array else mapped
+
+
+def _iter_test_names(tests_field: Any) -> List[str]:
+    """
+    Normalize dbt 'tests' lists that may contain strings or dicts.
+
+    Examples:
+      ["not_null", {"unique": {...}}, "accepted_values"]
+      → ["not_null", "unique", "accepted_values"]
+    """
+    out: List[str] = []
+    if not isinstance(tests_field, list):
+        return out
+    for tdef in tests_field:
+        if isinstance(tdef, str):
+            out.append(tdef)
+        elif isinstance(tdef, dict):
+            out.extend(tdef.keys())
+    return out
+
 
 # ---------------- Manifest.json (preferred: has types) --------------------
 
 
 def schema_from_dbt_manifest(path: str, model: Optional[str] = None) -> Tuple[Dict[str, Any], Set[str]]:
     """
-    Parse dbt target/manifest.json, pull column data_type for a given model.
-    Returns (schema_tree, required_paths).
-      - schema_tree uses pure types: 'int' | 'str' | ... or [elem]
-      - required_paths are columns with not_null (from tests or constraints)
-    'model' can be a model name ('my_model') or a fully qualified node name.
+    Parse dbt target/manifest.json, pull column `data_type` for the target model.
+
+    Args:
+      path: path to manifest.json.
+      model: model selector; can be simple name ('my_model'), alias, or full node id
+             (e.g. 'model.project_name.my_model'). If None, picks the first model.
+
+    Returns:
+      (schema_tree, required_paths)
     """
     with open_text(path) as f:
         man = json.load(f)
 
-    nodes: Dict[str, Any] = man.get("nodes", {})
-    # If a "sources" section exists, ignore here (we're comparing models).
+    nodes: Dict[str, Any] = man.get("nodes", {}) or {}
     matches: List[tuple[str, Any]] = []
     mlc = (model or "").lower()
 
     for node_id, node in nodes.items():
         if node.get("resource_type") != "model":
             continue
-        name = node.get("name") or ""
-        alias = node.get("alias") or ""
-        fq = node_id  # e.g., model.project_name.my_model
+        name = (node.get("name") or "").lower()
+        alias = (node.get("alias") or "").lower()
+        fq = node_id.lower()  # e.g., model.project_name.my_model
         if not model:
             matches.append((fq, node))
         else:
-            if mlc in {name.lower(), alias.lower(), fq.lower()}:
+            if mlc in {name, alias, fq}:
                 matches.append((fq, node))
 
     if not matches:
         raise ValueError(f"No dbt model found matching '{model}' in {path}")
 
-    # If multiple, prefer exact name match; else take the first
+    # Prefer exact name/alias/node-id match if provided; else take the first sorted
     fq_name, node = sorted(matches, key=lambda x: (x[0] != mlc, x[0]))[0]
 
     cols = node.get("columns", {}) or {}
@@ -90,34 +155,23 @@ def schema_from_dbt_manifest(path: str, model: Optional[str] = None) -> Tuple[Di
     required: Set[str] = set()
 
     for col_name, col_meta in cols.items():
-        # Try adapter-reported data_type
+        # Prefer adapter-reported data_type; fallback to 'type' if present
         dtype = (col_meta.get("data_type")
                  or col_meta.get("type") or "").strip()
         mapped = _normalize_dtype(dtype) if dtype else "any"
-        if isinstance(mapped, list):
-            t: Any = ["any" if mapped[0] == "any" else mapped[0]]
-        else:
-            t = mapped
-        schema[col_name] = t
+        schema[col_name] = mapped
 
-        # Presence: honor 'not_null' tests or constraints
-        tests = col_meta.get("tests") or []
-        # tests can be list of strings or dicts; normalize to names
-        test_names = []
-        for tdef in tests:
-            if isinstance(tdef, str):
-                test_names.append(tdef)
-            elif isinstance(tdef, dict):
-                test_names.extend(tdef.keys())
-        if any(tn.endswith(".not_null") or tn == "not_null" for tn in test_names):
+        # Presence via tests/constraints
+        tests = _iter_test_names(col_meta.get("tests") or [])
+        if any(tn.endswith(".not_null") or tn == "not_null" for tn in tests):
             required.add(col_name)
 
-        # Some adapters include constraints; also treat NOT NULL constraints
-        for c in col_meta.get("constraints", []):
-            if isinstance(c, dict) and c.get("type", "").lower() == "not_null":
+        for c in col_meta.get("constraints", []) or []:
+            if isinstance(c, dict) and (c.get("type", "") or "").lower() == "not_null":
                 required.add(col_name)
 
     return schema, required
+
 
 # ---------------- schema.yml (tests; usually no types) --------------------
 
@@ -127,7 +181,13 @@ def schema_from_dbt_schema_yml(path: str, model: Optional[str] = None) -> Tuple[
     Parse a dbt schema.yml (v2). Uses tests for presence (not_null).
     Types are often not present, so columns default to "any" unless a custom
     'data_type' (or meta.type) is provided.
-    Returns (schema_tree, required_paths).
+
+    Args:
+      path: path to schema.yml
+      model: model selector by 'name' or 'alias'. If None, picks the first model.
+
+    Returns:
+      (schema_tree, required_paths)
     """
     if yaml is None:
         raise RuntimeError(
@@ -155,31 +215,18 @@ def schema_from_dbt_schema_yml(path: str, model: Optional[str] = None) -> Tuple[
     required: Set[str] = set()
 
     for c in cols:
-        col = c.get("name")
-        if not col:
+        col_name = c.get("name")
+        if not col_name:
             continue
 
-        # Try to find a declared type in custom fields if present
-        declared = (
-            c.get("data_type")
-            or (c.get("meta") or {}).get("type")
-            or ""
-        )
+        # Optional declared type in schema.yml (non-standard; seen in some projects)
+        declared = (c.get("data_type") or (
+            c.get("meta") or {}).get("type") or "").strip()
         mapped = _normalize_dtype(declared) if declared else "any"
-        if isinstance(mapped, list):
-            t: Any = ["any" if mapped[0] == "any" else mapped[0]]
-        else:
-            t = mapped
-        schema[col] = t
+        schema[col_name] = mapped
 
-        tests = c.get("tests") or []
-        test_names = []
-        for tdef in tests:
-            if isinstance(tdef, str):
-                test_names.append(tdef)
-            elif isinstance(tdef, dict):
-                test_names.extend(tdef.keys())
-        if any(tn.endswith(".not_null") or tn == "not_null" for tn in test_names):
-            required.add(col)
+        tests = _iter_test_names(c.get("tests") or [])
+        if any(tn.endswith(".not_null") or tn == "not_null" for tn in tests):
+            required.add(col_name)
 
     return schema, required

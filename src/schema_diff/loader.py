@@ -1,3 +1,20 @@
+"""
+Loader utilities for turning *anything* (data files or schema files)
+into a unified (type_tree, required_paths, label) triple.
+
+Supported kinds:
+- data           : JSON / NDJSON (optionally gz), array-of-objects, or single JSON object
+- jsonschema     : JSON Schema (draft-ish), also tolerates list-of-field dicts
+- spark          : Spark-style text schema (recursively parsed)
+- sql            : SQL CREATE TABLE / column list (Postgres, BigQuery-ish)
+- dbt-manifest   : dbt manifest.json
+- dbt-yml        : dbt schema.yml
+- protobuf       : .proto files (requires selecting a message)
+
+The goal: keep CLI and other callers simple and consistent, and keep all
+kind-detection, sniffing, and per-source quirks confined to this module.
+"""
+
 from __future__ import annotations
 from typing import Any, Optional, Set, Tuple
 import json
@@ -7,14 +24,18 @@ from .json_schema_parser import schema_from_json_schema_file
 from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
 from .dbt_schema_parser import schema_from_dbt_manifest, schema_from_dbt_schema_yml
-from .io_utils import sample_records, nth_record, open_text
 from .protobuf_schema_parser import schema_from_protobuf_file, list_protobuf_messages
+from .io_utils import sample_records, nth_record, open_text, sniff_ndjson
+from .utils import coerce_root_to_field_dict  # single canonical helper
 
 __all__ = [
     "load_left_or_right",
     "KIND_DATA", "KIND_JSONSCHEMA", "KIND_SPARK",
-    "KIND_SQL", "KIND_DBT_MANIFEST", "KIND_DBT_YML", "KIND_AUTO", "KIND_PROTOBUF",
+    "KIND_SQL", "KIND_DBT_MANIFEST", "KIND_DBT_YML",
+    "KIND_AUTO", "KIND_PROTOBUF",
 ]
+
+# ---- Kind constants -------------------------------------------------------
 
 KIND_DATA = "data"
 KIND_JSONSCHEMA = "jsonschema"
@@ -22,30 +43,11 @@ KIND_SPARK = "spark"
 KIND_SQL = "sql"
 KIND_DBT_MANIFEST = "dbt-manifest"
 KIND_DBT_YML = "dbt-yml"
-KIND_AUTO = "auto"
 KIND_PROTOBUF = "protobuf"
+KIND_AUTO = "auto"
 
 
-def _coerce_root_list_to_dict(obj):
-    if not isinstance(obj, list) or not obj:
-        return obj
-    # case 1: [{'name': ..., 'type': ...}, ...]
-    if all(isinstance(el, dict) and "name" in el for el in obj):
-        out = {}
-        for el in obj:
-            name = str(el["name"])
-            t = el.get("type", el.get("dataType", el.get("dtype", "any")))
-            out[name] = t
-        return out
-    # case 2: [{'id': 'int'}, {'name': 'str'}, ...]
-    if all(isinstance(el, dict) and len(el) == 1 for el in obj):
-        out = {}
-        for el in obj:
-            (name, t) = next(iter(el.items()))
-            out[str(name)] = t
-        return out
-    return obj
-
+# ---- Small helpers --------------------------------------------------------
 
 def _ensure_tree_required(x) -> tuple[Any, set[str]]:
     """
@@ -64,24 +66,19 @@ def _ensure_tree_required(x) -> tuple[Any, set[str]]:
     return x, set()
 
 
-def _is_probably_ndjson(sample_text: str) -> bool:
-    # two non-empty lines both starting with "{"
-    lines = [ln.strip() for ln in sample_text.splitlines() if ln.strip()]
-    return len(lines) >= 2 and lines[0].startswith("{") and lines[1].startswith("{")
-
-
 def _sniff_json_kind(path: str) -> Optional[str]:
     """
-    Peek into a .json/.json.gz and try to distinguish:
+    Peek into a .json/.json.gz (or similar) and try to distinguish:
       - dbt manifest (nodes/sources/child_map or metadata.dbt_version)
-      - JSON Schema (common JSON Schema signatures)
+      - JSON Schema (object with schema-like keys)
       - NDJSON
       - otherwise: data
-    Returns KIND_* or None if not JSON-like.
+
+    Returns a KIND_* string or None if the file doesn't look JSON-like.
     """
     try:
         with open_text(path) as f:
-            # Small peek: enough to include most roots but not the whole file
+            # small peek; enough for roots but not whole file
             buf = f.read(131072)  # 128 KiB
     except Exception:
         return None
@@ -89,24 +86,22 @@ def _sniff_json_kind(path: str) -> Optional[str]:
     if not buf or not buf.strip():
         return KIND_DATA  # empty → treat as data
 
-    s = buf.lstrip()
-
-    # Quick NDJSON heuristic first (works even if JSON object parse will fail)
-    if _is_probably_ndjson(buf):
+    # NDJSON heuristic (works even if JSON object parse fails)
+    if sniff_ndjson(buf):
         return KIND_DATA
 
-    # If root looks like an array, treat as data (JSON array of objects)
+    s = buf.lstrip()
+
+    # JSON array root → treat as data (array of objects)
     if s.startswith("["):
         return KIND_DATA
 
-    # Try to parse a *small* object to inspect top-level keys.
-    # If this fails, we still might have NDJSON or non-JSON; fall back.
+    # Try JSON object root
     if s.startswith("{"):
         try:
             obj = json.loads(buf)
         except Exception:
-            # Could be a very large single JSON object that we truncated.
-            # Fall back to "data" (single JSON object) rather than guessing schema.
+            # Likely a very large single JSON record that was truncated in the peek
             return KIND_DATA
 
         if not isinstance(obj, dict):
@@ -122,62 +117,57 @@ def _sniff_json_kind(path: str) -> Optional[str]:
         ):
             return KIND_DBT_MANIFEST
 
-        # JSON Schema signatures (beyond just type/properties)
+        # JSON Schema signatures
         if (
             obj.get("$schema") or
-            obj.get("$id") or
             (obj.get("type") == "object" and isinstance(obj.get("properties"), dict)) or
             any(k in obj for k in ("oneOf", "anyOf",
                 "allOf", "definitions", "$defs", "items"))
         ):
-            # Heuristic: prefer JSON Schema only if it's not obviously plain data.
-            # If it has 'properties' or '$schema', it’s almost certainly a schema.
-            if (obj.get("type") == "object" and isinstance(obj.get("properties"), dict)) or obj.get("$schema"):
-                return KIND_JSONSCHEMA
-            # If it has items/oneOf/etc., it’s very likely a schema too.
-            if any(k in obj for k in ("oneOf", "anyOf", "allOf", "definitions", "$defs", "items")):
-                return KIND_JSONSCHEMA
+            return KIND_JSONSCHEMA
 
-        # Otherwise treat it as "data" (single JSON object file)
+        # Otherwise: treat as a single JSON object data file
         return KIND_DATA
 
-    # Didn’t look like JSON object/array; maybe NDJSON or something else
-    if _is_probably_ndjson(buf):
-        return KIND_DATA
-
+    # Not a JSON-looking root; leave undetermined
     return None
 
 
-
 def _guess_kind(path: str) -> str:
+    """
+    Best-effort kind detection from filename/contents.
+    Prefers unambiguous extensions; uses JSON sniffing for .json/.gz.
+    """
     p = path.lower()
 
-    # SQL & YAML are unambiguous
+    # Unambiguous
     if p.endswith(".sql"):
         return KIND_SQL
     if p.endswith(".yml") or p.endswith(".yaml"):
         return KIND_DBT_YML
-
-    # Spark schemas are commonly provided as .txt
     if p.endswith(".txt"):
         return KIND_SPARK
+    if p.endswith(".proto"):
+        return KIND_PROTOBUF
 
-    # JSON / NDJSON / JSON.GZ / NDJSON.GZ
-    if any(p.endswith(suf) for suf in (".json", ".json.gz", ".ndjson", ".ndjson.gz", ".jsonl", ".jsonl.gz", ".gz")):
+    # JSON / NDJSON (optionally gz)
+    if any(p.endswith(suf) for suf in (
+        ".json", ".json.gz", ".ndjson", ".ndjson.gz",
+        ".jsonl", ".jsonl.gz", ".gz"
+    )):
         sniff = _sniff_json_kind(path)
         if sniff:
             return sniff
         # fallback when sniffing fails
         if p.endswith((".ndjson", ".ndjson.gz", ".jsonl", ".jsonl.gz")):
             return KIND_DATA
-        # default for .json/.json.gz if we couldn't parse
-        return KIND_DATA
-
-    if p.endswith(".proto"):
-        return KIND_PROTOBUF
+        return KIND_DATA  # default for .json/.json.gz
 
     # Last resort: assume data
     return KIND_DATA
+
+
+# ---- Public API -----------------------------------------------------------
 
 def load_left_or_right(
     path: str,
@@ -191,15 +181,22 @@ def load_left_or_right(
     proto_message: Optional[str] = None,
 ) -> Tuple[Any, Set[str], str]:
     """
-    Returns (type_tree, required_paths, label)
-    - type_tree: pure types (no '|missing' injected)
-    - required_paths: presence constraints (e.g., NOT NULL or JSON Schema 'required')
-    - label: display label for headers
+    Load `path` as either a DATA source or a SCHEMA source and return:
+        (type_tree, required_paths, label)
+
+    Notes
+    -----
+    - `type_tree` is the *pure type* tree (no '|missing' mixed in).
+    - `required_paths` is a set of dotted paths with presence constraints
+      (NOT NULL, JSON Schema 'required', etc.).
+    - `label` is what we print in headings (may include table/model/message).
+    - All parser calls are normalized through `_ensure_tree_required`.
     """
     chosen = kind or KIND_AUTO
     if chosen == KIND_AUTO:
         chosen = _guess_kind(path)
 
+    # DATA: sample or pick a specific record and infer a type tree
     if chosen == KIND_DATA:
         if first_record is not None:
             recs = nth_record(path, first_record or 1)
@@ -210,69 +207,81 @@ def load_left_or_right(
         tree = merged_schema_from_samples(recs, cfg)
         return tree, set(), f"{path}{title}"
 
-
+    # JSON Schema (also tolerates "list-of-fields" JSON roots)
     if chosen == KIND_JSONSCHEMA:
-        # If the file is actually a list-of-fields, accept it directly.
         try:
             with open_text(path) as f:
                 raw = json.load(f)
-            coerced = _coerce_root_list_to_dict(raw)
-            # Only short-circuit if the original root is a list and coercion produced a dict
+            coerced = coerce_root_to_field_dict(raw)
+            # If original root is a list and coercion produced a dict, accept it directly
             if isinstance(raw, list) and isinstance(coerced, dict) and coerced:
-                # Treat as a plain type tree with no explicit required info
                 return coerced, set(), path
         except Exception:
-            # If we can't read/parse here, fall through to the schema parser which will surface errors.
+            # If we can't parse here, fall back to the strict parser
             pass
 
-        # Otherwise, parse as a proper JSON Schema
-        tree, required = schema_from_json_schema_file(path)
+        tree, required = _ensure_tree_required(
+            schema_from_json_schema_file(path)
+        )
         return tree, required, path
 
+    # Spark schema (recursively parsed)
     if chosen == KIND_SPARK:
-        tree, required = schema_from_spark_schema_file(path)
+        tree, required = _ensure_tree_required(
+            schema_from_spark_schema_file(path)
+        )
         return tree, required, path
 
+    # SQL schema (CREATE TABLE / column list)
     if chosen == KIND_SQL:
         tree, required = _ensure_tree_required(
-            schema_from_sql_schema_file(path, table=sql_table))
+            schema_from_sql_schema_file(path, table=sql_table)
+        )
         label = path if not sql_table else f"{path}#{sql_table}"
         return tree, required, label
 
+    # dbt manifest
     if chosen == KIND_DBT_MANIFEST:
         tree, required = _ensure_tree_required(
-            schema_from_dbt_manifest(path, model=dbt_model))
+            schema_from_dbt_manifest(path, model=dbt_model)
+        )
         label = path if not dbt_model else f"{path}#{dbt_model}"
         return tree, required, label
 
+    # dbt schema.yml
     if chosen == KIND_DBT_YML:
         tree, required = _ensure_tree_required(
-            schema_from_dbt_schema_yml(path, model=dbt_model))
+            schema_from_dbt_schema_yml(path, model=dbt_model)
+        )
         label = path if not dbt_model else f"{path}#{dbt_model}"
         return tree, required, label
 
-
+    # Protobuf (.proto)
     if chosen == KIND_PROTOBUF:
+        # Autoselect single message; prompt if multiple
         if not proto_message:
-            # If there’s more than one message, ask user to choose.
             try:
-                msgs = list_protobuf_messages(path)  # returns List[str]
+                msgs = list_protobuf_messages(path)  # List[str]
             except Exception:
                 msgs = []
             if len(msgs) == 1:
                 proto_message = msgs[0]
             elif len(msgs) > 1:
+                # Show a reasonable preview; avoid dumping thousands
+                preview = ", ".join(msgs[:50])
+                more = f" (+{len(msgs)-50} more)" if len(msgs) > 50 else ""
                 raise ValueError(
                     f"Multiple Protobuf messages in {path}. "
                     f"Choose one with --left-message/--right-message. "
-                    f"Available: {', '.join(msgs[:50])}"
+                    f"Available: {preview}{more}"
                 )
-            # else: zero (unusual) → let parser raise a clear error
+            # else: zero → let the parser raise a clear error
+
         tree, required, selected = schema_from_protobuf_file(
-            path, message=proto_message)
+            path, message=proto_message
+        )
         label = f"{path}#{selected or proto_message}" if (
             selected or proto_message) else path
-        return tree, required or set(), label
-
+        return tree, (required or set()), label
 
     raise ValueError(f"Unknown kind: {kind}")

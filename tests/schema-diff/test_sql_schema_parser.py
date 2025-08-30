@@ -144,3 +144,12 @@ def test_bq_backticks_and_options(tmp_path):
     assert tree["meta"] == "object"      # current behavior
     assert tree["tags"] == ["str"]
     assert required == {"id"}
+
+
+def test_sql_not_null_before_default_is_captured(tmp_path):
+    sql = """CREATE TABLE t ( name STRING NOT NULL DEFAULT 'x' );"""
+    p = tmp_path / "t.sql"
+    p.write_text(sql, encoding="utf-8")
+    from schema_diff.sql_schema_parser import schema_from_sql_schema_file
+    tree, required = schema_from_sql_schema_file(str(p), table="t")
+    assert "name" in required
