@@ -230,3 +230,77 @@ def schema_from_dbt_schema_yml(path: str, model: Optional[str] = None) -> Tuple[
             required.add(col_name)
 
     return schema, required
+
+
+def schema_from_dbt_model(path: str, model: Optional[str] = None) -> Tuple[Dict[str, Any], Set[str]]:
+    """
+    Parse a dbt model .sql file and extract field information from SELECT statements.
+
+    Args:
+        path: path to the dbt model .sql file.
+        model: model name filter (currently unused for .sql files, but kept for consistency)
+
+    Returns:
+        (schema_tree, required_paths)
+
+    Notes:
+        This is a basic implementation that extracts field names from SELECT statements.
+        It doesn't perform full SQL parsing, so type information is inferred as 'any'.
+        Complex transformations and Jinja templating may not be fully parsed.
+    """
+    import re
+
+    with open_text(path) as f:
+        content = f.read()
+
+    # Remove comments (both -- and /* */ style)
+    content = re.sub(r'--.*$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
+    # Find SELECT statements - look for field patterns
+    # This is a simple heuristic approach
+    schema: Dict[str, Any] = {}
+    required: Set[str] = set()
+
+    # Extract field names from SELECT clauses
+    select_sections = re.findall(r'select\s+(.*?)(?:from|\{|\;|$)', content, re.DOTALL | re.IGNORECASE)
+
+    for select_text in select_sections:
+        # Clean up the select text
+        select_text = select_text.strip()
+        if not select_text:
+            continue
+
+        # Split by commas and extract field names
+        fields = re.split(r',(?![^()]*\))', select_text)  # Split by comma but not inside parentheses
+
+        for field in fields:
+            field = field.strip()
+            if not field or field == '*':
+                continue
+
+            # Extract field name using various patterns
+            field_name = None
+
+            # Case 1: field AS alias
+            as_match = re.search(r'^\s*(?:\w+\.)?\w+\s+as\s+(\w+)\s*$', field, re.IGNORECASE)
+            if as_match:
+                field_name = as_match.group(1)
+
+            # Case 2: function(...) AS alias
+            elif re.search(r'^\s*\w+\([^)]*\)\s+as\s+(\w+)\s*$', field, re.IGNORECASE):
+                func_match = re.search(r'as\s+(\w+)\s*$', field, re.IGNORECASE)
+                if func_match:
+                    field_name = func_match.group(1)
+
+            # Case 3: simple field or alias.field
+            elif re.match(r'^\s*(?:\w+\.)?(\w+)\s*$', field):
+                simple_match = re.search(r'(?:\w+\.)?(\w+)\s*$', field)
+                if simple_match:
+                    field_name = simple_match.group(1)
+
+            if field_name and field_name.isalnum() and not field_name.isdigit():
+                # Map all fields to 'any' since we can't infer types from SQL
+                schema[field_name] = "any"
+
+    return schema, required

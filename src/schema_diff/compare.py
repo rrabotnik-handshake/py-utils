@@ -202,7 +202,7 @@ def compare_trees(
 
     # Apply presence injection to schema sources (not data sources)
     # Data sources already have 'missing' unions; schema sources need them injected
-    SCHEMA_SOURCES = {'sql', 'spark', 'jsonschema', 'protobuf', 'dbt-manifest', 'dbt-schema'}
+    SCHEMA_SOURCES = {'sql', 'spark', 'jsonschema', 'protobuf', 'dbt-manifest', 'dbt-yml', 'dbt-model'}
 
     if left_source_type in SCHEMA_SOURCES:
         # Left side is a schema source - apply presence injection

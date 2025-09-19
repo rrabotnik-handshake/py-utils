@@ -8,7 +8,7 @@ schemas across multiple formats and sources with comprehensive analysis capabili
 - JSON Schema documents (standard format and BigQuery schema conversion)
 - Spark schema dumps (text format with deep nested array<struct<...>> parsing)
 - SQL CREATE TABLE definitions (Postgres-like and BigQuery DDL with STRUCT/ARRAY support)
-- dbt manifest.json or schema.yml files
+- dbt manifest.json, schema.yml, or model.sql files
 - Protobuf message definitions (.proto files)
 
 Key Features:
@@ -166,18 +166,18 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
     # General two-source mode (any ↔ any)
     # ----------------------------------------------------------------------
     gen = parser.add_argument_group("General two-source mode (any ↔ any)")
-    gen.add_argument("--left",  choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml"],
+    gen.add_argument("--left",  choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml", "dbt-model"],
                      help="kind of file1 (default: auto-detect)")
-    gen.add_argument("--right", choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml"],
+    gen.add_argument("--right", choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml", "dbt-model"],
                      help="kind of file2 (default: auto-detect)")
     gen.add_argument("--left-table",
                      help="table to select for file1 when --left sql")
     gen.add_argument("--right-table",
                      help="table to select for file2 when --right sql")
     gen.add_argument("--left-model",
-                     help="model name for file1 when using dbt manifest/schema.yml")
+                     help="model name for file1 when using dbt manifest/schema.yml/model")
     gen.add_argument("--right-model",
-                     help="model name for file2 when using dbt manifest/schema.yml")
+                     help="model name for file2 when using dbt manifest/schema.yml/model")
     gen.add_argument("--left-message",
                      help="When --left is protobuf (or auto-detected .proto), choose the Protobuf message to use.")
     gen.add_argument("--right-message",
@@ -211,11 +211,29 @@ def main():
         parser.error(
             "Use only one of --json-schema, --spark-schema, or --sql-schema.")
 
+    # Auto-detect file types if not explicitly specified
+    auto_left = args.left
+    auto_right = args.right
+    if not auto_left and args.file1:
+        from .loader import _guess_kind
+        auto_left = _guess_kind(args.file1)
+    if not auto_right and args.file2:
+        from .loader import _guess_kind
+        auto_right = _guess_kind(args.file2)
+
+    # Use general mode if:
+    # 1. Explicit type/table/model/message arguments are provided, OR
+    # 2. Auto-detected types are different, OR
+    # 3. Auto-detected types are non-data (schema sources)
     general_mode = any([
         args.left, args.right,
         args.left_table, args.right_table,
         args.left_model, args.right_model,
         args.left_message, args.right_message,
+        # Auto-detection triggers
+        auto_left != auto_right,  # Different types detected
+        auto_left != "data",      # Left is not data
+        auto_right != "data",     # Right is not data
     ])
 
     if not args.file2 and not (args.json_schema or args.spark_schema or args.sql_schema):
@@ -244,7 +262,7 @@ def main():
         # Load left + right sides via loader
         left_tree, left_required, left_label = load_left_or_right(
             args.file1,
-            kind=args.left,
+            kind=args.left or auto_left,
             cfg=cfg,
             samples=args.samples,
             first_record=(r1_idx or 1) if r1_idx is not None else None,
@@ -255,7 +273,7 @@ def main():
         )
         right_tree, right_required, right_label = load_left_or_right(
             args.file2,
-            kind=args.right,
+            kind=args.right or auto_right,
             cfg=cfg,
             samples=args.samples,
             first_record=(r2_idx or 1) if r2_idx is not None else None,
@@ -267,11 +285,11 @@ def main():
 
         # Optionally print sampled records
         if args.show_samples:
-            if args.left in (None, "auto", "data"):
+            if (args.left or auto_left) in (None, "auto", "data"):
                 recs = nth_record(args.file1, r1_idx or 1) if r1_idx else sample_records(
                     args.file1, args.samples)
                 print_samples(args.file1, recs, colors=cfg.colors())
-            if args.right in (None, "auto", "data"):
+            if (args.right or auto_right) in (None, "auto", "data"):
                 recs = nth_record(args.file2, r2_idx or 1) if r2_idx else sample_records(
                     args.file2, args.samples)
                 print_samples(args.file2, recs, colors=cfg.colors())
@@ -294,8 +312,8 @@ def main():
             json_out=args.json_out,
             title_suffix="",
             show_common=args.show_common,
-            left_source_type=args.left,
-            right_source_type=args.right,
+            left_source_type=args.left or auto_left,
+            right_source_type=args.right or auto_right,
         )
         return
 

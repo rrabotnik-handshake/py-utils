@@ -357,7 +357,7 @@ def print_report_text(
         pres = report["presence_issues"]
 
         # Determine which sides are schema sources for proper terminology
-        SCHEMA_SOURCES = {'sql', 'spark', 'jsonschema', 'protobuf', 'dbt-manifest', 'dbt-schema'}
+        SCHEMA_SOURCES = {'sql', 'spark', 'jsonschema', 'protobuf', 'dbt-manifest', 'dbt-yml', 'dbt-model'}
         left_is_schema = left_source_type in SCHEMA_SOURCES
         right_is_schema = right_source_type in SCHEMA_SOURCES
 

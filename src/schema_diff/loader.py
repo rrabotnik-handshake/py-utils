@@ -9,6 +9,7 @@ Supported kinds:
 - sql            : SQL CREATE TABLE / column list (Postgres, BigQuery-ish)
 - dbt-manifest   : dbt manifest.json
 - dbt-yml        : dbt schema.yml
+- dbt-model      : dbt model.sql
 - protobuf       : .proto files (requires selecting a message)
 
 The goal: keep CLI and other callers simple and consistent, and keep all
@@ -23,7 +24,7 @@ from .json_data_file_parser import merged_schema_from_samples
 from .json_schema_parser import schema_from_json_schema_file
 from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
-from .dbt_schema_parser import schema_from_dbt_manifest, schema_from_dbt_schema_yml
+from .dbt_schema_parser import schema_from_dbt_manifest, schema_from_dbt_schema_yml, schema_from_dbt_model
 from .protobuf_schema_parser import schema_from_protobuf_file, list_protobuf_messages
 from .io_utils import sample_records, nth_record, open_text, sniff_ndjson
 from .utils import coerce_root_to_field_dict  # single canonical helper
@@ -43,6 +44,7 @@ KIND_SPARK = "spark"
 KIND_SQL = "sql"
 KIND_DBT_MANIFEST = "dbt-manifest"
 KIND_DBT_YML = "dbt-yml"
+KIND_DBT_MODEL = "dbt-model"
 KIND_PROTOBUF = "protobuf"
 KIND_AUTO = "auto"
 
@@ -133,6 +135,57 @@ def _sniff_json_kind(path: str) -> Optional[str]:
     return None
 
 
+def _sniff_sql_kind(path: str) -> str:
+    """
+    Distinguish between SQL DDL (CREATE TABLE) and dbt model (.sql with SELECT/Jinja).
+
+    Returns KIND_SQL for DDL or KIND_DBT_MODEL for dbt models.
+    """
+    try:
+        with open_text(path) as f:
+            content = f.read(8192).lower()  # Read first 8KB, convert to lowercase
+    except Exception:
+        return KIND_SQL  # Default to SQL DDL if we can't read
+
+    # Remove comments to avoid false positives
+    import re
+    content = re.sub(r'--.*$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
+    # Strong indicators of dbt models
+    dbt_indicators = [
+        'select',           # SELECT statements (most common in dbt models)
+        '{{',               # Jinja templating
+        'ref(',             # dbt ref() function
+        'source(',          # dbt source() function
+        'config(',          # dbt config() function
+        'var(',             # dbt var() function
+    ]
+
+    # Strong indicators of SQL DDL
+    ddl_indicators = [
+        'create table',
+        'create or replace table',
+        'create schema',
+        'alter table',
+        'drop table',
+    ]
+
+    dbt_score = sum(1 for indicator in dbt_indicators if indicator in content)
+    ddl_score = sum(1 for indicator in ddl_indicators if indicator in content)
+
+    # If we found strong DDL indicators, it's likely SQL DDL
+    if ddl_score > 0:
+        return KIND_SQL
+
+    # If we found dbt indicators and no DDL indicators, it's likely a dbt model
+    if dbt_score > 0:
+        return KIND_DBT_MODEL
+
+    # Default to SQL DDL if unclear
+    return KIND_SQL
+
+
 def _guess_kind(path: str) -> str:
     """
     Best-effort kind detection from filename/contents.
@@ -142,7 +195,7 @@ def _guess_kind(path: str) -> str:
 
     # Unambiguous
     if p.endswith(".sql"):
-        return KIND_SQL
+        return _sniff_sql_kind(path)
     if p.endswith(".yml") or p.endswith(".yaml"):
         return KIND_DBT_YML
     if p.endswith(".txt"):
@@ -190,7 +243,7 @@ def load_left_or_right(
     path : str
         Path to the input file
     kind : Optional[str]
-        Type of input ('data', 'jsonschema', 'spark', 'sql', 'dbt-manifest', 'dbt-yml', 'proto', 'auto')
+        Type of input ('data', 'jsonschema', 'spark', 'sql', 'dbt-manifest', 'dbt-yml', 'dbt-model', 'proto', 'auto')
     cfg : Config
         Configuration object
     samples : int
@@ -284,6 +337,14 @@ def load_left_or_right(
     if chosen == KIND_DBT_YML:
         tree, required = _ensure_tree_required(
             schema_from_dbt_schema_yml(path, model=dbt_model)
+        )
+        label = path if not dbt_model else f"{path}#{dbt_model}"
+        return tree, required, label
+
+    # dbt model.sql
+    if chosen == KIND_DBT_MODEL:
+        tree, required = _ensure_tree_required(
+            schema_from_dbt_model(path, model=dbt_model)
         )
         label = path if not dbt_model else f"{path}#{dbt_model}"
         return tree, required, label
