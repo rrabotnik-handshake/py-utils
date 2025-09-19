@@ -11,6 +11,9 @@ Works with large files (streams arrays/NDJSON, gz OK), infers types from samples
 # Install (editable)
 pip install -e .
 
+# Install with BigQuery support (DDL generation + live table access)
+pip install -e ".[bigquery]"
+
 # Basic data vs data (sample 3 records by default)
 schema-diff file1.ndjson.gz file2.json.gz
 
@@ -43,6 +46,12 @@ schema-diff data.json spark_schema.txt --left data --right spark
 
 # Protobuf schema vs data
 schema-diff data.json demo.proto --right proto --right-message User
+
+# BigQuery live table vs data
+schema-diff data.json my-project:dataset.table --right bigquery
+
+# Data vs BigQuery live table (auto-detected)
+schema-diff data.json handshake-production:coresignal.users
 ```
 
 ### Supported inputs
@@ -50,8 +59,72 @@ schema-diff data.json demo.proto --right proto --right-message User
 - **JSON Schema:** `.json` (draft formats supported for `type`, `format`, `properties`, `required`, `oneOf/anyOf/allOf`, `enum`)
 - **Spark:** output of `df.printSchema()` (or similar text) — now with deep nested `array<struct<...>>` parsing
 - **SQL:** Postgres-like DDL and **BigQuery DDL** (incl. `ARRAY<...>`, `STRUCT<...>`, backticked names)
-- **dbt:** `manifest.json` or `schema.yml`
+- **dbt:** `manifest.json`, `schema.yml`, or model `.sql` files
+- **BigQuery Live:** Direct table access via `project:dataset.table` references
 - **Protobuf:** `.proto` files with explicit message selection (`--left-message` / `--right-message`)
+
+### Intelligent file type detection
+
+`schema-diff` automatically detects file types and comparison modes:
+
+**Extension-based detection:**
+- `.sql` → Content analysis (SQL DDL vs dbt model)
+- `.yml/.yaml` → dbt schema files
+- `.txt` → Spark schema dumps
+- `.proto` → Protobuf schemas
+- `.json/.gz` → Content analysis (see below)
+
+**Content-based detection for JSON files:**
+- **dbt manifest:** `nodes`, `sources`, `child_map`, or `metadata.dbt_version`
+- **JSON Schema:** `$schema`, `type: "object"`, or schema keywords (`oneOf`, `properties`, etc.)
+- **NDJSON:** Multiple lines starting with `{`
+- **Data:** Everything else
+
+**Content-based detection for SQL files:**
+- **dbt model:** `SELECT`, Jinja (`{{}}`), or dbt functions (`ref()`, `source()`, etc.)
+- **SQL DDL:** `CREATE TABLE`, `ALTER TABLE`, etc.
+
+**Automatic mode selection:**
+- **General mode:** Different file types or any schema sources detected
+- **Classic data-to-data:** Both files detected as data with same type
+- **Legacy modes:** Explicit `--json-schema`, `--spark-schema`, `--sql-schema` arguments
+
+No `--left`/`--right` arguments needed for most comparisons!
+
+---
+
+## 🔧 DDL Generation & Configuration
+
+`schema-diff` includes powerful BigQuery DDL generation and configuration management:
+
+```bash
+# Generate DDL for a single table
+schema-diff ddl my-project:dataset.table
+
+# Generate DDL for multiple tables (optimized batch queries)
+schema-diff ddl-batch my-project:dataset table1 table2 table3
+
+# Generate DDL for entire dataset
+schema-diff ddl-dataset my-project:dataset --out-dir ./ddl/
+
+# Skip constraints (faster)
+schema-diff ddl my-project:dataset.table --no-constraints
+
+# Save to file with syntax highlighting in terminal
+schema-diff ddl my-project:dataset.table --out table.sql --color always
+
+# Configuration management
+schema-diff config-show                    # Show current config
+schema-diff config-init --project my-proj  # Create config file
+```
+
+**DDL Features:**
+- **Pretty formatting:** Multi-line indented `STRUCT` and `ARRAY` types
+- **Complete DDL:** `CREATE TABLE`, partitioning, clustering, table options
+- **Constraints:** Primary keys and foreign keys (with `NOT ENFORCED`)
+- **Syntax highlighting:** Terminal colors with Pygments (auto-detects TTY)
+- **Batch operations:** Optimized for multiple tables with single queries
+- **Flexible output:** Terminal display + optional file output
 
 ---
 
@@ -74,7 +147,7 @@ schema-diff <left_path> <right_path> [options]
 Left/right can be auto-detected from extension or forced:
 
 - `--left/--right`: one of
-  - `data` | `jsonschema` | `spark` | `sql` | `dbt-manifest` | `dbt-yml` | `proto` | `auto` (default)
+  - `data` | `jsonschema` | `spark` | `sql` | `dbt-manifest` | `dbt-yml` | `dbt-model` | `bigquery` | `proto` | `auto` (default)
 
 Extra selectors:
 - `--left-table NAME` / `--right-table NAME` — choose table from SQL DDL when file has multiple tables

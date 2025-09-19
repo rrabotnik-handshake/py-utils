@@ -1,11 +1,11 @@
 # py-utils
 
 Utilities and tooling for Python data workflows.  
-Currently includes the **`schema_diff`** package for comparing schemas across multiple formats including JSON/NDJSON data, JSON Schema, Spark schemas, SQL DDL (including BigQuery), dbt models, and Protobuf definitions.
+Currently includes the **`schema_diff`** package for comparing schemas across multiple formats including JSON/NDJSON data, JSON Schema, Spark schemas, SQL DDL (including BigQuery), dbt models, live BigQuery tables, and Protobuf definitions. Also includes BigQuery DDL generation and schema extraction capabilities.
 
 ## ✨ What's inside
 
-- `schema_diff`: Compare schemas across data sources and schema definitions with comprehensive analysis capabilities, nested field support, and human-readable reports.
+- `schema_diff`: Compare schemas across data sources and schema definitions with comprehensive analysis capabilities, nested field support, human-readable reports, BigQuery DDL generation, and live table schema extraction.
 - `tests/`: Pytest suites for all included packages.
 
 ## 🚀 Quick Start

@@ -46,6 +46,7 @@ KIND_DBT_MANIFEST = "dbt-manifest"
 KIND_DBT_YML = "dbt-yml"
 KIND_DBT_MODEL = "dbt-model"
 KIND_PROTOBUF = "protobuf"
+KIND_BIGQUERY = "bigquery"
 KIND_AUTO = "auto"
 
 
@@ -347,6 +348,39 @@ def load_left_or_right(
             schema_from_dbt_model(path, model=dbt_model)
         )
         label = path if not dbt_model else f"{path}#{dbt_model}"
+        return tree, required, label
+
+    # BIGQUERY: live table schema extraction
+    if chosen == KIND_BIGQUERY:
+        from .bigquery_ddl import get_live_table_schema
+        # Parse BigQuery table reference from path
+        # Expected format: project:dataset.table or project.dataset.table
+        if ":" in path:
+            project_part, table_part = path.split(":", 1)
+        else:
+            # Assume current project, parse as dataset.table
+            project_part = None
+            table_part = path
+
+        if "." in table_part:
+            dataset_id, table_id = table_part.split(".", 1)
+        else:
+            raise ValueError(f"Invalid BigQuery table reference: {path}. Expected format: project:dataset.table or dataset.table")
+
+        # Use default project if not specified
+        from google.cloud import bigquery
+        if project_part:
+            project_id = project_part
+        else:
+            # Try to get default project
+            try:
+                client = bigquery.Client()
+                project_id = client.project
+            except Exception as e:
+                raise ValueError("No project specified and unable to determine default project. Use format: project:dataset.table") from e
+
+        tree, required = get_live_table_schema(project_id, dataset_id, table_id)
+        label = f"bigquery://{project_id}.{dataset_id}.{table_id}"
         return tree, required, label
 
     # Protobuf (.proto)

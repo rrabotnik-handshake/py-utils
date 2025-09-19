@@ -166,9 +166,9 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
     # General two-source mode (any ↔ any)
     # ----------------------------------------------------------------------
     gen = parser.add_argument_group("General two-source mode (any ↔ any)")
-    gen.add_argument("--left",  choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml", "dbt-model"],
+    gen.add_argument("--left",  choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml", "dbt-model", "bigquery"],
                      help="kind of file1 (default: auto-detect)")
-    gen.add_argument("--right", choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml", "dbt-model"],
+    gen.add_argument("--right", choices=["auto", "data", "jsonschema", "spark", "sql", "dbt-manifest", "dbt-yml", "dbt-model", "bigquery"],
                      help="kind of file2 (default: auto-detect)")
     gen.add_argument("--left-table",
                      help="table to select for file1 when --left sql")

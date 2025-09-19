@@ -18,9 +18,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]         # not installed by default; use for dev
+bigquery = [
+  "google-cloud-bigquery",
+  "pygments",              # for SQL syntax highlighting
+]
 
 [project.scripts]
-schema-diff = "schema_diff.cli:main"
+schema-diff = "schema_diff.cli_main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
