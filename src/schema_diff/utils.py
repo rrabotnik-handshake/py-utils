@@ -12,16 +12,19 @@ from typing import Any, Iterable, Dict, Set
 
 
 __all__ = [
-    
+
     # tree coercion / presence
     "coerce_root_to_field_dict",
     "wrap_optional",
     "inject_presence_for_diff",
-    
+
     # path analysis
     "flatten_paths",
     "paths_by_name",
     "compute_path_changes",
+
+    # field filtering
+    "filter_schema_by_fields",
 ]
 
 
@@ -129,8 +132,8 @@ def flatten_paths(tree: Any, prefix: str = "") -> list[str]:
     """
     Return a list of dotted paths for all *leaf* fields in the schema tree.
 
-    We recurse into dicts (objects). Arrays/lists are treated as leaves
-    (we do not descend into element type here).
+    We recurse into dicts (objects) and arrays (lists with dict elements).
+    Arrays are represented with [0] notation for element access.
     """
     out: list[str] = []
     if isinstance(tree, dict):
@@ -140,8 +143,16 @@ def flatten_paths(tree: Any, prefix: str = "") -> list[str]:
             p = f"{prefix}.{k}" if prefix else k
             if isinstance(v, dict):
                 out.extend(flatten_paths(v, p))
+            elif isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict):
+                # Handle arrays with object elements - use [0] notation
+                array_p = f"{p}[0]"
+                out.extend(flatten_paths(v[0], array_p))
             else:
                 out.append(p)
+    elif isinstance(tree, list) and len(tree) > 0 and isinstance(tree[0], dict):
+        # Handle root-level arrays
+        array_p = f"{prefix}[0]" if prefix else "[0]"
+        out.extend(flatten_paths(tree[0], array_p))
     else:
         if prefix:
             out.append(prefix)
@@ -218,3 +229,74 @@ def fmt_dot_path(p: str) -> str:
     if p.startswith("."):
         return p
     return ("." + p) if (p[0].isalpha() or p[0] == "_") else p
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Field filtering helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+def filter_schema_by_fields(schema: Any, fields: list[str]) -> Any:
+    """
+    Filter a schema tree to include only specific fields.
+
+    Parameters
+    ----------
+    schema : Any
+        The schema tree (typically a dict representing object fields)
+    fields : list[str]
+        List of field names to include (supports nested paths with dots and array notation)
+
+    Returns
+    -------
+    Any
+        Filtered schema containing only specified fields
+    """
+    if not fields:
+        return schema
+
+    if not isinstance(schema, dict):
+        return schema
+
+    filtered = {}
+
+    for field in fields:
+        # Handle array element paths like "experience[0].title"
+        if "[0]." in field:
+            array_field, rest = field.split("[0].", 1)
+            if array_field in schema and isinstance(schema[array_field], list) and len(schema[array_field]) > 0:
+                if array_field not in filtered:
+                    filtered[array_field] = [{}]
+                # Recursively filter the array element
+                if isinstance(schema[array_field][0], dict):
+                    nested_filtered = filter_schema_by_fields(schema[array_field][0], [rest])
+                    if isinstance(filtered[array_field][0], dict):
+                        filtered[array_field][0].update(nested_filtered)
+                    else:
+                        filtered[array_field][0] = nested_filtered
+        # Handle nested field paths like "experience.title"
+        elif "." in field:
+            root_field, rest = field.split(".", 1)
+            if root_field in schema:
+                if root_field not in filtered:
+                    if isinstance(schema[root_field], list):
+                        filtered[root_field] = []
+                    else:
+                        filtered[root_field] = {}
+                # Recursively filter nested fields
+                if isinstance(schema[root_field], dict):
+                    nested_filtered = filter_schema_by_fields(schema[root_field], [rest])
+                    if isinstance(filtered[root_field], dict):
+                        filtered[root_field].update(nested_filtered)
+                    else:
+                        filtered[root_field] = nested_filtered
+                elif isinstance(schema[root_field], list) and len(schema[root_field]) > 0:
+                    # Handle array field without explicit [0] notation
+                    if isinstance(schema[root_field][0], dict):
+                        nested_filtered = filter_schema_by_fields(schema[root_field][0], [rest])
+                        filtered[root_field] = [nested_filtered]
+        else:
+            # Simple field name
+            if field in schema:
+                filtered[field] = schema[field]
+
+    return filtered

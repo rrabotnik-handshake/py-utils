@@ -32,7 +32,7 @@ from deepdiff import DeepDiff
 
 from .config import Config
 from .helpfmt import ColorDefaultsFormatter
-from .io_utils import sample_records, nth_record
+from .io_utils import sample_records, nth_record, all_records
 from .json_schema_parser import schema_from_json_schema_file
 from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
@@ -41,6 +41,7 @@ from .json_data_file_parser import merged_schema_from_samples
 from .report import build_report_struct, print_report_text, print_samples
 from .loader import load_left_or_right
 from .compare import compare_trees, compare_data_to_ref
+from .utils import filter_schema_by_fields
 
 
 def _auto_colors(force_color: bool, no_color: bool) -> bool:
@@ -102,6 +103,8 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
     samp = parser.add_argument_group("Sampling")
     samp.add_argument("-k", "--samples", type=int, default=3, metavar="N",
                       help="records to sample per DATA file")
+    samp.add_argument("--all-records", action="store_true",
+                      help="process ALL records instead of sampling (may be memory intensive)")
     samp.add_argument("--seed", type=int,
                       help="random seed (reproducible sampling)")
     samp.add_argument("--show-samples", action="store_true",
@@ -119,6 +122,8 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
                      help="suppress 'Missing / optional (presence)' section")
     out.add_argument("--show-common", action="store_true",
                      help="print the sorted list of fields that appear in both sides")
+    out.add_argument("--fields", type=str, nargs="+", metavar="FIELD",
+                     help="compare only specific fields (comma-separated or space-separated list)")
 
     # ----------------------------------------------------------------------
     # Export (structured output)
@@ -228,6 +233,7 @@ def main():
             cfg=cfg,
             samples=args.samples,
             first_record=(r1_idx or 1) if r1_idx is not None else None,
+            all_records=args.all_records,
             sql_table=args.left_table,
             dbt_model=args.left_model,
             proto_message=args.left_message,
@@ -238,6 +244,7 @@ def main():
             cfg=cfg,
             samples=args.samples,
             first_record=(r2_idx or 1) if r2_idx is not None else None,
+            all_records=args.all_records,
             sql_table=args.right_table,
             dbt_model=args.right_model,
             proto_message=args.right_message,
@@ -253,6 +260,15 @@ def main():
                 recs = nth_record(args.file2, r2_idx or 1) if r2_idx else sample_records(
                     args.file2, args.samples)
                 print_samples(args.file2, recs, colors=cfg.colors())
+
+        # Apply field filtering if specified
+        if hasattr(args, 'fields') and args.fields:
+            # Flatten comma-separated values if any
+            fields_list = []
+            for field in args.fields:
+                fields_list.extend([f.strip() for f in field.split(',')])
+            left_tree = filter_schema_by_fields(left_tree, fields_list)
+            right_tree = filter_schema_by_fields(right_tree, fields_list)
 
         compare_trees(
             left_label, right_label,
@@ -270,9 +286,15 @@ def main():
     # Mode 2: Classic DATA → external schema
     # ------------------------------------------------------------------
     if args.json_schema or args.spark_schema or args.sql_schema:
-        s1 = nth_record(args.file1, r1_idx or 1) if r1_idx is not None else sample_records(
-            args.file1, args.samples)
-        title1 = f"; record #{r1_idx or 1}" if r1_idx is not None else f"; random {args.samples}-record samples"
+        if args.all_records:
+            s1 = all_records(args.file1, max_records=1000000)
+            title1 = f"; all {len(s1)} records"
+        elif r1_idx is not None:
+            s1 = nth_record(args.file1, r1_idx or 1)
+            title1 = f"; record #{r1_idx or 1}"
+        else:
+            s1 = sample_records(args.file1, args.samples)
+            title1 = f"; random {args.samples}-record samples"
 
         required_paths = None
         if args.json_schema:
@@ -308,11 +330,19 @@ def main():
     # ------------------------------------------------------------------
     # Mode 3: Classic DATA ↔ DATA
     # ------------------------------------------------------------------
-    s1 = nth_record(args.file1, r1_idx or 1) if r1_idx is not None else sample_records(
-        args.file1, args.samples)
-    title1 = f"; record #{r1_idx or 1}" if r1_idx is not None else f"; random {args.samples}-record samples"
-    s2 = nth_record(args.file2, r2_idx or 1) if r2_idx is not None else sample_records(
-        args.file2, args.samples)
+    if args.all_records:
+        s1 = all_records(args.file1, max_records=1000000)
+        s2 = all_records(args.file2, max_records=1000000)
+        title1 = f"; all {len(s1)} vs {len(s2)} records"
+    elif r1_idx is not None:
+        s1 = nth_record(args.file1, r1_idx or 1)
+        title1 = f"; record #{r1_idx or 1}"
+        s2 = nth_record(args.file2, r2_idx or 1) if r2_idx is not None else sample_records(
+            args.file2, args.samples)
+    else:
+        s1 = sample_records(args.file1, args.samples)
+        title1 = f"; random {args.samples}-record samples"
+        s2 = sample_records(args.file2, args.samples)
 
     runs = [(s1, s2, title1)]
     if args.both_modes and (r1_idx is not None or r2_idx is not None):
@@ -330,7 +360,25 @@ def main():
 
         sch1 = merged_schema_from_samples(s1_run, cfg)
         sch2 = merged_schema_from_samples(s2_run, cfg)
+
+        # Apply field filtering if specified
+        if hasattr(args, 'fields') and args.fields:
+            # Flatten comma-separated values if any
+            fields_list = []
+            for field in args.fields:
+                fields_list.extend([f.strip() for f in field.split(',')])
+            sch1 = filter_schema_by_fields(sch1, fields_list)
+            sch2 = filter_schema_by_fields(sch2, fields_list)
+
         sch1n, sch2n = walk_normalize(sch1), walk_normalize(sch2)
+
+        # Show common fields if requested
+        if args.show_common:
+            from .utils import coerce_root_to_field_dict
+            from .report import print_common_fields
+            sch1n_dict = coerce_root_to_field_dict(sch1n)
+            sch2n_dict = coerce_root_to_field_dict(sch2n)
+            print_common_fields(args.file1, args.file2, sch1n_dict, sch2n_dict, cfg.colors())
 
         diff = DeepDiff(sch1n, sch2n, ignore_order=True)
         direction = f"{args.file1} -> {args.file2}"

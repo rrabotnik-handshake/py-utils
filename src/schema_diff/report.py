@@ -275,7 +275,7 @@ def print_common_fields(
     colors: tuple[str, str, str, str, str],
 ) -> None:
     """
-    Print the intersection of top-level field names when both roots are objects.
+    Print the intersection of field paths (including nested fields) when both roots are objects.
 
     Parameters
     ----------
@@ -294,11 +294,17 @@ def print_common_fields(
 
     d1 = _as_field_dict(sch1n)
     d2 = _as_field_dict(sch2n)
-    common = sorted(set(d1.keys()) & set(d2.keys()))
+
+    # Use flatten_paths to get all nested field paths
+    from .utils import flatten_paths
+    paths1 = flatten_paths(d1)
+    paths2 = flatten_paths(d2)
+    common_paths = sorted(set(paths1) & set(paths2))
+
     print(
-        f"\n{YEL}-- Common fields in {left_label} ∩ {right_label} -- ({len(common)}){RST}")
-    for k in common:
-        print(f"  {CYN}{k}{RST}")
+        f"\n{YEL}-- Common fields in {left_label} ∩ {right_label} -- ({len(common_paths)}){RST}")
+    for path in common_paths:
+        print(f"  {CYN}{path}{RST}")
 
 
 def print_path_changes(

@@ -176,6 +176,7 @@ def load_left_or_right(
     cfg,
     samples: int,
     first_record: Optional[int] = None,
+    all_records: bool = False,
     sql_table: Optional[str] = None,
     dbt_model: Optional[str] = None,
     proto_message: Optional[str] = None,
@@ -198,7 +199,11 @@ def load_left_or_right(
 
     # DATA: sample or pick a specific record and infer a type tree
     if chosen == KIND_DATA:
-        if first_record is not None:
+        if all_records:
+            from .io_utils import all_records as all_records_fn
+            recs = all_records_fn(path, max_records=1000000)  # Safety limit
+            title = f"; all {len(recs)} records"
+        elif first_record is not None:
             recs = nth_record(path, first_record or 1)
             title = f"; record #{first_record or 1}"
         else:

@@ -109,8 +109,23 @@ def merge_schema(a: Any, b: Any) -> Any:
             return "empty_array"
         ae = a[0] if a else "empty_array"
         be = b[0] if b else "empty_array"
-        # Preserve element shape when both sides have one; otherwise summarize
-        return [merge_schema(ae, be)] if (a and b) else union_types("array", "array")
+        # Preserve element shape when at least one side has structure
+        if a and b:
+            # Both have elements - merge them
+            return [merge_schema(ae, be)]
+        elif a or b:
+            # One has elements, other is empty - preserve the element structure
+            element_schema = ae if a else be
+            return [element_schema]
+        else:
+            # Both empty (shouldn't reach here due to first check, but for safety)
+            return "empty_array"
+
+    # Handle mixed empty_array (string) with populated array (list)
+    if (isinstance(a, str) and a == "empty_array" and isinstance(b, list)) or \
+       (isinstance(b, str) and b == "empty_array" and isinstance(a, list)):
+        # Preserve the populated array structure
+        return a if isinstance(a, list) else b
 
     # Mixed kinds: fall back to scalar names and union them
     from .infer import tname as _t

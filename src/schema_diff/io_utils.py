@@ -17,6 +17,7 @@ __all__ = [
     "iter_records",
     "sample_records",
     "nth_record",
+    "all_records",
 ]
 
 
@@ -191,3 +192,28 @@ def nth_record(path: str, n: int) -> List[Any]:
         if i == n:
             return [rec]
     return []
+
+
+def all_records(path: str, max_records: int = None) -> List[Any]:
+    """
+    Read ALL records from a file. Use with caution for large files.
+
+    Parameters
+    ----------
+    path : str
+        Path to the data file
+    max_records : int, optional
+        Maximum number of records to read (safety limit). If None, reads all.
+
+    Returns
+    -------
+    List[Any]
+        List of all records
+    """
+    records = []
+    for i, rec in enumerate(iter_records(path)):
+        if max_records is not None and i >= max_records:
+            print(f"Warning: Stopped at {max_records} records (safety limit)")
+            break
+        records.append(rec)
+    return records

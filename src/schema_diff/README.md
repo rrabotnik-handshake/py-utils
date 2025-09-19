@@ -20,6 +20,15 @@ schema-diff file1.json file2.json --first-record
 # Show the sampled records
 schema-diff file1.json file2.json -k 5 --show-samples
 
+# Process ALL records (comprehensive analysis)
+schema-diff file1.json file2.json --all-records
+
+# Compare only specific fields
+schema-diff file1.json file2.json --fields headline full_name industry
+
+# Combine all-records with field filtering
+schema-diff file1.json file2.json --all-records --fields headline member_id
+
 # Data vs JSON Schema
 schema-diff data.ndjson schema.json --right jsonschema --first-record
 
@@ -57,8 +66,9 @@ schema-diff <left_path> <right_path> [options]
 - `--record N` / `--record1 N` / `--record2 N`
 - Sampling:
   - `-k, --samples N` — sample N records (default 3)
+  - `--all-records` — process ALL records instead of sampling (comprehensive but memory-intensive)
   - `--seed SEED` — reproducible sampling
-  - `--show-samples` — print the sampled records
+  - `--show-samples` — print the chosen/sampled records
 
 ### Input kinds (auto or explicit)
 Left/right can be auto-detected from extension or forced:
@@ -74,7 +84,8 @@ Extra selectors:
 ### Output control
 - `--no-color`, `--force-color`
 - `--no-presence` — hide the presence/optionality section
-- `--show-common` — print fields present in both schemas with matching types
+- `--show-common` — print fields present in both schemas with matching types (includes nested array fields like `experience[0].title`)
+- `--fields FIELD [FIELD ...]` — compare only specific fields (supports nested paths like `experience.title` and array elements like `experience[0].title`)
 - `--json-out PATH` — save diff JSON
 - `--dump-schemas PATH` — save the two normalized schemas to a file
 
@@ -85,7 +96,7 @@ Extra selectors:
 
 ## How comparisons work
 
-1. **Each side is loaded to a _type tree_** (pure types: `int|float|bool|str|date|time|timestamp|object|array`).  
+1. **Each side is loaded to a _type tree_** (pure types: `int|float|bool|str|date|time|timestamp|object|array`).
    Sources:
    - **Data** → inferred by sampling; fields seen absent are *not* treated as missing here.
    - **JSON Schema** → converted from schema (`format: date-time` → `timestamp`, etc.).
@@ -112,6 +123,77 @@ Extra selectors:
    - “Missing / optional (presence)” — when type is the same but optionality differs
    - “Common” — fields present in both sides with matching types (`--show-common`)
    - “Type mismatches” — real type conflicts (e.g., `int` vs `str`)
+
+---
+
+## Advanced Features
+
+### Comprehensive Analysis with `--all-records`
+
+By default, schema-diff samples a small number of records (3) for performance. Use `--all-records` to process every record for comprehensive field discovery:
+
+```bash
+# Standard sampling (fast, may miss rare fields)
+schema-diff large_dataset1.json.gz large_dataset2.json.gz -k 10
+
+# Comprehensive analysis (slower, finds all fields)
+schema-diff large_dataset1.json.gz large_dataset2.json.gz --all-records
+```
+
+**When to use `--all-records`:**
+- Fields appear infrequently in your data
+- You need to ensure complete field coverage
+- Data quality validation requires comprehensive analysis
+- You're comparing schemas where sampling might miss important differences
+
+**Safety features:**
+- Built-in 1M record limit to prevent memory issues
+- Progress indication for large datasets
+
+### Focused Comparison with `--fields`
+
+Compare only specific fields instead of analyzing the entire schema:
+
+```bash
+# Compare only headline and full_name fields
+schema-diff users1.json users2.json --fields headline full_name
+
+# Support for nested fields with dot notation
+schema-diff profiles1.json profiles2.json --fields experience.title education.institution
+
+# Support for array element paths with [0] notation
+schema-diff profiles1.json profiles2.json --fields 'experience[0].title' 'education[0].institution'
+
+# Implicit array notation (automatically handles array elements)
+schema-diff profiles1.json profiles2.json --fields experience.title education.institution
+
+# Comma-separated or space-separated field lists
+schema-diff data1.json data2.json --fields "headline,full_name,industry"
+```
+
+**Use cases:**
+- Focus on specific fields of interest
+- Reduce noise from unrelated schema differences
+- Performance optimization for large schemas
+- Field-specific data quality checks
+- Compare nested array elements (e.g., `experience[0].title` vs `experience[0].company`)
+
+**Array Support:**
+- **Explicit notation**: `experience[0].title` - targets specific array element fields
+- **Implicit notation**: `experience.title` - automatically handles array elements
+- **Mixed usage**: Can combine both notations in the same command
+
+### Combining Features
+
+Use both features together for powerful targeted analysis:
+
+```bash
+# Comprehensive analysis of specific fields
+schema-diff dataset1.json.gz dataset2.json.gz --all-records --fields headline member_id industry
+
+# Field-focused comparison with comprehensive coverage
+schema-diff events1.json.gz events2.json.gz --all-records --fields event_type timestamp user_id --show-common
+```
 
 ---
 
@@ -222,9 +304,10 @@ Tests include:
 ## 🧭 Philosophy & behavior
 
 - **Presence vs Type:** We do **not** bake nullability into types. Optionality is tracked in `required_paths` and only shown in the *Presence* section when types are otherwise equal.
-- **Sampling:** Inference is by merging k sampled records:
+- **Sampling:** Inference is by merging k sampled records (or all records with `--all-records`):
   - If a field is present in some records but not others, its type becomes a union (`union(int|missing)` after presence normalization in comparisons).
   - If an array has mixed element types, the element becomes a union (`["union(int|str)"]` → normalized per rules).
+  - Use `--all-records` for comprehensive field discovery when sampling might miss infrequent fields.
 - **Normalization:** Consistent, comparable trees regardless of source:
   - Empty → base type (`empty_array`→`array`, `empty_object`→`object`, `empty_string`→`str`)
   - Unions deduplicated/sorted, `"any"` removed when other specific types exist
@@ -234,7 +317,7 @@ Tests include:
 
 ## ⚠️ Limitations
 
-- **Sampling-based inference:** Types are inferred from sampled records; noisy data can under/over-report unions or presence.
+- **Sampling-based inference:** Types are inferred from sampled records; noisy data can under/over-report unions or presence. Use `--all-records` for comprehensive analysis when sampling is insufficient.
 - **Union explosion:** If many distinct types appear (e.g., 20 unique shapes in 20 samples), unions can grow.
 - **SQL dialects:** Postgres + BigQuery DDL covered; other dialects may need regex additions (PRs welcome).
 - **Arrays/structs:** Arrays map to `[elem_type]`; BigQuery `STRUCT<...>` maps to `"object"` only (no deep parsing yet).
@@ -246,5 +329,8 @@ Tests include:
 ## Troubleshooting
 
 - **Wrong kind detection for `.json`:** Use `--left/--right` to force `jsonschema` or `dbt-manifest`.
-- **“Table not found” for SQL:** Provide `--*-table` when the DDL file defines multiple tables.
+- **"Table not found" for SQL:** Provide `--*-table` when the DDL file defines multiple tables.
 - **Presence noise from data:** Increase `-k/--samples` and consider `--infer-datetimes` if timestamps are formatted strings.
+- **Missing fields in comparison:** Fields that appear infrequently may not be sampled. Use `--all-records` for comprehensive field discovery.
+- **Too much output noise:** Use `--fields` to focus on specific fields of interest.
+- **Memory issues with large files:** The `--all-records` option has a built-in 1M record safety limit. For larger datasets, use sampling with higher `-k` values.
