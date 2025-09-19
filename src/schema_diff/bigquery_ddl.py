@@ -255,7 +255,7 @@ def get_batch_constraints(client: bigquery.Client, project_id: str, dataset_id: 
     """Retrieve constraints for multiple tables in a single query."""
     if not table_ids:
         return {}
-    
+
     try:
         job = client.query(
             BATCH_CONSTRAINTS_SQL.format(project=project_id, dataset=dataset_id),
@@ -266,15 +266,15 @@ def get_batch_constraints(client: bigquery.Client, project_id: str, dataset_id: 
                 ]
             ),
         )
-        
+
         results: Dict[str, Tuple[List[str], List[Dict[str, Any]]]] = {}
         for table_id in table_ids:
             results[table_id] = ([], [])
-        
+
         for row in job.result():
             table_name = row["table_name"]
             constraint_type = row["constraint_type"]
-            
+
             if constraint_type == "PRIMARY KEY":
                 results[table_name] = (row["columns"], results[table_name][1])
             elif constraint_type == "FOREIGN KEY":
@@ -288,7 +288,7 @@ def get_batch_constraints(client: bigquery.Client, project_id: str, dataset_id: 
                         "referenced_table": ref["referenced_table"] or "UNKNOWN",
                         "referenced_column": ref["referenced_column"] or "UNKNOWN",
                     })
-        
+
         return results
     except Exception as e:
         print(f"Error retrieving batch constraints: {e}")
@@ -504,15 +504,15 @@ def generate_dataset_ddl(client: bigquery.Client, project_id: str, dataset_id: s
         dataset_ref = client.dataset(dataset_id, project=project_id)
         tables = list(client.list_tables(dataset_ref))
         table_ids = [table.table_id for table in tables]
-    
+
     if not table_ids:
         return {}
-    
+
     # Get batch constraints if needed
     constraints_map = {}
     if include_constraints:
         constraints_map = get_batch_constraints(client, project_id, dataset_id, table_ids)
-    
+
     ddls = {}
     for table_id in table_ids:
         try:
@@ -550,11 +550,11 @@ def generate_dataset_ddl(client: bigquery.Client, project_id: str, dataset_id: s
 
             ddl = "\n".join(ddl_lines) + ";\n" + f"-- End of script generated at {datetime.now():%Y-%m-%d %H:%M:%S}"
             ddls[table_id] = ddl
-            
+
         except Exception as e:
             print(f"Error generating DDL for {table_id}: {e}")
             ddls[table_id] = f"-- Error: {e}"
-    
+
     return ddls
 
 
@@ -565,19 +565,19 @@ def generate_dataset_ddl(client: bigquery.Client, project_id: str, dataset_id: s
 def bigquery_schema_to_internal(schema: List[SchemaField]) -> Tuple[Dict[str, Any], Set[str]]:
     """
     Convert BigQuery schema to internal schema-diff format.
-    
+
     Returns:
         (schema_tree, required_paths)
     """
     def convert_field(field: SchemaField, path_prefix: str = "") -> Any:
         field_path = f"{path_prefix}.{field.name}" if path_prefix else field.name
-        
+
         if field.field_type == "RECORD":
             # STRUCT type
             struct_dict = {}
             for sub_field in field.fields:
                 struct_dict[sub_field.name] = convert_field(sub_field, field_path)
-            
+
             if field.mode == "REPEATED":
                 return [struct_dict]  # Array of structs
             else:
@@ -589,15 +589,15 @@ def bigquery_schema_to_internal(schema: List[SchemaField]) -> Tuple[Dict[str, An
                 return [base_type]  # Array of scalars
             else:
                 return base_type
-    
+
     def collect_required_paths(schema: List[SchemaField], path_prefix: str = "") -> Set[str]:
         required = set()
         for field in schema:
             field_path = f"{path_prefix}.{field.name}" if path_prefix else field.name
-            
+
             if field.mode == "REQUIRED":
                 required.add(field_path)
-            
+
             # Recurse into RECORD fields
             if field.field_type == "RECORD":
                 if field.mode == "REPEATED":
@@ -606,27 +606,27 @@ def bigquery_schema_to_internal(schema: List[SchemaField]) -> Tuple[Dict[str, An
                 else:
                     nested_required = collect_required_paths(field.fields, field_path)
                 required.update(nested_required)
-        
+
         return required
-    
+
     # Convert schema
     tree = {}
     for field in schema:
         tree[field.name] = convert_field(field)
-    
+
     # Collect required paths
     required_paths = collect_required_paths(schema)
-    
+
     # Normalize BigQuery array wrapper patterns
     tree = _normalize_bigquery_arrays(tree)
-    
+
     return tree, required_paths
 
 
 def _normalize_bigquery_arrays(tree: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize BigQuery array wrapper patterns like {'list': [{'element': ...}]} to [...].
-    
+
     This removes the BigQuery-specific array wrapper structure to match the cleaner
     array notation used elsewhere in schema-diff.
     """
@@ -634,15 +634,15 @@ def _normalize_bigquery_arrays(tree: Dict[str, Any]) -> Dict[str, Any]:
         normalized = {}
         for key, value in tree.items():
             # Check for BigQuery array wrapper pattern
-            if (isinstance(value, dict) and 
-                len(value) == 1 and 
-                'list' in value and 
-                isinstance(value['list'], list) and 
-                len(value['list']) == 1 and 
-                isinstance(value['list'][0], dict) and 
-                len(value['list'][0]) == 1 and 
+            if (isinstance(value, dict) and
+                len(value) == 1 and
+                'list' in value and
+                isinstance(value['list'], list) and
+                len(value['list']) == 1 and
+                isinstance(value['list'][0], dict) and
+                len(value['list'][0]) == 1 and
                 'element' in value['list'][0]):
-                
+
                 # Extract the element structure and normalize recursively
                 element_structure = value['list'][0]['element']
                 normalized[key] = [_normalize_bigquery_arrays(element_structure)]
@@ -663,7 +663,7 @@ def _map_bq_type_to_internal(bq_type: str) -> str:
     type_map = {
         "STRING": "str",
         "INT64": "int",
-        "INTEGER": "int", 
+        "INTEGER": "int",
         "FLOAT64": "float",
         "FLOAT": "float",
         "NUMERIC": "number",
@@ -685,12 +685,12 @@ def _map_bq_type_to_internal(bq_type: str) -> str:
 def get_live_table_schema(project_id: str, dataset_id: str, table_id: str) -> Tuple[Dict[str, Any], Set[str]]:
     """
     Get live BigQuery table schema in schema-diff internal format.
-    
+
     Returns:
         (schema_tree, required_paths)
     """
     client = bigquery.Client(project=project_id)
     table_ref = f"{project_id}.{dataset_id}.{table_id}"
     table = client.get_table(table_ref)
-    
+
     return bigquery_schema_to_internal(table.schema)
