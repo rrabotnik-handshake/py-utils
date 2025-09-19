@@ -55,32 +55,41 @@ def compare_data_to_ref(
     title_suffix: str = "",
     required_paths: Optional[Set[str]] = None,
     show_common: bool = False,
+    ref_source_type: Optional[str] = None,
 ) -> None:
     """
-    Compare a DATA sample (from `file1`) to a reference schema.
+    Compare a DATA sample (from `file1`) to a reference schema with source-aware presence handling.
 
     Parameters
     ----------
     file1 : str
-        Data source label (path) used in headings.
+        Path to the data file being compared
     ref_label : str
-        Reference label (path/table/etc.) used in headings.
+        Display name for the reference schema
     ref_schema : Any
-        Reference *type tree* (pure types) — may be list-of-fields or dict.
+        The reference schema type tree
     cfg : Config
-        Runtime configuration: colors, presence toggle, inference.
-    s1_records : list[dict]
-        The sample records chosen from the data file.
+        Configuration object for normalization and output
+    s1_records : List[Any]
+        Sample records from file1 for schema inference
     dump_schemas : str | None
-        If provided, write normalized left/right trees to JSON here.
+        If provided, save the normalized schemas to this file
     json_out : str | None
-        If provided, write the diff report JSON here.
+        If provided, save the diff report as JSON to this file
     title_suffix : str
-        Extra info appended to headings (e.g., “; record #1”).
-    required_paths : set[str] | None
-        Presence constraints to inject on the reference side.
+        Optional suffix for the comparison title
+    required_paths : Optional[Set[str]]
+        Set of paths that are required in the reference schema
     show_common : bool
-        If True, print common field names (intersection) before the diff.
+        If True, display fields present in both schemas with matching types
+    ref_source_type : Optional[str]
+        Reference source type ('spark', 'sql', 'jsonschema', etc.) for proper presence terminology
+
+    Notes
+    -----
+    - Infers schema from s1_records and compares to ref_schema
+    - Applies presence injection to reference schema if it's a schema source
+    - Uses source type information for clear presence terminology in output
     """
     # Coerce list-of-fields roots into dicts so diffs are per-path, not list indices
     ref_schema = coerce_root_to_field_dict(ref_schema)
@@ -121,7 +130,8 @@ def compare_data_to_ref(
     report["meta"]["mode"] = title_suffix.strip("; ").strip()
 
     print_report_text(
-        report, file1, ref_label, colors=cfg.colors(), show_presence=cfg.show_presence, title_suffix=title_suffix
+        report, file1, ref_label, colors=cfg.colors(), show_presence=cfg.show_presence, title_suffix=title_suffix,
+        left_source_type="data", right_source_type=ref_source_type or "data"
     )
 
     # Field moved/nested differently?
@@ -153,23 +163,62 @@ def compare_trees(
     json_out: Optional[str] = None,
     title_suffix: str = "",
     show_common: bool = False,
+    left_source_type: Optional[str] = None,
+    right_source_type: Optional[str] = None,
 ) -> None:
     """
-    Compare two *type trees* (schemas) and print a human-friendly diff.
+    Compare two *type trees* (schemas) and print a human-friendly diff with enhanced presence injection.
+
+    Parameters
+    ----------
+    left_label, right_label : str
+        Display names for the two sides being compared
+    left_tree, right_tree : Any
+        Type trees (pure types without presence mixed in)
+    left_required, right_required : Set[str]
+        Sets of dotted paths that are required/non-nullable on each side
+    cfg : Config
+        Configuration object for normalization and output
+    dump_schemas : Optional[str]
+        If provided, save the normalized schemas to this file
+    json_out : Optional[str]
+        If provided, save the diff report as JSON to this file
+    title_suffix : str
+        Optional suffix for the comparison title (e.g., "; record #1")
+    show_common : bool
+        If True, display fields present in both schemas with matching types
+    left_source_type, right_source_type : Optional[str]
+        Source types ('data', 'spark', 'sql', 'jsonschema', etc.) for proper presence injection
 
     Notes
     -----
-    - Only the TYPE TREES are diffed (`left_tree` vs `right_tree`).
-    - `left_required` / `right_required` are currently unused by the diff;
-      presence sections come from the trees themselves (i.e., unions with
-      'missing'). We still accept them so the signature lines up with
-      higher-level callers and to allow future presence-only reporting.
+    - Applies presence injection to schema sources (Spark, SQL, JSON Schema) to align
+      with data-derived schemas that include 'missing' unions.
+    - Data sources don't need presence injection as they already include 'missing'.
     """
     # Coerce list-of-fields roots into dicts so diffs are per-path, not list indices
     left_tree = coerce_root_to_field_dict(left_tree)
     right_tree = coerce_root_to_field_dict(right_tree)
 
-    # Normalize *trees only*
+    # Apply presence injection to schema sources (not data sources)
+    # Data sources already have 'missing' unions; schema sources need them injected
+    SCHEMA_SOURCES = {'sql', 'spark', 'jsonschema', 'protobuf', 'dbt-manifest', 'dbt-schema'}
+
+    if left_source_type in SCHEMA_SOURCES:
+        # Left side is a schema source - apply presence injection
+        left_tree = inject_presence_for_diff(left_tree, left_required)
+    elif left_required:
+        # Fallback: if we don't know the source type but it has required paths, assume schema source
+        left_tree = inject_presence_for_diff(left_tree, left_required)
+
+    if right_source_type in SCHEMA_SOURCES:
+        # Right side is a schema source - apply presence injection
+        right_tree = inject_presence_for_diff(right_tree, right_required)
+    elif right_required:
+        # Fallback: if we don't know the source type but it has required paths, assume schema source
+        right_tree = inject_presence_for_diff(right_tree, right_required)
+
+    # Normalize trees
     sch1n = walk_normalize(left_tree)
     sch2n = walk_normalize(right_tree)
 
@@ -212,6 +261,8 @@ def compare_trees(
         colors=cfg.colors(),
         show_presence=cfg.show_presence,
         title_suffix=title_suffix,
+        left_source_type=left_source_type or "data",
+        right_source_type=right_source_type or "data",
     )
 
     # Path changes on normalized/coerced trees

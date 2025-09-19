@@ -1,0 +1,1396 @@
+[
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "action",
+                "type": "STRING"
+              },
+              {
+                "name": "activity_url",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "title",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "activity",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "name": "element",
+            "type": "STRING"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "also_viewed",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "date",
+                "type": "STRING"
+              },
+              {
+                "name": "date_day",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "description",
+                "type": "STRING"
+              },
+              {
+                "name": "issuer",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "title",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "awards",
+    "type": "RECORD"
+  },
+  {
+    "name": "canonical_shorthand_name",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/6699455889158114158"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "certificate_url",
+                "type": "STRING"
+              },
+              {
+                "name": "credential_id",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_from_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to",
+                "type": "STRING"
+              },
+              {
+                "name": "date_to_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "issuer",
+                "type": "STRING"
+              },
+              {
+                "name": "issuer_url",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "title",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "certifications",
+    "type": "RECORD"
+  },
+  {
+    "name": "connections_count",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "INTEGER"
+  },
+  {
+    "name": "country",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "name": "country_iso_2",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "name": "country_iso_3",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "course_url",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "title",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "course_suggestions",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "organizer",
+                "type": "STRING"
+              },
+              {
+                "name": "title",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "courses",
+    "type": "RECORD"
+  },
+  {
+    "name": "deleted",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "INTEGER"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "activities_and_societies",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from_month",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to",
+                "type": "STRING"
+              },
+              {
+                "name": "date_to_month",
+                "type": "STRING"
+              },
+              {
+                "name": "date_to_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "description",
+                "type": "STRING"
+              },
+              {
+                "name": "institution",
+                "type": "STRING"
+              },
+              {
+                "name": "institution_shorthand_name",
+                "type": "STRING"
+              },
+              {
+                "name": "institution_url",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "program",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "education",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "company_name",
+                "type": "STRING"
+              },
+              {
+                "name": "company_shorthand_name",
+                "type": "STRING"
+              },
+              {
+                "name": "company_url",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_from_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to",
+                "type": "STRING"
+              },
+              {
+                "name": "date_to_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "description",
+                "type": "STRING"
+              },
+              {
+                "name": "duration",
+                "type": "STRING"
+              },
+              {
+                "name": "is_current",
+                "type": "INTEGER"
+              },
+              {
+                "name": "location",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "title",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "experience",
+    "type": "RECORD"
+  },
+  {
+    "name": "experience_count",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "INTEGER"
+  },
+  {
+    "name": "first_name",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/6699455889158114158"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "name": "follower_count",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "INTEGER"
+  },
+  {
+    "name": "full_name",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/6699455889158114158"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "name": "element",
+            "type": "STRING"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "groups",
+    "type": "RECORD"
+  },
+  {
+    "name": "headline",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/6699455889158114158"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "hidden_collection",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "hidden_details",
+    "type": "RECORD"
+  },
+  {
+    "name": "id",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "INTEGER"
+  },
+  {
+    "name": "industry",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "name": "element",
+            "type": "STRING"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "interests",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "language",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "proficiency",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "languages",
+    "type": "RECORD"
+  },
+  {
+    "name": "last_name",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/6699455889158114158"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "name": "location",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/6699455889158114158"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "name": "member_id",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "INTEGER"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "date_from",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_from_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to",
+                "type": "STRING"
+              },
+              {
+                "name": "date_to_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "description",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "organization",
+                "type": "STRING"
+              },
+              {
+                "name": "position",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "organizations",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "full_name",
+                "type": "STRING"
+              },
+              {
+                "name": "headline",
+                "type": "STRING"
+              },
+              {
+                "name": "location",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "profile_url",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "others_named",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "date",
+                "type": "STRING"
+              },
+              {
+                "name": "date_day",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "description",
+                "type": "STRING"
+              },
+              {
+                "fields": [
+                  {
+                    "fields": [
+                      {
+                        "fields": [
+                          {
+                            "name": "full_name",
+                            "type": "STRING"
+                          },
+                          {
+                            "name": "order_in_profile",
+                            "type": "INTEGER"
+                          },
+                          {
+                            "name": "profile_url",
+                            "type": "STRING"
+                          }
+                        ],
+                        "name": "element",
+                        "type": "RECORD"
+                      }
+                    ],
+                    "mode": "REPEATED",
+                    "name": "list",
+                    "type": "RECORD"
+                  }
+                ],
+                "name": "inventors",
+                "type": "RECORD"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "patent_or_application_number",
+                "type": "STRING"
+              },
+              {
+                "name": "patent_url",
+                "type": "STRING"
+              },
+              {
+                "name": "status",
+                "type": "STRING"
+              },
+              {
+                "name": "title",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "patents",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "name": "element",
+            "type": "STRING"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "posts_see_more_urls",
+    "type": "RECORD"
+  },
+  {
+    "name": "profile_photo_url",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "name": "profile_url",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/6699455889158114158"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "date_from",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_from_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to",
+                "type": "STRING"
+              },
+              {
+                "name": "date_to_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "description",
+                "type": "STRING"
+              },
+              {
+                "name": "name",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "project_url",
+                "type": "STRING"
+              },
+              {
+                "fields": [
+                  {
+                    "fields": [
+                      {
+                        "fields": [
+                          {
+                            "name": "full_name",
+                            "type": "STRING"
+                          },
+                          {
+                            "name": "order_in_profile",
+                            "type": "INTEGER"
+                          },
+                          {
+                            "name": "profile_url",
+                            "type": "STRING"
+                          }
+                        ],
+                        "name": "element",
+                        "type": "RECORD"
+                      }
+                    ],
+                    "mode": "REPEATED",
+                    "name": "list",
+                    "type": "RECORD"
+                  }
+                ],
+                "name": "team_members",
+                "type": "RECORD"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "projects",
+    "type": "RECORD"
+  },
+  {
+    "name": "public_profile_id",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "fields": [
+                  {
+                    "fields": [
+                      {
+                        "fields": [
+                          {
+                            "name": "full_name",
+                            "type": "STRING"
+                          },
+                          {
+                            "name": "order_in_profile",
+                            "type": "INTEGER"
+                          },
+                          {
+                            "name": "profile_url",
+                            "type": "STRING"
+                          }
+                        ],
+                        "name": "element",
+                        "type": "RECORD"
+                      }
+                    ],
+                    "mode": "REPEATED",
+                    "name": "list",
+                    "type": "RECORD"
+                  }
+                ],
+                "name": "authors",
+                "type": "RECORD"
+              },
+              {
+                "name": "date",
+                "type": "STRING"
+              },
+              {
+                "name": "date_day",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "description",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "publication_url",
+                "type": "STRING"
+              },
+              {
+                "name": "publisher",
+                "type": "STRING"
+              },
+              {
+                "name": "title",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "publications",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "full_name",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "recommendation",
+                "type": "STRING"
+              },
+              {
+                "name": "referee_url",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "recommendations",
+    "type": "RECORD"
+  },
+  {
+    "name": "recommendations_count",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "INTEGER"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "region",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "regions",
+    "type": "RECORD"
+  },
+  {
+    "name": "services",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "name": "shorthand_name",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/6699455889158114158"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "full_name",
+                "type": "STRING"
+              },
+              {
+                "name": "headline",
+                "type": "STRING"
+              },
+              {
+                "name": "location",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "profile_url",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "similar_profiles",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "name": "element",
+            "type": "STRING"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "skills",
+    "type": "RECORD"
+  },
+  {
+    "name": "summary",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/6699455889158114158"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "date",
+                "type": "STRING"
+              },
+              {
+                "name": "date_day",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "description",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "score",
+                "type": "STRING"
+              },
+              {
+                "name": "title",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "test_scores",
+    "type": "RECORD"
+  },
+  {
+    "name": "updated_at",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "STRING"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "name": "element",
+            "type": "STRING"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "volunteering_cares",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "name": "element",
+            "type": "STRING"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "volunteering_opportunities",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "cause",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from",
+                "type": "STRING"
+              },
+              {
+                "name": "date_from_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_from_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to",
+                "type": "STRING"
+              },
+              {
+                "name": "date_to_month",
+                "type": "INTEGER"
+              },
+              {
+                "name": "date_to_year",
+                "type": "INTEGER"
+              },
+              {
+                "name": "description",
+                "type": "STRING"
+              },
+              {
+                "name": "duration",
+                "type": "STRING"
+              },
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "organization",
+                "type": "STRING"
+              },
+              {
+                "name": "organization_shorthand_name",
+                "type": "STRING"
+              },
+              {
+                "name": "organization_url",
+                "type": "STRING"
+              },
+              {
+                "name": "role",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "volunteering_positions",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "name": "element",
+            "type": "STRING"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "volunteering_supports",
+    "type": "RECORD"
+  },
+  {
+    "fields": [
+      {
+        "fields": [
+          {
+            "fields": [
+              {
+                "name": "order_in_profile",
+                "type": "INTEGER"
+              },
+              {
+                "name": "personal_website",
+                "type": "STRING"
+              }
+            ],
+            "name": "element",
+            "type": "RECORD"
+          }
+        ],
+        "mode": "REPEATED",
+        "name": "list",
+        "type": "RECORD"
+      }
+    ],
+    "name": "websites",
+    "type": "RECORD"
+  },
+  {
+    "name": "last_synced",
+    "policyTags": {
+      "names": [
+        "projects/handshake-production/locations/us/taxonomies/584072956916551553/policyTags/9201636986877947786"
+      ]
+    },
+    "type": "STRING"
+  }
+]

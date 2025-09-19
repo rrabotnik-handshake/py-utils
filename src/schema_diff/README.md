@@ -83,9 +83,9 @@ Extra selectors:
 
 ### Output control
 - `--no-color`, `--force-color`
-- `--no-presence` — hide the presence/optionality section
-- `--show-common` — print fields present in both schemas with matching types (includes nested array fields like `experience[0].title`)
-- `--fields FIELD [FIELD ...]` — compare only specific fields (supports nested paths like `experience.title` and array elements like `experience[0].title`)
+- `--no-presence` — hide the "Missing Data / NULL-ABILITY" section
+- `--show-common` — print fields present in both schemas with matching types (includes nested array fields with `[]` notation like `experience[].title`)
+- `--fields FIELD [FIELD ...]` — compare only specific fields (supports nested paths like `experience.title` and array elements like `experience[].title`)
 - `--json-out PATH` — save diff JSON
 - `--dump-schemas PATH` — save the two normalized schemas to a file
 
@@ -101,7 +101,7 @@ Extra selectors:
    - **Data** → inferred by sampling; fields seen absent are *not* treated as missing here.
    - **JSON Schema** → converted from schema (`format: date-time` → `timestamp`, etc.).
    - **Spark** → parsed & mapped to internal types, now with recursive `array<struct<...>>` parsing.
-   - **SQL** → parsed & mapped to internal types; arrays become `[elem_type]`, `STRUCT<...>` → `object`.
+   - **SQL** → parsed & mapped to internal types; BigQuery `ARRAY<...>` → `[elem_type]`, `STRUCT<...>` recursively parsed with full nested support.
    - **dbt** → built from manifest/schema.yml (columns + tests).
    - **Protobuf** → parsed from `.proto` files, expanding nested messages, handling `repeated`, `map<K,V>`, `enum`, and `oneof`.
 
@@ -119,10 +119,17 @@ Extra selectors:
 
 4. **DeepDiff** compares the two normalized type trees.
    Output sections:
-   - “Only in left/right” — keys present on one side only
-   - “Missing / optional (presence)” — when type is the same but optionality differs
-   - “Common” — fields present in both sides with matching types (`--show-common`)
-   - “Type mismatches” — real type conflicts (e.g., `int` vs `str`)
+   - "Only in left/right" — keys present on one side only
+   - "Missing Data / NULL-ABILITY" — data presence vs schema nullability differences with source-aware terminology:
+     * Data sources: show base types (`str`, `int`) or `missing data`
+     * Schema sources: show `nullable type` format
+     * Filters out identical formatted types to show only meaningful differences
+   - "Common" — fields present in both sides with matching types (`--show-common`) using `[]` notation for arrays
+   - "Type mismatches" — real type conflicts (e.g., `int` vs `str`), filtered to exclude sampling artifacts
+   - "Path changes" — same field names in different locations with 3-section structure:
+     * Shared field locations and/or field paths (common to both sides)
+     * Only in [left]: paths unique to left side
+     * Only in [right]: paths unique to right side
 
 ---
 
@@ -161,8 +168,8 @@ schema-diff users1.json users2.json --fields headline full_name
 # Support for nested fields with dot notation
 schema-diff profiles1.json profiles2.json --fields experience.title education.institution
 
-# Support for array element paths with [0] notation
-schema-diff profiles1.json profiles2.json --fields 'experience[0].title' 'education[0].institution'
+# Support for array element paths with [] notation (clean array semantics)
+schema-diff profiles1.json profiles2.json --fields 'experience[].title' 'education[].institution'
 
 # Implicit array notation (automatically handles array elements)
 schema-diff profiles1.json profiles2.json --fields experience.title education.institution
@@ -176,12 +183,13 @@ schema-diff data1.json data2.json --fields "headline,full_name,industry"
 - Reduce noise from unrelated schema differences
 - Performance optimization for large schemas
 - Field-specific data quality checks
-- Compare nested array elements (e.g., `experience[0].title` vs `experience[0].company`)
+- Compare nested array elements (e.g., `experience[].title` vs `experience[].company`)
 
 **Array Support:**
-- **Explicit notation**: `experience[0].title` - targets specific array element fields
+- **Explicit notation**: `experience[].title` - targets array element fields using clean array semantics
 - **Implicit notation**: `experience.title` - automatically handles array elements
 - **Mixed usage**: Can combine both notations in the same command
+- **Legacy notation**: `experience[0].title` automatically normalized to `experience[].title` for consistency
 
 ### Combining Features
 
@@ -263,13 +271,24 @@ schema-diff data.json spark_nested.txt --left data --right spark --show-common
 === Schema diff (types only, data.json → spark_nested.txt) ===
 
 -- Only in spark_nested.txt --
-  events[0].ts
-  events[0].meta.key
-  events[0].meta.value
+  events[].ts
+  events[].meta.key
+  events[].meta.value
 
--- Common fields (types agree) --
-  id: int
-  tags: [str]
+-- Missing Data / NULL-ABILITY -- (2)
+  id: int → nullable int
+  tags: [str] → nullable array
+
+-- Common fields (types agree) -- (0)
+
+-- Type mismatches -- (0)
+
+-- Path changes (same field name in different locations) -- (1)
+  user_id:
+    Shared field locations and/or field paths:
+      • user_id
+    Only in spark_nested.txt:
+      • events[].user_id
 ```
 
 ---
@@ -303,7 +322,7 @@ Tests include:
 
 ## 🧭 Philosophy & behavior
 
-- **Presence vs Type:** We do **not** bake nullability into types. Optionality is tracked in `required_paths` and only shown in the *Presence* section when types are otherwise equal.
+- **Presence vs Type:** We do **not** bake nullability into types. Optionality is tracked in `required_paths` and shown in the *Missing Data / NULL-ABILITY* section with source-aware terminology that distinguishes data presence ("missing data") from schema nullability ("nullable").
 - **Sampling:** Inference is by merging k sampled records (or all records with `--all-records`):
   - If a field is present in some records but not others, its type becomes a union (`union(int|missing)` after presence normalization in comparisons).
   - If an array has mixed element types, the element becomes a union (`["union(int|str)"]` → normalized per rules).
@@ -320,7 +339,7 @@ Tests include:
 - **Sampling-based inference:** Types are inferred from sampled records; noisy data can under/over-report unions or presence. Use `--all-records` for comprehensive analysis when sampling is insufficient.
 - **Union explosion:** If many distinct types appear (e.g., 20 unique shapes in 20 samples), unions can grow.
 - **SQL dialects:** Postgres + BigQuery DDL covered; other dialects may need regex additions (PRs welcome).
-- **Arrays/structs:** Arrays map to `[elem_type]`; BigQuery `STRUCT<...>` maps to `"object"` only (no deep parsing yet).
+- **Complex unions:** Union explosion can occur with very diverse data; filtered type mismatches exclude common sampling artifacts.
 - **dbt support:** Requires `manifest.json` or `schema.yml`; we currently honor `not_null` tests for presence, not full assertion semantics.
 - **Protobuf support:** Only `proto2`/`proto3` message/enum/map/oneof basics are supported. Complex options and extensions are ignored.
 
@@ -330,7 +349,8 @@ Tests include:
 
 - **Wrong kind detection for `.json`:** Use `--left/--right` to force `jsonschema` or `dbt-manifest`.
 - **"Table not found" for SQL:** Provide `--*-table` when the DDL file defines multiple tables.
-- **Presence noise from data:** Increase `-k/--samples` and consider `--infer-datetimes` if timestamps are formatted strings.
+- **Data presence noise:** Increase `-k/--samples` and consider `--infer-datetimes` if timestamps are formatted strings. The "Missing Data / NULL-ABILITY" section uses source-aware terminology: "missing data" for data sources, "nullable" for schema sources.
 - **Missing fields in comparison:** Fields that appear infrequently may not be sampled. Use `--all-records` for comprehensive field discovery.
-- **Too much output noise:** Use `--fields` to focus on specific fields of interest.
+- **Too much output noise:** Use `--fields` to focus on specific fields of interest. Path changes section shows field location differences.
 - **Memory issues with large files:** The `--all-records` option has a built-in 1M record safety limit. For larger datasets, use sampling with higher `-k` values.
+- **Array notation confusion:** Legacy `[0]` notation is automatically normalized to `[]` for cleaner output and consistency.

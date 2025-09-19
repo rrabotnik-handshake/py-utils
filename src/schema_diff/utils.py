@@ -1,9 +1,21 @@
 """
-Shared schema utilities.
+Shared schema utilities for type trees, paths, and field operations.
 
-This module collects small, reusable helpers that operate on our internal
-“type tree” representation, so they can be used across compare/report/loader
-without duplication.
+This module collects reusable helpers that operate on our internal
+"type tree" representation, providing comprehensive support for:
+
+- Tree coercion and presence injection for schema alignment
+- Path analysis and flattening with array element support
+- Field filtering for targeted schema comparisons
+- Path formatting with clean array notation ([] instead of [0])
+- Path change detection for field location differences
+
+Key features:
+- Enhanced flatten_paths() with recursive array element traversal
+- Comprehensive filter_schema_by_fields() with nested and array path support
+- Clean fmt_dot_path() for consistent output formatting across all sections
+- inject_presence_for_diff() with proper array element recursion
+- Path change computation to identify field relocations between schemas
 """
 
 from __future__ import annotations
@@ -25,6 +37,12 @@ __all__ = [
 
     # field filtering
     "filter_schema_by_fields",
+
+    # string utilities
+    "strip_quotes_ident",
+    "union_str",
+    "clean_deepdiff_path",
+    "fmt_dot_path",
 ]
 
 
@@ -113,11 +131,14 @@ def inject_presence_for_diff(tree: Any, required_paths: Iterable[str] | None) ->
                 path = f"{prefix}.{k}" if prefix else k
                 if isinstance(v, dict):
                     walk(v, path)
+                elif isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict):
+                    # Handle arrays with object elements - recurse into array element
+                    array_path = f"{path}[0]"
+                    walk(v[0], array_path)
                 else:
                     if path in required:
                         continue  # keep pure type for required
                     node[k] = wrap_optional(v)
-        # arrays: presence is modeled at the parent, not inside the element
 
     if isinstance(out, dict):
         walk(out, "")
@@ -179,8 +200,11 @@ def compute_path_changes(left_tree: Any, right_tree: Any) -> list[dict[str, Any]
     Returns a list of dicts like:
       {"name": "foo", "left": ["foo"], "right": ["bar.foo"]}
 
-    This is useful to surface “moved/nested differently” cases that aren’t
+    This is useful to surface "moved/nested differently" cases that aren't
     type mismatches, but structural/nesting differences.
+
+    Only shows paths that are unique to each side to reduce noise from
+    common locations.
     """
     left_paths = flatten_paths(left_tree)
     right_paths = flatten_paths(right_tree)
@@ -192,7 +216,19 @@ def compute_path_changes(left_tree: Any, right_tree: Any) -> list[dict[str, Any]
     for name in sorted(names):
         lp, rp = lmap[name], rmap[name]
         if lp != rp:
-            out.append({"name": name, "left": sorted(lp), "right": sorted(rp)})
+            # Calculate shared and unique paths
+            common_paths = lp & rp
+            left_only = lp - common_paths
+            right_only = rp - common_paths
+
+            # Only include if there are actually unique paths on either side
+            if left_only or right_only:
+                out.append({
+                    "name": name,
+                    "shared": sorted(common_paths),
+                    "left": sorted(left_only),
+                    "right": sorted(right_only)
+                })
     return out
 
 # ---------- Generic helpers ----------
@@ -224,11 +260,32 @@ def clean_deepdiff_path(path: str) -> str:
 
 
 def fmt_dot_path(p: str) -> str:
-    if not p:
-        return p
-    if p.startswith("."):
-        return p
-    return ("." + p) if (p[0].isalpha() or p[0] == "_") else p
+    """
+    Clean up field paths for display with consistent array notation.
+
+    Parameters
+    ----------
+    p : str
+        Raw path string that may have leading dots or legacy [0] notation
+
+    Returns
+    -------
+    str
+        Cleaned path with:
+        - Leading dots stripped
+        - Legacy [0] notation replaced with [] for cleaner array semantics
+        - Consistent formatting for display across all output sections
+
+    Examples
+    --------
+    ".user.name" -> "user.name"
+    "experience[0].title" -> "experience[].title"
+    "[0].meta.key" -> "[].meta.key"
+    """
+    cleaned = p.lstrip(".")
+    # Replace [0] with [] to show array element schema (not just first element)
+    cleaned = cleaned.replace("[0]", "[]")
+    return cleaned
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -237,19 +294,31 @@ def fmt_dot_path(p: str) -> str:
 
 def filter_schema_by_fields(schema: Any, fields: list[str]) -> Any:
     """
-    Filter a schema tree to include only specific fields.
+    Filter a schema tree to include only specific fields with comprehensive path support.
 
     Parameters
     ----------
     schema : Any
         The schema tree (typically a dict representing object fields)
     fields : list[str]
-        List of field names to include (supports nested paths with dots and array notation)
+        List of field names to include. Supports:
+        - Simple fields: 'name', 'email'
+        - Nested fields: 'profile.name', 'user.settings.theme'
+        - Array elements (explicit): 'experience[].title', 'education[].degree'
+        - Array elements (implicit): 'experience.title' (automatically handles arrays)
+        - Legacy notation: 'experience[0].title' (normalized to 'experience[].title')
 
     Returns
     -------
     Any
-        Filtered schema containing only specified fields
+        Filtered schema containing only specified fields and their parent paths
+
+    Notes
+    -----
+    - Automatically includes parent paths needed to reach target fields
+    - Handles both explicit array notation [0] and implicit array traversal
+    - Preserves nested structure while filtering out unspecified branches
+    - Array element paths like 'experience[].title' target fields within array objects
     """
     if not fields:
         return schema

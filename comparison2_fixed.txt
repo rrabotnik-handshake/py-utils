@@ -1,0 +1,347 @@
+
+=== Schema diff (types only, data/linkedin_member_scraping_events_202509.json.gz → data/linkedin_member_new_202509.json.gz; all 100000 vs 100000 records) ===
+
+-- Only in data/linkedin_member_scraping_events_202509.json.gz -- (1)
+  member_id
+
+-- Only in data/linkedin_member_new_202509.json.gz -- (82)
+  activity[0].created_at
+  activity[0].deleted
+  activity[0].id
+  activity[0].updated_at
+  awards[0].created_at
+  awards[0].deleted
+  awards[0].id
+  awards[0].updated_at
+  certifications[0].created_at
+  certifications[0].deleted
+  certifications[0].id
+  certifications[0].updated_at
+  checked_at
+  course_suggestions[0].created_at
+  course_suggestions[0].deleted
+  course_suggestions[0].id
+  course_suggestions[0].updated_at
+  courses[0].created_at
+  courses[0].deleted
+  courses[0].id
+  courses[0].updated_at
+  created_at
+  education[0].created_at
+  education[0].deleted
+  education[0].id
+  education[0].institution_id
+  education[0].institution_source_id
+  education[0].updated_at
+  experience[0].company_id
+  experience[0].company_source_id
+  experience[0].created_at
+  experience[0].deleted
+  experience[0].id
+  experience[0].updated_at
+  historical_ids
+  is_parent
+  languages[0].created_at
+  languages[0].deleted
+  languages[0].id
+  languages[0].updated_at
+  organizations[0].created_at
+  organizations[0].deleted
+  organizations[0].id
+  organizations[0].updated_at
+  others_named[0].created_at
+  others_named[0].deleted
+  others_named[0].id
+  others_named[0].updated_at
+  parent_id
+  patents[0].created_at
+  patents[0].deleted
+  patents[0].id
+  patents[0].updated_at
+  projects[0].created_at
+  projects[0].deleted
+  projects[0].id
+  projects[0].updated_at
+  publications[0].created_at
+  publications[0].deleted
+  publications[0].id
+  publications[0].updated_at
+  recommendations[0].created_at
+  recommendations[0].deleted
+  recommendations[0].id
+  recommendations[0].updated_at
+  shorthand_names
+  similar_profiles[0].created_at
+  similar_profiles[0].deleted
+  similar_profiles[0].id
+  similar_profiles[0].updated_at
+  test_scores[0].created_at
+  test_scores[0].deleted
+  test_scores[0].id
+  test_scores[0].updated_at
+  volunteering_positions[0].created_at
+  volunteering_positions[0].deleted
+  volunteering_positions[0].id
+  volunteering_positions[0].updated_at
+  websites[0].created_at
+  websites[0].deleted
+  websites[0].id
+  websites[0].updated_at
+
+-- Missing / optional (presence) -- (11)
+  .certifications[0].credential_id: missing → union(missing|str)
+  .experience[0].company_name: str → union(missing|str)
+  .experience[0].is_current: union(int|missing) → int
+  .experience_count: int → union(int|missing)
+  .follower_count: int → union(int|missing)
+  .industry: missing → union(missing|str)
+  .last_name: str → union(missing|str)
+  .patents[0].patent_or_application_number: str → union(missing|str)
+  .profile_photo_url: str → union(missing|str)
+  .public_profile_id: str → union(missing|str)
+  .services: missing → union(missing|str)
+
+-- Type mismatches -- (0)
+
+-- Path changes (same field name in different locations) -- (10)
+  deleted:
+    data/linkedin_member_scraping_events_202509.json.gz (1 location):
+      • deleted
+    data/linkedin_member_new_202509.json.gz (27 locations):
+      • activity[0].deleted
+      • also_viewed[0].deleted
+      • awards[0].deleted
+      • certifications[0].deleted
+      • course_suggestions[0].deleted
+      • courses[0].deleted
+      • deleted
+      • education[0].deleted
+      • experience[0].deleted
+      • groups[0].deleted
+      • interests[0].deleted
+      • languages[0].deleted
+      • organizations[0].deleted
+      • others_named[0].deleted
+      • patents[0].deleted
+      • posts_see_more_urls[0].deleted
+      • projects[0].deleted
+      • publications[0].deleted
+      • recommendations[0].deleted
+      • similar_profiles[0].deleted
+      • skills[0].deleted
+      • test_scores[0].deleted
+      • volunteering_cares[0].deleted
+      • volunteering_opportunities[0].deleted
+      • volunteering_positions[0].deleted
+      • volunteering_supports[0].deleted
+      • websites[0].deleted
+
+  full_name:
+    data/linkedin_member_scraping_events_202509.json.gz (7 locations):
+      • full_name
+      • others_named[0].full_name
+      • patents[0].inventors[0].full_name
+      • projects[0].team_members[0].full_name
+      • publications[0].authors[0].full_name
+      • recommendations[0].full_name
+      • similar_profiles[0].full_name
+    data/linkedin_member_new_202509.json.gz (8 locations):
+      • also_viewed[0].full_name
+      • full_name
+      • others_named[0].full_name
+      • patents[0].inventors[0].full_name
+      • projects[0].team_members[0].full_name
+      • publications[0].authors[0].full_name
+      • recommendations[0].full_name
+      • similar_profiles[0].full_name
+
+  headline:
+    data/linkedin_member_scraping_events_202509.json.gz (3 locations):
+      • headline
+      • others_named[0].headline
+      • similar_profiles[0].headline
+    data/linkedin_member_new_202509.json.gz (4 locations):
+      • also_viewed[0].headline
+      • headline
+      • others_named[0].headline
+      • similar_profiles[0].headline
+
+  id:
+    data/linkedin_member_scraping_events_202509.json.gz (1 location):
+      • id
+    data/linkedin_member_new_202509.json.gz (28 locations):
+      • activity[0].id
+      • also_viewed[0].id
+      • awards[0].id
+      • certifications[0].id
+      • course_suggestions[0].id
+      • courses[0].id
+      • education[0].id
+      • experience[0].id
+      • groups[0].id
+      • historical_ids[0].id
+      • id
+      • interests[0].id
+      • languages[0].id
+      • organizations[0].id
+      • others_named[0].id
+      • patents[0].id
+      • posts_see_more_urls[0].id
+      • projects[0].id
+      • publications[0].id
+      • recommendations[0].id
+      • similar_profiles[0].id
+      • skills[0].id
+      • test_scores[0].id
+      • volunteering_cares[0].id
+      • volunteering_opportunities[0].id
+      • volunteering_positions[0].id
+      • volunteering_supports[0].id
+      • websites[0].id
+
+  location:
+    data/linkedin_member_scraping_events_202509.json.gz (4 locations):
+      • experience[0].location
+      • location
+      • others_named[0].location
+      • similar_profiles[0].location
+    data/linkedin_member_new_202509.json.gz (5 locations):
+      • also_viewed[0].location
+      • experience[0].location
+      • location
+      • others_named[0].location
+      • similar_profiles[0].location
+
+  order_in_profile:
+    data/linkedin_member_scraping_events_202509.json.gz (21 locations):
+      • activity[0].order_in_profile
+      • awards[0].order_in_profile
+      • certifications[0].order_in_profile
+      • course_suggestions[0].order_in_profile
+      • courses[0].order_in_profile
+      • education[0].order_in_profile
+      • experience[0].order_in_profile
+      • languages[0].order_in_profile
+      • organizations[0].order_in_profile
+      • others_named[0].order_in_profile
+      • patents[0].inventors[0].order_in_profile
+      • patents[0].order_in_profile
+      • projects[0].order_in_profile
+      • projects[0].team_members[0].order_in_profile
+      • publications[0].authors[0].order_in_profile
+      • publications[0].order_in_profile
+      • recommendations[0].order_in_profile
+      • similar_profiles[0].order_in_profile
+      • test_scores[0].order_in_profile
+      • volunteering_positions[0].order_in_profile
+      • websites[0].order_in_profile
+    data/linkedin_member_new_202509.json.gz (29 locations):
+      • activity[0].order_in_profile
+      • also_viewed[0].order_in_profile
+      • awards[0].order_in_profile
+      • certifications[0].order_in_profile
+      • course_suggestions[0].order_in_profile
+      • courses[0].order_in_profile
+      • education[0].order_in_profile
+      • experience[0].order_in_profile
+      • groups[0].order_in_profile
+      • interests[0].order_in_profile
+      • languages[0].order_in_profile
+      • organizations[0].order_in_profile
+      • others_named[0].order_in_profile
+      • patents[0].inventors[0].order_in_profile
+      • patents[0].order_in_profile
+      • posts_see_more_urls[0].order_in_profile
+      • projects[0].order_in_profile
+      • projects[0].team_members[0].order_in_profile
+      • publications[0].authors[0].order_in_profile
+      • publications[0].order_in_profile
+      • recommendations[0].order_in_profile
+      • similar_profiles[0].order_in_profile
+      • skills[0].order_in_profile
+      • test_scores[0].order_in_profile
+      • volunteering_cares[0].order_in_profile
+      • volunteering_opportunities[0].order_in_profile
+      • volunteering_positions[0].order_in_profile
+      • volunteering_supports[0].order_in_profile
+      • websites[0].order_in_profile
+
+  profile_url:
+    data/linkedin_member_scraping_events_202509.json.gz (6 locations):
+      • others_named[0].profile_url
+      • patents[0].inventors[0].profile_url
+      • profile_url
+      • projects[0].team_members[0].profile_url
+      • publications[0].authors[0].profile_url
+      • similar_profiles[0].profile_url
+    data/linkedin_member_new_202509.json.gz (7 locations):
+      • also_viewed[0].profile_url
+      • others_named[0].profile_url
+      • patents[0].inventors[0].profile_url
+      • profile_url
+      • projects[0].team_members[0].profile_url
+      • publications[0].authors[0].profile_url
+      • similar_profiles[0].profile_url
+
+  shorthand_name:
+    data/linkedin_member_scraping_events_202509.json.gz (1 location):
+      • shorthand_name
+    data/linkedin_member_new_202509.json.gz (2 locations):
+      • shorthand_name
+      • shorthand_names[0].shorthand_name
+
+  title:
+    data/linkedin_member_scraping_events_202509.json.gz (9 locations):
+      • activity[0].title
+      • awards[0].title
+      • certifications[0].title
+      • course_suggestions[0].title
+      • courses[0].title
+      • experience[0].title
+      • patents[0].title
+      • publications[0].title
+      • test_scores[0].title
+    data/linkedin_member_new_202509.json.gz (10 locations):
+      • activity[0].title
+      • awards[0].title
+      • certifications[0].title
+      • course_suggestions[0].title
+      • courses[0].title
+      • experience[0].title
+      • groups[0].title
+      • patents[0].title
+      • publications[0].title
+      • test_scores[0].title
+
+  updated_at:
+    data/linkedin_member_scraping_events_202509.json.gz (1 location):
+      • updated_at
+    data/linkedin_member_new_202509.json.gz (27 locations):
+      • activity[0].updated_at
+      • also_viewed[0].updated_at
+      • awards[0].updated_at
+      • certifications[0].updated_at
+      • course_suggestions[0].updated_at
+      • courses[0].updated_at
+      • education[0].updated_at
+      • experience[0].updated_at
+      • groups[0].updated_at
+      • interests[0].updated_at
+      • languages[0].updated_at
+      • organizations[0].updated_at
+      • others_named[0].updated_at
+      • patents[0].updated_at
+      • posts_see_more_urls[0].updated_at
+      • projects[0].updated_at
+      • publications[0].updated_at
+      • recommendations[0].updated_at
+      • similar_profiles[0].updated_at
+      • skills[0].updated_at
+      • test_scores[0].updated_at
+      • updated_at
+      • volunteering_cares[0].updated_at
+      • volunteering_opportunities[0].updated_at
+      • volunteering_positions[0].updated_at
+      • volunteering_supports[0].updated_at
+      • websites[0].updated_at
+

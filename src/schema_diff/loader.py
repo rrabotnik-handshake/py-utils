@@ -185,13 +185,40 @@ def load_left_or_right(
     Load `path` as either a DATA source or a SCHEMA source and return:
         (type_tree, required_paths, label)
 
+    Parameters
+    ----------
+    path : str
+        Path to the input file
+    kind : Optional[str]
+        Type of input ('data', 'jsonschema', 'spark', 'sql', 'dbt-manifest', 'dbt-yml', 'proto', 'auto')
+    cfg : Config
+        Configuration object
+    samples : int
+        Number of records to sample for DATA sources
+    first_record : Optional[int]
+        If specified, use only the N-th record for DATA sources (1-based)
+    all_records : bool
+        If True, process ALL records for DATA sources instead of sampling (memory intensive)
+    sql_table : Optional[str]
+        Table name to extract from multi-table SQL DDL files
+    dbt_model : Optional[str]
+        Model name to extract from dbt manifest/schema files
+    proto_message : Optional[str]
+        Message name to extract from Protobuf .proto files
+
+    Returns
+    -------
+    tuple[Any, Set[str], str]
+        (type_tree, required_paths, label) where:
+        - type_tree: pure type tree (no '|missing' mixed in)
+        - required_paths: set of dotted paths with presence constraints (NOT NULL, required, etc.)
+        - label: display name for headings (includes table/model/message info)
+
     Notes
     -----
-    - `type_tree` is the *pure type* tree (no '|missing' mixed in).
-    - `required_paths` is a set of dotted paths with presence constraints
-      (NOT NULL, JSON Schema 'required', etc.).
-    - `label` is what we print in headings (may include table/model/message).
-    - All parser calls are normalized through `_ensure_tree_required`.
+    - For DATA sources, all_records=True enables comprehensive field discovery
+    - For SCHEMA sources, supports BigQuery DDL, nested Spark schemas, and standard JSON Schema
+    - All parser calls are normalized through `_ensure_tree_required` for consistency
     """
     chosen = kind or KIND_AUTO
     if chosen == KIND_AUTO:

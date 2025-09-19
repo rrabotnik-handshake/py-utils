@@ -6,23 +6,33 @@ from .utils import strip_quotes_ident
 from .io_utils import open_text
 
 """
-SQL DDL schema parser.
+SQL DDL schema parser with comprehensive BigQuery support.
 
 This module extracts a **pure type tree** and a set of **presence-required** paths
-from SQL `CREATE TABLE` statements (and from loose column lists if no `CREATE TABLE`
-is present). It aims to be adapter-agnostic and tolerant to common dialect quirks.
+from SQL `CREATE TABLE` statements with full support for complex nested types.
+Handles both Postgres-like DDL and BigQuery DDL with advanced type parsing.
+
+Key Features:
+- **BigQuery STRUCT parsing**: Recursively parses nested STRUCT<field:type, ...> definitions
+- **BigQuery ARRAY support**: Handles ARRAY<type> including ARRAY<STRUCT<...>> patterns
+- **Multi-line reconstruction**: Properly handles STRUCT/ARRAY definitions spanning multiple lines
+- **Nullability detection**: Correctly identifies NOT NULL constraints for presence tracking
+- **DDL statement filtering**: Ignores CREATE/ALTER/DROP statements in loose parsing mode
+- **Array wrapper normalization**: Converts BigQuery's internal array format to standard arrays
 
 Outputs:
     schema_tree: Dict[str, Any]
         - scalars: 'int' | 'float' | 'bool' | 'str' | 'date' | 'time' | 'timestamp'
-        - arrays:  [elem_type], e.g. ['str']
-        - complex types we don't explode (e.g., STRUCT) -> 'object'
+        - arrays:  [elem_type] with full nested structure preservation
+        - structs: recursively parsed nested dictionaries
+        - complex types: 'object' for unsupported types
     required_paths: Set[str]
-        - flat set of column names marked NOT NULL (Spark-style inner-nullability is
-          not represented here; only top-level column constraints are tracked)
+        - dotted paths for all fields marked NOT NULL (supports nested field paths)
 
-Notes:
-    - BigQuery ARRAY<...> / STRUCT<...> are supported, nested angle brackets ok.
+Enhanced Capabilities:
+- Handles deeply nested STRUCT<field1:type1, field2:STRUCT<...>, field3:ARRAY<STRUCT<...>>> patterns
+- Preserves complex nested structures instead of flattening to 'object'
+- Supports BigQuery's backticked identifiers and various SQL dialects
     - Postgres-style arrays like TEXT[] are supported.
     - Precision/length in types (e.g., VARCHAR(255), NUMERIC(10,2)) is ignored for
       mapping purposes.
@@ -50,11 +60,9 @@ SQL_CREATE_RE_ST = re.compile(
 SQL_COL_RE = re.compile(
     r'^\s*'
     r'(?P<col>["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?)\s+'
-    # dtype: stop before NULL/NOT NULL/DEFAULT/OPTIONS/... or comma/EOL
-    r'(?P<dtype>.+?)(?=\s+(?:NOT\s+NULL|NULL|DEFAULT|OPTIONS|CONSTRAINT|PRIMARY|UNIQUE|FOREIGN\s+KEY|CHECK|REFERENCES|GENERATED|AS|IDENTITY|ON\s+UPDATE|ON\s+DELETE)\b|,|$)'
+    # dtype: capture everything until comma or EOL (we'll handle STRUCT parsing separately)
+    r'(?P<dtype>.+?)'
     r'(?:\s+(?P<null>NOT\s+NULL|NULL))?'
-    # NEW: allow trailing tokens like OPTIONS(...), DEFAULT ..., etc., before comma/EOL
-    r'(?:\s+(?:DEFAULT|OPTIONS|CONSTRAINT|PRIMARY|UNIQUE|FOREIGN\s+KEY|CHECK|REFERENCES|GENERATED|AS|IDENTITY|ON\s+UPDATE|ON\s+DELETE)\b[^\n,]*)*'
     r'\s*(?:,|$)',
     re.IGNORECASE
 )
@@ -157,6 +165,103 @@ def _balanced_inner(s: str, start: int) -> tuple[str, int] | tuple[None, int]:
     return None, start  # unbalanced
 
 
+def _parse_struct_type(struct_type: str) -> Dict[str, Any]:
+    """
+    Parse BigQuery STRUCT<...> syntax into a nested type tree.
+
+    Example:
+        STRUCT<name STRING, age INTEGER, tags ARRAY<STRING>>
+        -> {"name": "str", "age": "int", "tags": ["str"]}
+    """
+    # Extract the content inside STRUCT<...>
+    inner, _ = _balanced_inner(struct_type, struct_type.find("<"))
+    if inner is None:
+        return "object"  # fallback for malformed STRUCT
+
+    # Parse comma-separated field definitions
+    fields = _split_struct_fields(inner)
+    struct_dict: Dict[str, Any] = {}
+
+    for field_def in fields:
+        field_name, field_type = _parse_struct_field(field_def)
+        if field_name:
+            struct_dict[field_name] = _sql_dtype_to_internal(field_type)
+
+    return struct_dict if struct_dict else "object"
+
+
+def _split_struct_fields(fields_str: str) -> list[str]:
+    """
+    Split comma-separated field definitions, respecting nested angle brackets.
+
+    Example: "name STRING, tags ARRAY<STRING>, profile STRUCT<bio STRING>"
+    -> ["name STRING", "tags ARRAY<STRING>", "profile STRUCT<bio STRING>"]
+    """
+    fields = []
+    current_field = ""
+    depth = 0
+    i = 0
+
+    while i < len(fields_str):
+        char = fields_str[i]
+
+        if char == '<':
+            depth += 1
+            current_field += char
+        elif char == '>':
+            depth -= 1
+            current_field += char
+        elif char == ',' and depth == 0:
+            # End of current field
+            if current_field.strip():
+                fields.append(current_field.strip())
+            current_field = ""
+        else:
+            current_field += char
+
+        i += 1
+
+    # Add the last field
+    if current_field.strip():
+        fields.append(current_field.strip())
+
+    return fields
+
+
+def _parse_struct_field(field_def: str) -> tuple[str, str]:
+    """
+    Parse a single field definition like "name STRING" or "tags ARRAY<STRING>".
+
+    Returns: (field_name, field_type)
+    """
+    # Handle quoted field names and complex types
+    field_def = field_def.strip()
+
+    # Look for the first space that's not inside angle brackets
+    depth = 0
+    split_pos = -1
+
+    for i, char in enumerate(field_def):
+        if char == '<':
+            depth += 1
+        elif char == '>':
+            depth -= 1
+        elif char == ' ' and depth == 0 and split_pos == -1:
+            split_pos = i
+            break
+
+    if split_pos == -1:
+        return "", ""  # malformed field definition
+
+    field_name = field_def[:split_pos].strip()
+    field_type = field_def[split_pos:].strip()
+
+    # Remove quotes from field name if present
+    field_name = field_name.strip('`"[]')
+
+    return field_name, field_type
+
+
 def _sql_dtype_to_internal(dtype_raw: str) -> Any:
     """
     Normalize an SQL dtype token to the internal type label/tree.
@@ -175,13 +280,12 @@ def _sql_dtype_to_internal(dtype_raw: str) -> Any:
         inner_m = _sql_dtype_to_internal(inner)
         if isinstance(inner_m, list) and inner_m:
             inner_m = inner_m[0]
-        if not isinstance(inner_m, str):
-            inner_m = "any"
+        # Preserve dict structures (from STRUCT parsing) and other non-string types
         return [inner_m]
 
-    # BigQuery STRUCT<...> -> treat as opaque object
+    # BigQuery STRUCT<...> -> parse nested structure
     if dt.startswith("struct<"):
-        return "object"
+        return _parse_struct_type(dt)
 
     # Postgres-style arrays: text[] / varchar(255)[]
     is_array = dt.endswith("[]")
@@ -195,15 +299,217 @@ def _sql_dtype_to_internal(dtype_raw: str) -> Any:
     return [mapped] if is_array else mapped
 
 
+def _normalize_bigquery_arrays(schema: Any) -> Any:
+    """
+    Normalize BigQuery's list[0].element array wrapper pattern to standard arrays.
+
+    Converts: {'list': [{'element': {...}}]}
+    To: [{...}]
+
+    This removes BigQuery's internal storage representation and produces
+    structures that match the actual JSON data format.
+    """
+    if isinstance(schema, dict):
+        # Check for BigQuery array pattern: {'list': [{'element': ...}]}
+        if (len(schema) == 1 and 'list' in schema and
+            isinstance(schema['list'], list) and len(schema['list']) == 1 and
+            isinstance(schema['list'][0], dict) and len(schema['list'][0]) == 1 and
+            'element' in schema['list'][0]):
+
+            # Extract the element structure and make it an array
+            element_structure = schema['list'][0]['element']
+            # Recursively normalize the element structure
+            normalized_element = _normalize_bigquery_arrays(element_structure)
+            return [normalized_element]
+
+        # Recursively normalize nested structures
+        normalized = {}
+        for key, value in schema.items():
+            normalized[key] = _normalize_bigquery_arrays(value)
+        return normalized
+
+    elif isinstance(schema, list):
+        # Recursively normalize array elements
+        return [_normalize_bigquery_arrays(item) for item in schema]
+
+    else:
+        # Scalar values - return as-is
+        return schema
+
+
 def _as_pure_type(mapped: Any) -> Any:
     """
     Convert a mapper result (scalar or [elem]) into a consistent "pure type".
     Ensures arrays normalize to ['any'] instead of ['any', ...] or [].
+    Then applies BigQuery normalization.
     """
     if isinstance(mapped, list):
         elem = mapped[0] if mapped else "any"
-        return ["any" if elem == "any" else elem]
-    return mapped
+        result = ["any" if elem == "any" else elem]
+    else:
+        result = mapped
+
+    # Apply BigQuery normalization to remove list[0].element wrappers
+    return _normalize_bigquery_arrays(result)
+
+
+def _reconstruct_multiline_structs(text: str) -> str:
+    """
+    Reconstruct multi-line BigQuery STRUCT definitions into single lines.
+
+    Converts:
+        `activity` STRUCT<
+          `list` ARRAY<STRUCT<
+              `element` STRUCT<
+                `action` STRING,
+                `activity_url` STRING
+              >
+            >
+          >
+        >,
+
+    To:
+        `activity` STRUCT<`list` ARRAY<STRUCT<`element` STRUCT<`action` STRING, `activity_url` STRING>>>>,
+    """
+    lines = text.splitlines()
+    result_lines = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # Check if this line starts a column definition with STRUCT
+        if line and ('STRUCT<' in line or 'ARRAY<' in line):
+            # This might be a multi-line definition
+            reconstructed_line = _collect_multiline_definition(lines, i)
+            if reconstructed_line:
+                result_lines.append(reconstructed_line)
+                # Skip to the end of this definition
+                i = _find_definition_end(lines, i) + 1
+            else:
+                result_lines.append(lines[i])
+                i += 1
+        else:
+            result_lines.append(lines[i])
+            i += 1
+
+    return '\n'.join(result_lines)
+
+
+def _collect_multiline_definition(lines: list[str], start_idx: int) -> str:
+    """
+    Collect a multi-line STRUCT/ARRAY definition and flatten it to one line.
+    """
+    if start_idx >= len(lines):
+        return ""
+
+    # Start with the first line
+    result_parts = [lines[start_idx].strip()]
+
+    # Track bracket depth to know when the definition ends
+    depth = 0
+    definition_started = False
+
+    for i in range(start_idx, len(lines)):
+        line = lines[i].strip()
+
+        # Count angle brackets to track STRUCT/ARRAY nesting
+        for char in line:
+            if char == '<':
+                depth += 1
+                definition_started = True
+            elif char == '>':
+                depth -= 1
+
+        # If this isn't the first line, add it to our reconstruction
+        if i > start_idx and line:
+            # Remove quotes and clean up the line for inline format
+            clean_line = line.replace('`', '').replace('"', '')
+            # Preserve commas - they separate fields
+            result_parts.append(clean_line)
+
+        # If we've closed all brackets and we started a definition, we're done
+        if definition_started and depth == 0:
+            break
+
+    # Join all parts and clean up extra spaces
+    result = ' '.join(result_parts)
+    # Clean up extra spaces around commas and brackets
+    result = re.sub(r'\s*,\s*', ', ', result)
+    result = re.sub(r'\s*<\s*', '<', result)
+    result = re.sub(r'\s*>\s*', '>', result)
+
+    return result
+
+
+def _find_definition_end(lines: list[str], start_idx: int) -> int:
+    """
+    Find the line index where a multi-line STRUCT/ARRAY definition ends.
+    """
+    depth = 0
+    definition_started = False
+
+    for i in range(start_idx, len(lines)):
+        line = lines[i].strip()
+
+        for char in line:
+            if char == '<':
+                depth += 1
+                definition_started = True
+            elif char == '>':
+                depth -= 1
+
+        if definition_started and depth == 0:
+            return i
+
+    return start_idx  # fallback
+
+
+def _extract_complete_type(line: str) -> str:
+    """
+    Extract the complete type definition from a line, handling nested STRUCT/ARRAY.
+
+    For lines like: `col` STRUCT<...nested...> NOT NULL,
+    Returns: STRUCT<...nested...>
+    """
+    # Find column name and type start
+    parts = line.strip().split(None, 2)
+    if len(parts) < 2:
+        return ""
+
+    # Skip column name, get the rest
+    after_col = line.strip().split(None, 1)[1] if ' ' in line.strip() else ""
+
+    # If it's a simple type (no STRUCT/ARRAY), just return until comma or constraints
+    if not ('STRUCT<' in after_col or 'ARRAY<' in after_col):
+        # Simple type - return until comma or constraint keywords
+        for keyword in ['NOT NULL', 'NULL', 'DEFAULT', 'OPTIONS', 'CONSTRAINT', ',']:
+            if keyword in after_col:
+                return after_col.split(keyword)[0].strip()
+        return after_col.strip()
+
+    # Complex type - need to balance angle brackets
+    depth = 0
+    result = ""
+    started = False
+
+    for char in after_col:
+        if char == '<':
+            depth += 1
+            started = True
+            result += char
+        elif char == '>':
+            depth -= 1
+            result += char
+            if started and depth == 0:
+                # Found the end of the nested structure
+                break
+        elif started:
+            result += char
+        elif not started and char != ' ':
+            result += char
+
+    return result.strip()
 
 
 # --- Main API --------------------------------------------------------------
@@ -226,6 +532,7 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
         text = f.read()
 
     text = _strip_sql_comments(text)
+    text = _reconstruct_multiline_structs(text)
     lines = text.splitlines()
 
     tables: Dict[str, Dict[str, Any]] = {}
@@ -303,6 +610,11 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
                     if m_col and current is not None and current_required is not None:
                         col_raw = m_col.group("col")
                         dtype_raw = m_col.group("dtype") or ""
+
+                        # For STRUCT/ARRAY types, extract the complete type definition
+                        if 'STRUCT<' in rem_line or 'ARRAY<' in rem_line:
+                            dtype_raw = _extract_complete_type(rem_line)
+
                         col = strip_quotes_ident(col_raw)
 
                         mapped = _sql_dtype_to_internal(dtype_raw)
@@ -335,6 +647,12 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
             if m_col and current is not None and current_required is not None:
                 col_raw = m_col.group("col")
                 dtype_raw = m_col.group("dtype") or ""
+
+                # For STRUCT types, extract the complete type definition
+                # Note: ARRAY types work fine with regex-captured dtype, but STRUCT may need multi-line handling
+                if 'STRUCT<' in line:
+                    dtype_raw = _extract_complete_type(line)
+
                 col = strip_quotes_ident(col_raw)
 
                 mapped = _sql_dtype_to_internal(dtype_raw)
@@ -350,6 +668,10 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
             continue
 
         # Outside CREATE TABLE: loose column list
+        # Skip SQL DDL statements that shouldn't be treated as columns
+        if line.upper().startswith(('CREATE ', 'ALTER ', 'DROP ', 'INSERT ', 'UPDATE ', 'DELETE ', 'SELECT ')):
+            continue
+
         m_col = SQL_COL_RE.match(line)
         if m_col:
             full = "__loose__"
@@ -360,6 +682,11 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
 
             col = strip_quotes_ident(m_col.group("col"))
             dtype_raw = m_col.group("dtype") or ""
+
+            # For STRUCT/ARRAY types, extract the complete type definition
+            if 'STRUCT<' in line or 'ARRAY<' in line:
+                dtype_raw = _extract_complete_type(line)
+
             mapped = _sql_dtype_to_internal(dtype_raw)
 
             tables[full][col] = _as_pure_type(mapped)

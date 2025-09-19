@@ -8,6 +8,8 @@ This combines:
 We also adjust layout defaults for better readability in wide terminals.
 """
 
+from __future__ import annotations
+
 import argparse
 
 

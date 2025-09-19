@@ -1,0 +1,976 @@
+{
+  "type": "object",
+  "properties": {
+    "activity": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "activity_url": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "also_viewed": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "awards": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "date_day": {
+                  "type": "integer"
+                },
+                "date_month": {
+                  "type": "integer"
+                },
+                "date_year": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "issuer": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "canonical_shorthand_name": {
+      "type": "string"
+    },
+    "certifications": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "certificate_url": {
+                  "type": "string"
+                },
+                "credential_id": {
+                  "type": "string"
+                },
+                "date_from": {
+                  "type": "string"
+                },
+                "date_from_month": {
+                  "type": "integer"
+                },
+                "date_from_year": {
+                  "type": "integer"
+                },
+                "date_to": {
+                  "type": "string"
+                },
+                "date_to_month": {
+                  "type": "integer"
+                },
+                "date_to_year": {
+                  "type": "integer"
+                },
+                "issuer": {
+                  "type": "string"
+                },
+                "issuer_url": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "connections_count": {
+      "type": "integer"
+    },
+    "country": {
+      "type": "string"
+    },
+    "country_iso_2": {
+      "type": "string"
+    },
+    "country_iso_3": {
+      "type": "string"
+    },
+    "course_suggestions": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "course_url": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "courses": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "organizer": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "deleted": {
+      "type": "integer"
+    },
+    "education": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "activities_and_societies": {
+                  "type": "string"
+                },
+                "date_from": {
+                  "type": "string"
+                },
+                "date_from_month": {
+                  "type": "string"
+                },
+                "date_from_year": {
+                  "type": "integer"
+                },
+                "date_to": {
+                  "type": "string"
+                },
+                "date_to_month": {
+                  "type": "string"
+                },
+                "date_to_year": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "institution": {
+                  "type": "string"
+                },
+                "institution_shorthand_name": {
+                  "type": "string"
+                },
+                "institution_url": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "program": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "experience": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "company_name": {
+                  "type": "string"
+                },
+                "company_shorthand_name": {
+                  "type": "string"
+                },
+                "company_url": {
+                  "type": "string"
+                },
+                "date_from": {
+                  "type": "string"
+                },
+                "date_from_month": {
+                  "type": "integer"
+                },
+                "date_from_year": {
+                  "type": "integer"
+                },
+                "date_to": {
+                  "type": "string"
+                },
+                "date_to_month": {
+                  "type": "integer"
+                },
+                "date_to_year": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "duration": {
+                  "type": "string"
+                },
+                "is_current": {
+                  "type": "integer"
+                },
+                "location": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "experience_count": {
+      "type": "integer"
+    },
+    "first_name": {
+      "type": "string"
+    },
+    "follower_count": {
+      "type": "integer"
+    },
+    "full_name": {
+      "type": "string"
+    },
+    "groups": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "headline": {
+      "type": "string"
+    },
+    "hidden_details": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "hidden_collection": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "id": {
+      "type": "integer"
+    },
+    "industry": {
+      "type": "string"
+    },
+    "interests": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "languages": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "language": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "proficiency": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "last_name": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "member_id": {
+      "type": "integer"
+    },
+    "organizations": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "date_from": {
+                  "type": "string"
+                },
+                "date_from_month": {
+                  "type": "integer"
+                },
+                "date_from_year": {
+                  "type": "integer"
+                },
+                "date_to": {
+                  "type": "string"
+                },
+                "date_to_month": {
+                  "type": "integer"
+                },
+                "date_to_year": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "organization": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "others_named": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "full_name": {
+                  "type": "string"
+                },
+                "headline": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "profile_url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "patents": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "date_day": {
+                  "type": "integer"
+                },
+                "date_month": {
+                  "type": "integer"
+                },
+                "date_year": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "inventors": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "object",
+                      "properties": {
+                        "element": {
+                          "type": "object",
+                          "properties": {
+                            "full_name": {
+                              "type": "string"
+                            },
+                            "order_in_profile": {
+                              "type": "integer"
+                            },
+                            "profile_url": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "patent_or_application_number": {
+                  "type": "string"
+                },
+                "patent_url": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "posts_see_more_urls": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "profile_photo_url": {
+      "type": "string"
+    },
+    "profile_url": {
+      "type": "string"
+    },
+    "projects": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "date_from": {
+                  "type": "string"
+                },
+                "date_from_month": {
+                  "type": "integer"
+                },
+                "date_from_year": {
+                  "type": "integer"
+                },
+                "date_to": {
+                  "type": "string"
+                },
+                "date_to_month": {
+                  "type": "integer"
+                },
+                "date_to_year": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "project_url": {
+                  "type": "string"
+                },
+                "team_members": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "object",
+                      "properties": {
+                        "element": {
+                          "type": "object",
+                          "properties": {
+                            "full_name": {
+                              "type": "string"
+                            },
+                            "order_in_profile": {
+                              "type": "integer"
+                            },
+                            "profile_url": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "public_profile_id": {
+      "type": "string"
+    },
+    "publications": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "authors": {
+                  "type": "object",
+                  "properties": {
+                    "list": {
+                      "type": "object",
+                      "properties": {
+                        "element": {
+                          "type": "object",
+                          "properties": {
+                            "full_name": {
+                              "type": "string"
+                            },
+                            "order_in_profile": {
+                              "type": "integer"
+                            },
+                            "profile_url": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "date": {
+                  "type": "string"
+                },
+                "date_day": {
+                  "type": "integer"
+                },
+                "date_month": {
+                  "type": "integer"
+                },
+                "date_year": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "publication_url": {
+                  "type": "string"
+                },
+                "publisher": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recommendations": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "full_name": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "recommendation": {
+                  "type": "string"
+                },
+                "referee_url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recommendations_count": {
+      "type": "integer"
+    },
+    "regions": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "region": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "string"
+    },
+    "shorthand_name": {
+      "type": "string"
+    },
+    "similar_profiles": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "full_name": {
+                  "type": "string"
+                },
+                "headline": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "profile_url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string"
+    },
+    "test_scores": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "date_day": {
+                  "type": "integer"
+                },
+                "date_month": {
+                  "type": "integer"
+                },
+                "date_year": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "score": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "volunteering_cares": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "volunteering_opportunities": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "volunteering_positions": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "cause": {
+                  "type": "string"
+                },
+                "date_from": {
+                  "type": "string"
+                },
+                "date_from_month": {
+                  "type": "integer"
+                },
+                "date_from_year": {
+                  "type": "integer"
+                },
+                "date_to": {
+                  "type": "string"
+                },
+                "date_to_month": {
+                  "type": "integer"
+                },
+                "date_to_year": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "duration": {
+                  "type": "string"
+                },
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "organization": {
+                  "type": "string"
+                },
+                "organization_shorthand_name": {
+                  "type": "string"
+                },
+                "organization_url": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "volunteering_supports": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "websites": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "object",
+              "properties": {
+                "order_in_profile": {
+                  "type": "integer"
+                },
+                "personal_website": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "last_synced": {
+      "type": "string"
+    }
+  }
+}

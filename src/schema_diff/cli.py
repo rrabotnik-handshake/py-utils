@@ -2,22 +2,37 @@
 CLI entrypoint for schema-diff.
 
 This module implements the `schema-diff` command-line tool, which compares
-schemas across multiple formats and sources:
+schemas across multiple formats and sources with comprehensive analysis capabilities:
 
-- DATA files (NDJSON, JSON, JSONL, GZIP-compressed) — can infer schema by sampling records
-- JSON Schema documents
-- Spark schema dumps (text format)
-- SQL CREATE TABLE definitions
+- DATA files (NDJSON, JSON, JSONL, GZIP-compressed) — infers schema by sampling or processing all records
+- JSON Schema documents (standard format and BigQuery schema conversion)
+- Spark schema dumps (text format with deep nested array<struct<...>> parsing)
+- SQL CREATE TABLE definitions (Postgres-like and BigQuery DDL with STRUCT/ARRAY support)
 - dbt manifest.json or schema.yml files
-- (future) Protobuf message definitions
+- Protobuf message definitions (.proto files)
+
+Key Features:
+- Comprehensive analysis with --all-records for complete field discovery
+- Focused comparison with --fields for specific field targeting
+- Nested field support with dot notation (experience.title) and array semantics ([])
+- Path change detection for field location differences
+- Clear presence terminology (missing vs nullable)
+- Sampling artifact filtering for cleaner type mismatch reporting
 
 Comparison modes supported:
-  * DATA ↔ DATA  (record-level type comparison)
-  * DATA ↔ schema (classic mode, back-compat)
-  * any ↔ any    (general mode with --left/--right kinds)
+  * DATA ↔ DATA  (record-level type comparison with full nested support)
+  * DATA ↔ schema (classic mode with enhanced presence injection)
+  * any ↔ any    (general mode with --left/--right kinds and source type awareness)
+
+Output sections:
+- Only in left/right: fields present on one side only
+- Missing/optional (presence): optionality differences with clear terminology
+- Common fields: matching fields (--show-common) with [] array notation
+- Type mismatches: real type conflicts excluding sampling artifacts
+- Path changes: same field names in different locations
 
 Main entrypoint: `main()` — builds argparse parser, interprets args,
-and dispatches to the proper comparison function.
+and dispatches to the proper comparison function with source type tracking.
 """
 
 from __future__ import annotations
@@ -41,7 +56,7 @@ from .json_data_file_parser import merged_schema_from_samples
 from .report import build_report_struct, print_report_text, print_samples
 from .loader import load_left_or_right
 from .compare import compare_trees, compare_data_to_ref
-from .utils import filter_schema_by_fields
+from .utils import filter_schema_by_fields, coerce_root_to_field_dict
 
 
 def _auto_colors(force_color: bool, no_color: bool) -> bool:
@@ -101,7 +116,7 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
     # Sampling controls
     # ----------------------------------------------------------------------
     samp = parser.add_argument_group("Sampling")
-    samp.add_argument("-k", "--samples", type=int, default=3, metavar="N",
+    samp.add_argument("-k", "--samples", type=int, default=1000, metavar="N",
                       help="records to sample per DATA file")
     samp.add_argument("--all-records", action="store_true",
                       help="process ALL records instead of sampling (may be memory intensive)")
@@ -279,6 +294,8 @@ def main():
             json_out=args.json_out,
             title_suffix="",
             show_common=args.show_common,
+            left_source_type=args.left,
+            right_source_type=args.right,
         )
         return
 
@@ -324,6 +341,7 @@ def main():
             title_suffix=title1,
             required_paths=required_paths,
             show_common=args.show_common,
+            ref_source_type=args.right,
         )
         return
 
@@ -374,7 +392,6 @@ def main():
 
         # Show common fields if requested
         if args.show_common:
-            from .utils import coerce_root_to_field_dict
             from .report import print_common_fields
             sch1n_dict = coerce_root_to_field_dict(sch1n)
             sch2n_dict = coerce_root_to_field_dict(sch2n)
@@ -396,7 +413,17 @@ def main():
             diff, args.file1, args.file2, include_presence=cfg.show_presence)
         report["meta"]["mode"] = title_suffix.strip("; ").strip()
         print_report_text(report, args.file1, args.file2, colors=cfg.colors(),
-                          show_presence=cfg.show_presence, title_suffix=title_suffix)
+                          show_presence=cfg.show_presence, title_suffix=title_suffix,
+                          left_source_type="data", right_source_type="data")
+
+        # Path changes (same field name in different locations)
+        from .utils import compute_path_changes
+        from .report import print_path_changes
+        sch1n_dict = coerce_root_to_field_dict(sch1n)
+        sch2n_dict = coerce_root_to_field_dict(sch2n)
+        path_changes = compute_path_changes(sch1n_dict, sch2n_dict)
+        print_path_changes(args.file1, args.file2, path_changes, colors=cfg.colors())
+
         all_reports.append(report)
 
     if args.json_out:

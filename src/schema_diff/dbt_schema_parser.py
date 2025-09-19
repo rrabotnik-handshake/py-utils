@@ -148,7 +148,7 @@ def schema_from_dbt_manifest(path: str, model: Optional[str] = None) -> Tuple[Di
         raise ValueError(f"No dbt model found matching '{model}' in {path}")
 
     # Prefer exact name/alias/node-id match if provided; else take the first sorted
-    fq_name, node = sorted(matches, key=lambda x: (x[0] != mlc, x[0]))[0]
+    _, node = sorted(matches, key=lambda x: (x[0] != mlc, x[0]))[0]
 
     cols = node.get("columns", {}) or {}
     schema: Dict[str, Any] = {}

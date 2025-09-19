@@ -50,7 +50,7 @@ def test_presence_only_diff_jsonschema_vs_sql(tmp_path):
                "--right", "sql", "--right-table", "t", "--no-color"])
     assert res.returncode == 0
     assert "No differences" in res.stdout or "Type mismatches -- (0)" in res.stdout
-    
+
 
 def test_root_list_fields(tmp_path):
     left = tmp_path / "l.json"
@@ -67,4 +67,4 @@ def test_root_list_fields(tmp_path):
                "--left", "jsonschema", "--right", "jsonschema", "--no-color"])
     assert res.returncode == 0
     assert "-- Type mismatches --" in res.stdout
-    assert ".id" in res.stdout
+    assert "id:" in res.stdout  # Should show "id: nullable integer → nullable string"

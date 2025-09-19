@@ -83,9 +83,6 @@ ONEOF_OPEN_RE = re.compile(r'^\s*oneof\s+([A-Za-z_]\w*)\s*\{\s*$')
 BLOCK_CLOSE_RE = re.compile(r'^\s*\}\s*$')
 
 # Comments
-LINE_COMMENT_RE = re.compile(r'^\s*//')
-BLOCK_COMMENT_START_RE = re.compile(r'/\*')
-BLOCK_COMMENT_END_RE = re.compile(r'\*/')
 
 
 def _strip_comments(text: str) -> str:

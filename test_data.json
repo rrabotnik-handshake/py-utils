@@ -1,0 +1,16 @@
+{
+  "id": 123,
+  "name": "John Doe",
+  "email": "john@example.com",
+  "age": 30,
+  "is_active": true,
+  "created_at": "2023-10-15T10:30:00Z",
+  "tags": ["developer", "python", "schema"],
+  "profile": {
+    "bio": "Software engineer with 5 years experience",
+    "preferences": {
+      "theme": "dark",
+      "notifications": true
+    }
+  }
+}

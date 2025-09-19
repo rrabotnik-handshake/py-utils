@@ -1,0 +1,97 @@
+
+=== Schema diff (types only, data/linkedin_member_scraping_events_202509.json.gz; all 100000 records → data/linkedin_member_us_snapshot.sql) ===
+
+-- Only in data/linkedin_member_scraping_events_202509.json.gz; all 100000 records -- (0)
+
+-- Only in data/linkedin_member_us_snapshot.sql -- (1)
+  last_synced
+
+-- Missing / optional (presence) -- (84)
+  activity[].action: str → nullable str
+  activity[].activity_url: str → nullable str
+  activity[].order_in_profile: int → nullable int
+  also_viewed: array → nullable array
+  awards[].order_in_profile: int → nullable int
+  awards[].title: str → nullable str
+  canonical_shorthand_name: str → nullable str
+  certifications[].credential_id: missing → nullable str
+  certifications[].issuer: str → nullable str
+  certifications[].order_in_profile: int → nullable int
+  certifications[].title: str → nullable str
+  country: str → nullable str
+  country_iso_2: str → nullable str
+  country_iso_3: str → nullable str
+  course_suggestions[].course_url: str → nullable str
+  course_suggestions[].order_in_profile: int → nullable int
+  course_suggestions[].title: str → nullable str
+  courses[].order_in_profile: int → nullable int
+  courses[].title: str → nullable str
+  deleted: int → nullable int
+  education[].date_from_month: missing → nullable str
+  education[].date_to_month: missing → nullable str
+  education[].order_in_profile: int → nullable int
+  experience[].company_name: str → nullable str
+  experience[].order_in_profile: int → nullable int
+  experience_count: int → nullable int
+  first_name: str → nullable str
+  follower_count: int → nullable int
+  full_name: str → nullable str
+  groups: array → nullable array
+  hidden_details[].hidden_collection: str → nullable str
+  id: int → nullable int
+  industry: missing → nullable str
+  interests: array → nullable array
+  languages[].language: str → nullable str
+  languages[].order_in_profile: int → nullable int
+  last_name: str → nullable str
+  location: str → nullable str
+  member_id: int → nullable int
+  organizations[].order_in_profile: int → nullable int
+  organizations[].organization: str → nullable str
+  others_named[].full_name: str → nullable str
+  others_named[].order_in_profile: int → nullable int
+  others_named[].profile_url: str → nullable str
+  patents[].inventors[].full_name: str → nullable str
+  patents[].inventors[].order_in_profile: int → nullable int
+  patents[].order_in_profile: int → nullable int
+  patents[].patent_or_application_number: str → nullable str
+  patents[].status: str → nullable str
+  patents[].title: str → nullable str
+  posts_see_more_urls: array → nullable array
+  profile_photo_url: str → nullable str
+  profile_url: str → nullable str
+  projects[].name: str → nullable str
+  projects[].order_in_profile: int → nullable int
+  projects[].team_members[].full_name: str → nullable str
+  projects[].team_members[].order_in_profile: int → nullable int
+  public_profile_id: str → nullable str
+  publications[].authors[].full_name: str → nullable str
+  publications[].authors[].order_in_profile: int → nullable int
+  publications[].order_in_profile: int → nullable int
+  publications[].title: str → nullable str
+  recommendations[].full_name: str → nullable str
+  recommendations[].order_in_profile: int → nullable int
+  recommendations[].recommendation: str → nullable str
+  regions[].region: str → nullable str
+  services: missing → nullable str
+  shorthand_name: str → nullable str
+  similar_profiles[].full_name: str → nullable str
+  similar_profiles[].order_in_profile: int → nullable int
+  similar_profiles[].profile_url: str → nullable str
+  skills: array → nullable array
+  test_scores[].order_in_profile: int → nullable int
+  test_scores[].score: str → nullable str
+  test_scores[].title: str → nullable str
+  updated_at: str → nullable str
+  volunteering_cares: array → nullable array
+  volunteering_opportunities: array → nullable array
+  volunteering_positions[].order_in_profile: int → nullable int
+  volunteering_positions[].organization: str → nullable str
+  volunteering_positions[].role: str → nullable str
+  volunteering_supports: array → nullable array
+  websites[].order_in_profile: int → nullable int
+  websites[].personal_website: str → nullable str
+
+-- Type mismatches -- (0)
+
+-- Path changes (same field name in different locations) -- (0)
