@@ -31,7 +31,7 @@ class SchemadiffConfig:
     include_constraints: bool = True
 
     # Comparison settings
-    default_samples: int = 3
+    default_samples: int = 1000  # Default sampling size for schema inference
     infer_datetimes: bool = False
     show_presence: bool = True
 

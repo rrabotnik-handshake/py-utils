@@ -24,7 +24,7 @@ from typing import Optional
 
 def run_schema_diff_command(cmd: str, description: str) -> tuple[int, str, str]:
     """Run a schema-diff command and return results."""
-    print(f"\n{'='*50}")
+    print("\n{'='*50}")
     print(f"🧪 {description}")
     print(f"Command: {cmd}")
     print(f"{'='*50}")
@@ -42,7 +42,7 @@ def run_schema_diff_command(cmd: str, description: str) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
-def test_bq_connectivity(project_id: str, dataset_id: str, table_id: str) -> bool:
+def run_bq_connectivity_test(project_id: str, dataset_id: str, table_id: str) -> bool:
     """Test basic BigQuery connectivity."""
     try:
         from google.cloud import bigquery
@@ -87,7 +87,7 @@ def create_sample_data(table_schema) -> str:
         return f.name
 
 
-def test_ddl_generation(project_id: str, dataset_id: str, table_id: str):
+def run_ddl_generation_test(project_id: str, dataset_id: str, table_id: str):
     """Test DDL generation functionality."""
     table_ref = f"{project_id}:{dataset_id}.{table_id}"
     
@@ -138,7 +138,7 @@ def test_ddl_generation(project_id: str, dataset_id: str, table_id: str):
             os.unlink(temp_sql)
 
 
-def test_live_table_comparison(project_id: str, dataset_id: str, table_id: str):
+def run_live_table_comparison_test(project_id: str, dataset_id: str, table_id: str):
     """Test comparing data against live BigQuery table."""
     table_ref = f"{project_id}:{dataset_id}.{table_id}"
     
@@ -183,7 +183,7 @@ def test_live_table_comparison(project_id: str, dataset_id: str, table_id: str):
         os.unlink(sample_file)
 
 
-def test_batch_operations(project_id: str, dataset_id: str):
+def run_batch_operations_test(project_id: str, dataset_id: str):
     """Test batch DDL operations (if multiple tables exist)."""
     try:
         from google.cloud import bigquery
@@ -229,23 +229,23 @@ def main():
     print("=" * 60)
     
     # Test 1: Basic connectivity
-    if not test_bq_connectivity(project_id, dataset_id, table_id):
+    if not run_bq_connectivity_test(project_id, dataset_id, table_id):
         print("❌ Cannot continue - BigQuery connectivity failed")
         sys.exit(1)
     
     # Test 2: DDL generation
-    print(f"\n🏗️ Testing DDL Generation")
-    test_ddl_generation(project_id, dataset_id, table_id)
+    print("\n🏗️ Testing DDL Generation")
+    run_ddl_generation_test(project_id, dataset_id, table_id)
     
     # Test 3: Live table comparison
-    print(f"\n📊 Testing Live Table Comparison")
-    test_live_table_comparison(project_id, dataset_id, table_id)
+    print("\n📊 Testing Live Table Comparison")
+    run_live_table_comparison_test(project_id, dataset_id, table_id)
     
     # Test 4: Batch operations
-    print(f"\n📦 Testing Batch Operations")
-    test_batch_operations(project_id, dataset_id)
+    print("\n📦 Testing Batch Operations")
+    run_batch_operations_test(project_id, dataset_id)
     
-    print(f"\n🎉 LIVE BIGQUERY TEST COMPLETED!")
+    print("\n🎉 LIVE BIGQUERY TEST COMPLETED!")
     print("If all tests passed, your BigQuery integration is working correctly!")
 
 

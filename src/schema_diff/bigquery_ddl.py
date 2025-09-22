@@ -37,13 +37,12 @@ def pretty_print_ddl(ddl: str) -> str:
 
         # Separate constraints from CREATE block
         if line.startswith("ALTER TABLE") and seen_body_close:
-            if pretty and pretty[-1] != "":
+            if pretty and pretty[-1]:
                 pretty.append("")
-            # split "ALTER TABLE ... ADD ..." to two lines
+            # Split "ALTER TABLE ... ADD ..." to two lines
             if " ADD " in line:
-                parts = line.split(" ADD ", 1)
-                pretty.append(parts[0])
-                pretty.append("  ADD " + parts[1])
+                table_part, constraint_part = line.split(" ADD ", 1)
+                pretty.extend([table_part, f"  ADD {constraint_part}"])
                 continue
 
         pretty.append(line)

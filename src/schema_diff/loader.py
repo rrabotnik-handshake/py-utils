@@ -26,7 +26,7 @@ from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
 from .dbt_schema_parser import schema_from_dbt_manifest, schema_from_dbt_schema_yml, schema_from_dbt_model
 from .protobuf_schema_parser import schema_from_protobuf_file, list_protobuf_messages
-from .io_utils import sample_records, nth_record, open_text, sniff_ndjson
+from .io_utils import sample_records, nth_record, open_text, sniff_ndjson, MAX_RECORD_SAFETY_LIMIT
 from .utils import coerce_root_to_field_dict  # single canonical helper
 
 __all__ = [
@@ -282,7 +282,7 @@ def load_left_or_right(
     if chosen == KIND_DATA:
         if all_records:
             from .io_utils import all_records as all_records_fn
-            recs = all_records_fn(path, max_records=1000000)  # Safety limit
+            recs = all_records_fn(path, max_records=MAX_RECORD_SAFETY_LIMIT)
             title = f"; all {len(recs)} records"
         elif first_record is not None:
             recs = nth_record(path, first_record or 1)

@@ -47,7 +47,7 @@ from deepdiff import DeepDiff
 
 from .config import Config
 from .helpfmt import ColorDefaultsFormatter
-from .io_utils import sample_records, nth_record, all_records
+from .io_utils import sample_records, nth_record, all_records, MAX_RECORD_SAFETY_LIMIT
 from .json_schema_parser import schema_from_json_schema_file
 from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
@@ -322,7 +322,7 @@ def main():
     # ------------------------------------------------------------------
     if args.json_schema or args.spark_schema or args.sql_schema:
         if args.all_records:
-            s1 = all_records(args.file1, max_records=1000000)
+            s1 = all_records(args.file1, max_records=MAX_RECORD_SAFETY_LIMIT)
             title1 = f"; all {len(s1)} records"
         elif r1_idx is not None:
             s1 = nth_record(args.file1, r1_idx or 1)
@@ -367,8 +367,8 @@ def main():
     # Mode 3: Classic DATA ↔ DATA
     # ------------------------------------------------------------------
     if args.all_records:
-        s1 = all_records(args.file1, max_records=1000000)
-        s2 = all_records(args.file2, max_records=1000000)
+        s1 = all_records(args.file1, max_records=MAX_RECORD_SAFETY_LIMIT)
+        s2 = all_records(args.file2, max_records=MAX_RECORD_SAFETY_LIMIT)
         title1 = f"; all {len(s1)} vs {len(s2)} records"
     elif r1_idx is not None:
         s1 = nth_record(args.file1, r1_idx or 1)

@@ -4,8 +4,6 @@ from schema_diff.protobuf_schema_parser import (
 )
 from pathlib import Path
 import textwrap
-import json
-
 
 def test_proto_basic(tmp_path):
     proto = textwrap.dedent("""
@@ -215,11 +213,4 @@ def test_top_level_other_message(tmp_path: Path):
     assert required == set()
 
 
-def test_dbt_manifest_array_angle(tmp_path):
-    man = {"nodes": {"model.x.y": {"resource_type": "model",
-                                   "name": "y", "columns": {"tags": {"data_type": "ARRAY<STRING>"}}}}}
-    p = tmp_path / "m.json"
-    p.write_text(json.dumps(man), encoding="utf-8")
-    from schema_diff.dbt_schema_parser import schema_from_dbt_manifest
-    tree, req = schema_from_dbt_manifest(str(p), model="y")
-    assert tree["tags"] in (["str"], "array")
+# Note: dbt manifest array angle test is covered in test_dbt_parsers.py

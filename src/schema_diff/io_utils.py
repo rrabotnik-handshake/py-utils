@@ -7,6 +7,9 @@ import ijson
 import subprocess
 from typing import Any, List, Iterator, Sequence
 
+# Constants
+MAX_RECORD_SAFETY_LIMIT = 1_000_000  # Safety limit for --all-records
+
 
 __all__ = [
     "CommandError",

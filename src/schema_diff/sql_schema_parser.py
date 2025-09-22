@@ -403,10 +403,7 @@ def _collect_multiline_definition(lines: list[str], start_idx: int) -> str:
     if start_idx >= len(lines):
         return ""
 
-    # Start with the first line
     result_parts = [lines[start_idx].strip()]
-
-    # Track bracket depth to know when the definition ends
     depth = 0
     definition_started = False
 
@@ -414,32 +411,22 @@ def _collect_multiline_definition(lines: list[str], start_idx: int) -> str:
         line = lines[i].strip()
 
         # Count angle brackets to track STRUCT/ARRAY nesting
-        for char in line:
-            if char == '<':
-                depth += 1
-                definition_started = True
-            elif char == '>':
-                depth -= 1
+        depth += line.count('<') - line.count('>')
+        if '<' in line:
+            definition_started = True
 
-        # If this isn't the first line, add it to our reconstruction
+        # Add continuation lines
         if i > start_idx and line:
-            # Remove quotes and clean up the line for inline format
             clean_line = line.replace('`', '').replace('"', '')
-            # Preserve commas - they separate fields
             result_parts.append(clean_line)
 
-        # If we've closed all brackets and we started a definition, we're done
+        # If we've closed all brackets and started a definition, we're done
         if definition_started and depth == 0:
             break
 
-    # Join all parts and clean up extra spaces
+    # Join and normalize whitespace
     result = ' '.join(result_parts)
-    # Clean up extra spaces around commas and brackets
-    result = re.sub(r'\s*,\s*', ', ', result)
-    result = re.sub(r'\s*<\s*', '<', result)
-    result = re.sub(r'\s*>\s*', '>', result)
-
-    return result
+    return re.sub(r'\s*([,<>])\s*', r'\1', result).replace(',', ', ')
 
 
 def _find_definition_end(lines: list[str], start_idx: int) -> int:

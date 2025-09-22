@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 
-def test_command(cmd: str, description: str) -> bool:
+def run_test_command(cmd: str, description: str) -> bool:
     """Test a command and return success status."""
     print(f"\n🧪 {description}")
     print(f"   Command: {cmd}")
@@ -48,7 +48,7 @@ def main():
     
     for cmd, desc in tests:
         total_tests += 1
-        if test_command(cmd, desc):
+        if run_test_command(cmd, desc):
             success_count += 1
     
     # Test 2: Config management
@@ -56,7 +56,7 @@ def main():
         config_path = os.path.join(tmpdir, "test.yml")
         
         total_tests += 1
-        if test_command(f"schema-diff config-init {config_path}", "Config file creation"):
+        if run_test_command(f"schema-diff config-init {config_path}", "Config file creation"):
             success_count += 1
             
             # Verify file was created
@@ -96,14 +96,14 @@ CREATE TABLE users (
     
     try:
         total_tests += 1
-        if test_command(
-            f"schema-diff {data_path} {sql_path} --right sql", 
+        if run_test_command(
+            f"schema-diff {data_path} {sql_path} --right sql",
             "Data vs SQL schema comparison"
         ):
             success_count += 1
         
         total_tests += 1
-        if test_command(
+        if run_test_command(
             f"schema-diff {data_path} {sql_path} --right sql --show-common", 
             "SQL comparison with common fields"
         ):
@@ -122,7 +122,7 @@ CREATE TABLE users (
         
         try:
             total_tests += 1
-            if test_command(
+            if run_test_command(
                 f"schema-diff {data_path} {dbt_model_path}",
                 "dbt model auto-detection"
             ):
