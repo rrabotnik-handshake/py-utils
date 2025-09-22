@@ -399,7 +399,7 @@ def load_left_or_right(
                 more = f" (+{len(msgs)-50} more)" if len(msgs) > 50 else ""
                 raise ValueError(
                     f"Multiple Protobuf messages in {path}. "
-                    f"Choose one with --left-message/--right-message. "
+                    "Choose one with --left-message/--right-message. "
                     f"Available: {preview}{more}"
                 )
             # else: zero → let the parser raise a clear error

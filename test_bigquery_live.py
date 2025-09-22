@@ -16,10 +16,10 @@ Example:
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
-from typing import Optional
 
 
 def run_schema_diff_command(cmd: str, description: str) -> tuple[int, str, str]:
@@ -29,7 +29,7 @@ def run_schema_diff_command(cmd: str, description: str) -> tuple[int, str, str]:
     print(f"Command: {cmd}")
     print(f"{'='*50}")
     
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    result = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
     
     print(f"Exit code: {result.returncode}")
     if result.stdout:
@@ -52,7 +52,7 @@ def run_bq_connectivity_test(project_id: str, dataset_id: str, table_id: str) ->
         table_ref = f"{project_id}.{dataset_id}.{table_id}"
         table = client.get_table(table_ref)
         
-        print(f"✅ BigQuery connectivity successful!")
+        print("✅ BigQuery connectivity successful!")
         print(f"   Table: {table_ref}")
         print(f"   Schema fields: {len(table.schema)}")
         print(f"   Created: {table.created}")
@@ -149,7 +149,7 @@ def run_live_table_comparison_test(project_id: str, dataset_id: str, table_id: s
         # Test explicit BigQuery comparison
         cmd = f"schema-diff {sample_file} {table_ref} --right bigquery"
         exit_code, stdout, stderr = run_schema_diff_command(
-            cmd, f"Compare sample data vs live BigQuery table (explicit)"
+            cmd, "Compare sample data vs live BigQuery table (explicit)"
         )
         
         if exit_code == 0:
@@ -162,7 +162,7 @@ def run_live_table_comparison_test(project_id: str, dataset_id: str, table_id: s
         # Test auto-detection
         cmd = f"schema-diff {sample_file} {table_ref}"
         exit_code, stdout, stderr = run_schema_diff_command(
-            cmd, f"Compare sample data vs live BigQuery table (auto-detect)"
+            cmd, "Compare sample data vs live BigQuery table (auto-detect)"
         )
         
         if exit_code == 0:
@@ -173,7 +173,7 @@ def run_live_table_comparison_test(project_id: str, dataset_id: str, table_id: s
         # Test with all records
         cmd = f"schema-diff {sample_file} {table_ref} --all-records"
         exit_code, stdout, stderr = run_schema_diff_command(
-            cmd, f"Compare all records vs live BigQuery table"
+            cmd, "Compare all records vs live BigQuery table"
         )
         
         if exit_code == 0:

@@ -16,10 +16,10 @@ def run_test_command(cmd: str, description: str) -> bool:
     print(f"\n🧪 {description}")
     print(f"   Command: {cmd}")
     
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    result = subprocess.run(cmd.split(), capture_output=True, text=True)
     
     if result.returncode == 0:
-        print(f"   ✅ SUCCESS")
+        print("   ✅ SUCCESS")
         return True
     else:
         print(f"   ❌ FAILED (exit code: {result.returncode})")
@@ -61,13 +61,13 @@ def main():
             
             # Verify file was created
             if os.path.exists(config_path):
-                print(f"   ✅ Config file created successfully")
+                print("   ✅ Config file created successfully")
                 with open(config_path) as f:
                     content = f.read()
                     if "default_project" in content:
-                        print(f"   ✅ Config file has expected content")
+                        print("   ✅ Config file has expected content")
                     else:
-                        print(f"   ⚠️ Config file missing expected content")
+                        print("   ⚠️ Config file missing expected content")
     
     # Test 3: Schema comparison with SQL
     test_data = [
@@ -134,15 +134,15 @@ CREATE TABLE users (
     
     # Summary
     print(f"\n{'='*60}")
-    print(f"🏆 TEST SUMMARY")
+    print("🏆 TEST SUMMARY")
     print(f"{'='*60}")
     print(f"Passed: {success_count}/{total_tests} tests")
     
     if success_count == total_tests:
-        print(f"🎉 ALL TESTS PASSED! BigQuery integration is working correctly.")
+        print("🎉 ALL TESTS PASSED! BigQuery integration is working correctly.")
         return 0
     else:
-        print(f"❌ Some tests failed. Check the output above for details.")
+        print("❌ Some tests failed. Check the output above for details.")
         return 1
 
 
