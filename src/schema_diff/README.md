@@ -1,20 +1,31 @@
 # schema-diff
 
-Compare schemas across **JSON/NDJSON data**, **JSON Schema**, **Spark/Databricks schemas**, **SQL DDL**, **dbt models**, and **Protobuf (.proto)**.
-Works with large files (streams arrays/NDJSON, gz OK), infers types from samples, aligns optionality vs. presence constraints, and prints clean diffs.
+**Compare schemas across JSON/NDJSON data, JSON Schema, Spark/Databricks schemas, SQL DDL, dbt models, BigQuery live tables, and Protobuf definitions.**
+
+Works with large files (streams arrays/NDJSON, gz OK), infers types from samples, aligns optionality vs. presence constraints, and prints clean diffs. Also includes BigQuery DDL generation, schema extraction, and migration analysis capabilities.
 
 ---
 
-## Quick start
+## 🚀 Quick Start
 
 ```bash
 # Install (editable)
 pip install -e .
 
-# Install with BigQuery support (DDL generation + live table access)
-pip install -e ".[bigquery]"
+# Install with optional features
+pip install -e ".[bigquery]"      # BigQuery DDL generation + live table access
+pip install -e ".[validation]"    # Schema validation for generated schemas
+pip install -e ".[dev]"          # Development tools (pytest)
 
-# Basic data vs data (sample 3 records by default)
+# Install multiple features
+pip install -e ".[bigquery,validation]"  # BigQuery + validation
+pip install -e ".[bigquery,validation,dev]"  # Everything
+```
+
+### Basic Schema Comparison
+
+```bash
+# Basic data vs data (sample 1000 records by default)
 schema-diff file1.ndjson.gz file2.json.gz
 
 # First record only
@@ -31,7 +42,11 @@ schema-diff file1.json file2.json --fields headline full_name industry
 
 # Combine all-records with field filtering
 schema-diff file1.json file2.json --all-records --fields headline member_id
+```
 
+### Cross-Format Comparisons
+
+```bash
 # Data vs JSON Schema
 schema-diff data.ndjson schema.json --right jsonschema --first-record
 
@@ -54,37 +69,101 @@ schema-diff data.json my-project:dataset.table --right bigquery
 schema-diff data.json handshake-production:coresignal.users
 ```
 
-### Supported inputs
-- **Data:** `.json`, `.ndjson`, `.jsonl`, and their `.gz` variants
-- **JSON Schema:** `.json` (draft formats supported for `type`, `format`, `properties`, `required`, `oneOf/anyOf/allOf`, `enum`)
-- **Spark:** output of `df.printSchema()` (or similar text) — now with deep nested `array<struct<...>>` parsing
-- **SQL:** Postgres-like DDL and **BigQuery DDL** (incl. `ARRAY<...>`, `STRUCT<...>`, backticked names)
-- **dbt:** `manifest.json`, `schema.yml`, or model `.sql` files
-- **BigQuery Live:** Direct table access via `project:dataset.table` references
-- **Protobuf:** `.proto` files with explicit message selection (`--left-message` / `--right-message`)
+### Schema Generation
 
-### Intelligent file type detection
+```bash
+# Generate JSON Schema from data
+schema-diff generate data.json --format json_schema
+
+# Generate BigQuery DDL
+schema-diff generate data.json --format bigquery_ddl --table-name my_table
+
+# Generate with validation
+schema-diff generate data.json --format sql_ddl --validate
+
+# Save to file
+schema-diff generate data.json --format spark --output
+
+# Mark specific fields as required
+schema-diff generate data.json --format json_schema --required-fields user_id email
+```
+
+### BigQuery DDL Generation
+
+```bash
+# Single table DDL
+schema-diff ddl my-project:dataset.table
+
+# Batch DDL generation
+schema-diff ddl-batch my-project:dataset table1 table2 table3
+
+# Entire dataset DDL
+schema-diff ddl-dataset my-project:dataset
+
+# Save DDL to files
+schema-diff ddl my-project:dataset.table --out table.sql
+schema-diff ddl-dataset my-project:dataset --out-dir ./ddl --combined-out all_tables.sql
+```
+
+### Migration Analysis
+
+```bash
+# Generate migration analysis report (markdown by default)
+schema-diff old_data.json new_data.json --output
+
+# Different output formats
+schema-diff old_data.json new_data.json --output --output-format json
+schema-diff old_data.json new_data.json --output --output-format text
+```
+
+---
+
+## 📋 Supported Input Formats
+
+### Data Files
+
+- **JSON:** `.json` files with single objects or arrays
+- **NDJSON/JSONL:** `.ndjson`, `.jsonl` files with one JSON object per line
+- **Compressed:** All formats support `.gz` compression
+- **Large Files:** Streaming support for files of any size
+
+### Schema Formats
+
+- **JSON Schema:** Draft-07 compatible schemas with `$schema`, `type`, `properties`, `required`, `oneOf/anyOf/allOf`, `enum`
+- **Spark Schema:** Output from `df.printSchema()` with deep nested `array<struct<...>>` parsing
+- **SQL DDL:** PostgreSQL and BigQuery DDL including `ARRAY<...>`, `STRUCT<...>`, backticked identifiers
+- **dbt:** `manifest.json`, `schema.yml`, and model `.sql` files
+- **BigQuery Live:** Direct table access via `project:dataset.table` references
+- **Protobuf:** `.proto` files with explicit message selection
+
+---
+
+## 🎯 Intelligent Auto-Detection
 
 `schema-diff` automatically detects file types and comparison modes:
 
-**Extension-based detection:**
+### Extension-Based Detection
+
 - `.sql` → Content analysis (SQL DDL vs dbt model)
 - `.yml/.yaml` → dbt schema files
 - `.txt` → Spark schema dumps
 - `.proto` → Protobuf schemas
 - `.json/.gz` → Content analysis (see below)
 
-**Content-based detection for JSON files:**
+### Content-Based Detection for JSON Files
+
 - **dbt manifest:** `nodes`, `sources`, `child_map`, or `metadata.dbt_version`
 - **JSON Schema:** `$schema`, `type: "object"`, or schema keywords (`oneOf`, `properties`, etc.)
 - **NDJSON:** Multiple lines starting with `{`
 - **Data:** Everything else
 
-**Content-based detection for SQL files:**
+### Content-Based Detection for SQL Files
+
 - **dbt model:** `SELECT`, Jinja (`{{}}`), or dbt functions (`ref()`, `source()`, etc.)
 - **SQL DDL:** `CREATE TABLE`, `ALTER TABLE`, etc.
 
-**Automatic mode selection:**
+### Automatic Mode Selection
+
 - **General mode:** Different file types or any schema sources detected
 - **Classic data-to-data:** Both files detected as data with same type
 - **Legacy modes:** Explicit `--json-schema`, `--spark-schema`, `--sql-schema` arguments
@@ -93,337 +172,452 @@ No `--left`/`--right` arguments needed for most comparisons!
 
 ---
 
-## 🔧 DDL Generation & Configuration
+## 📦 Optional Dependencies
 
-`schema-diff` includes powerful BigQuery DDL generation and configuration management:
+`schema-diff` uses optional dependencies to keep the core installation lightweight while providing extended functionality:
+
+### 🔧 Core Installation (Default)
 
 ```bash
-# Generate DDL for a single table
-schema-diff ddl my-project:dataset.table
-
-# Generate DDL for multiple tables (optimized batch queries)
-schema-diff ddl-batch my-project:dataset table1 table2 table3
-
-# Generate DDL for entire dataset
-schema-diff ddl-dataset my-project:dataset --out-dir ./ddl/
-
-# Skip constraints (faster)
-schema-diff ddl my-project:dataset.table --no-constraints
-
-# Save to file with syntax highlighting in terminal
-schema-diff ddl my-project:dataset.table --out table.sql --color always
-
-# Configuration management
-schema-diff config-show                    # Show current config
-schema-diff config-init --project my-proj  # Create config file
+pip install -e .
 ```
 
-**DDL Features:**
-- **Pretty formatting:** Multi-line indented `STRUCT` and `ARRAY` types
-- **Complete DDL:** `CREATE TABLE`, partitioning, clustering, table options
-- **Constraints:** Primary keys and foreign keys (with `NOT ENFORCED`)
-- **Syntax highlighting:** Terminal colors with Pygments (auto-detects TTY)
-- **Batch operations:** Optimized for multiple tables with single queries
-- **Flexible output:** Terminal display + optional file output
+**Includes:** Basic schema comparison, data analysis, JSON/Spark/SQL/dbt/Protobuf support
+**Dependencies:** `ijson`, `deepdiff`, `pyyaml`, `protobuf`
+
+### ☁️ BigQuery Features
+
+```bash
+pip install -e ".[bigquery]"
+```
+
+**Adds:** Live BigQuery table access, DDL generation, SQL syntax highlighting
+**Use when:** Working with BigQuery tables, generating DDL, need colored SQL output
+**Dependencies:** `google-cloud-bigquery`, `pygments`
+
+### ✅ Schema Validation
+
+```bash
+pip install -e ".[validation]"
+```
+
+**Adds:** Validation of generated schemas (JSON Schema, SQL DDL, etc.)
+**Use when:** Generating schemas and want syntax validation
+**Dependencies:** `sqlparse`, `jsonschema`
+
+### 🧪 Development Tools
+
+```bash
+pip install -e ".[dev]"
+```
+
+**Adds:** Testing framework for contributors
+**Use when:** Contributing to the project or running tests
+**Dependencies:** `pytest`
+
+### 🚨 Missing Dependency Errors
+
+If you see errors like:
+
+- `ModuleNotFoundError: No module named 'google.cloud'` → Install `[bigquery]`
+- `ImportError: cannot import name 'bigquery'` → Install `[bigquery]`
+- Schema validation warnings → Install `[validation]` for better validation
 
 ---
 
-## CLI usage
+## 🔧 Command Reference
+
+### Main Command: `schema-diff`
+
+#### Positional Arguments
+
+- `file1` - Left input (data or schema)
+- `file2` - Right input (data or schema) [optional]
+
+#### Record Selection
+
+- `--first-record` - Compare only the first record from each DATA file
+- `--record N` - Compare the N-th record from each DATA file (1-based)
+- `--record1 N` - N-th record for file1 (overrides --record)
+- `--record2 N` - N-th record for file2 (overrides --record)
+- `--both-modes` - Run two comparisons: chosen record(s) AND random sampled records
+
+#### Sampling
+
+- `-k, --samples N` - Records to sample per DATA file (default: 1000)
+- `--all-records` - Process ALL records instead of sampling (may be memory intensive)
+- `--seed SEED` - Random seed for reproducible sampling
+- `--show-samples` - Print the chosen/sampled records
+
+#### Output Control
+
+- `--no-color` - Disable ANSI colors
+- `--force-color` - Force ANSI colors even if stdout is not a TTY
+- `--no-presence` - Suppress 'Missing / optional (presence)' section
+- `--show-common` - Print the sorted list of fields that appear in both sides
+- `--fields FIELD [FIELD ...]` - Compare only specific fields
+
+#### Export Options
+
+- `--json-out PATH` - Write diff JSON to this path
+- `--dump-schemas PATH` - Write normalized left/right schemas to this path
+- `--output, -o` - Save comparison results and migration analysis to ./output directory
+- `--output-format {markdown,text,json}` - Format for migration analysis report (default: markdown)
+
+#### Schema Type Selection
+
+- `--left {auto,data,jsonschema,spark,sql,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Kind of file1
+- `--right {auto,data,jsonschema,spark,sql,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Kind of file2
+- `--left-table LEFT_TABLE` - Table to select for file1 when using SQL
+- `--right-table RIGHT_TABLE` - Table to select for file2 when using SQL
+- `--left-model LEFT_MODEL` - Model name for file1 when using dbt
+- `--right-model RIGHT_MODEL` - Model name for file2 when using dbt
+- `--left-message LEFT_MESSAGE` - Protobuf message to use for file1
+- `--right-message RIGHT_MESSAGE` - Protobuf message to use for file2
+
+#### Legacy Options (Deprecated)
+
+- `--json-schema JSON_SCHEMA.json` - Compare DATA file1 vs a JSON Schema file
+- `--spark-schema SPARK_SCHEMA.txt` - Compare DATA file1 vs a Spark-style schema text
+- `--sql-schema SCHEMA.sql` - Compare DATA file1 vs a SQL schema
+- `--sql-table TABLE` - Table name to select if --sql-schema has multiple tables
+
+#### Inference Options
+
+- `--infer-datetimes` - Treat ISO-like strings as timestamp/date/time on the DATA side
+
+### Subcommand: `generate`
+
+Generate schema in various formats from a data file.
 
 ```bash
-schema-diff <left_path> <right_path> [options]
+schema-diff generate [OPTIONS] data_file
 ```
 
-### Record selection (for data inputs)
-- `--first-record` — compare only record #1 (or use `--record N`)
-- `--record N` / `--record1 N` / `--record2 N`
-- Sampling:
-  - `-k, --samples N` — sample N records (default 3)
-  - `--all-records` — process ALL records instead of sampling (comprehensive but memory-intensive)
-  - `--seed SEED` — reproducible sampling
-  - `--show-samples` — print the chosen/sampled records
+#### Options
 
-### Input kinds (auto or explicit)
-Left/right can be auto-detected from extension or forced:
+- `--format, -f {json_schema,sql_ddl,bigquery_ddl,spark,bigquery_json,openapi}` - Output schema format
+- `--output, -o` - Save schema to ./output directory with auto-generated filename
+- `--table-name, -t TABLE_NAME` - Table name for SQL DDL formats
+- `--samples, -k SAMPLES` - Number of records to sample (default: adaptive)
+- `--all-records` - Process all records for comprehensive schema
+- `--first-record` - Use only the first record
+- `--required-fields [REQUIRED_FIELDS ...]` - Field paths that should be marked as required/NOT NULL
+- `--show-samples` - Show the data samples being analyzed
+- `--validate` - Validate generated schema syntax (default: enabled)
+- `--no-validate` - Skip schema validation
 
-- `--left/--right`: one of
-  - `data` | `jsonschema` | `spark` | `sql` | `dbt-manifest` | `dbt-yml` | `dbt-model` | `bigquery` | `proto` | `auto` (default)
+### Subcommand: `ddl`
 
-Extra selectors:
-- `--left-table NAME` / `--right-table NAME` — choose table from SQL DDL when file has multiple tables
-- `--left-model NAME` / `--right-model NAME` — choose dbt model when needed
-- `--left-message NAME` / `--right-message NAME` — choose Protobuf message to diff
+Generate pretty, formatted DDL for a single BigQuery table.
 
-### Output control
-- `--no-color`, `--force-color`
-- `--no-presence` — hide the "Missing Data / NULL-ABILITY" section
-- `--show-common` — print fields present in both schemas with matching types (includes nested array fields with `[]` notation like `experience[].title`)
-- `--fields FIELD [FIELD ...]` — compare only specific fields (supports nested paths like `experience.title` and array elements like `experience[].title`)
-- `--json-out PATH` — save diff JSON
-- `--dump-schemas PATH` — save the two normalized schemas to a file
+```bash
+schema-diff ddl [OPTIONS] table_re
+```
 
-### Timestamp inference (for data)
-- `--infer-datetimes` — treat ISO-like strings as `timestamp`/`date`/`time` when inferring from data
+#### Arguments
+
+- `table_re` - BigQuery table reference (project:dataset.table or dataset.table)
+
+#### Options
+
+- `--color {auto,always,never}` - Colorize SQL output (respects NO_COLOR)
+- `--no-constraints` - Skip primary key and foreign key constraints
+- `--out PATH` - Write DDL to file (uncolored)
+
+### Subcommand: `ddl-batch`
+
+Generate DDL for multiple tables in a dataset with optimized batch queries.
+
+```bash
+schema-diff ddl-batch [OPTIONS] dataset_re tables [tables ...]
+```
+
+#### Arguments
+
+- `dataset_re` - BigQuery dataset reference (project:dataset or dataset)
+- `tables` - Table names to generate DDL for
+
+#### Options
+
+- `--color {auto,always,never}` - Colorize SQL output
+- `--no-constraints` - Skip constraints
+- `--out-dir DIR` - Write each table's DDL to separate files in directory
+- `--combined-out PATH` - Write all DDLs to a single file
+
+### Subcommand: `ddl-dataset`
+
+Generate DDL for all tables in a BigQuery dataset.
+
+```bash
+schema-diff ddl-dataset [OPTIONS] dataset_re
+```
+
+#### Arguments
+
+- `dataset_re` - BigQuery dataset reference (project:dataset or dataset)
+
+#### Options
+
+- `--color {auto,always,never}` - Colorize SQL output
+- `--no-constraints` - Skip constraints
+- `--exclude [EXCLUDE ...]` - Table names to exclude
+- `--include [INCLUDE ...]` - Only include these table names
+- `--out-dir DIR` - Write each table's DDL to separate files in directory
+- `--combined-out PATH` - Write all DDLs to a single file
+- `--manifest PATH` - Write table list and metadata to JSON manifest file
+
+### Subcommand: `formats`
+
+Show all supported schema output formats with descriptions.
+
+```bash
+schema-diff formats
+```
+
+### Subcommand: `config-show`
+
+Display current configuration values from files and environment.
+
+```bash
+schema-diff config-show [OPTIONS]
+```
+
+#### Options
+
+- `--config PATH` - Path to config file (default: auto-discover)
+
+### Subcommand: `config-init`
+
+Create a new configuration file with default values.
+
+```bash
+schema-diff config-init [OPTIONS] [config_path]
+```
+
+#### Arguments
+
+- `config_path` - Path for new config file (default: schema-diff.yml)
+
+#### Options
+
+- `--project PROJECT` - Default BigQuery project
+- `--dataset DATASET` - Default BigQuery dataset
+- `--force` - Overwrite existing config file
 
 ---
 
-## How comparisons work
+## 📊 Output Sections
 
-1. **Each side is loaded to a _type tree_** (pure types: `int|float|bool|str|date|time|timestamp|object|array`).
-   Sources:
-   - **Data** → inferred by sampling; fields seen absent are *not* treated as missing here.
-   - **JSON Schema** → converted from schema (`format: date-time` → `timestamp`, etc.).
-   - **Spark** → parsed & mapped to internal types, now with recursive `array<struct<...>>` parsing.
-   - **SQL** → parsed & mapped to internal types; BigQuery `ARRAY<...>` → `[elem_type]`, `STRUCT<...>` recursively parsed with full nested support.
-   - **dbt** → built from manifest/schema.yml (columns + tests).
-   - **Protobuf** → parsed from `.proto` files, expanding nested messages, handling `repeated`, `map<K,V>`, `enum`, and `oneof`.
+### Common Fields
 
-2. **Presence constraints** are collected separately as a set of **`required_paths`**:
-   - JSON Schema → `required` arrays
-   - SQL → `NOT NULL` columns
-   - dbt → `not_null` tests
-   - Protobuf → `required` fields (proto2)
-   - Data → *(no presence info)*
+Fields that appear in both schemas with their types and any differences.
 
-3. **Normalization** makes both sides comparable:
-   - Collapses empties like `empty_array → array`, `empty_object → object`, `empty_string → str`
-   - Flattens and sorts unions (`union(str|missing)`), deduplicates `"any"`
-   - Arrays remain `[elem_type]` if known, otherwise `"array"`
+### Only in Source / Only in Target
 
-4. **DeepDiff** compares the two normalized type trees.
-   Output sections:
-   - "Only in left/right" — keys present on one side only
-   - "Missing Data / NULL-ABILITY" — data presence vs schema nullability differences with source-aware terminology:
-     * Data sources: show base types (`str`, `int`) or `missing data`
-     * Schema sources: show `nullable type` format
-     * Filters out identical formatted types to show only meaningful differences
-   - "Common" — fields present in both sides with matching types (`--show-common`) using `[]` notation for arrays
-   - "Type mismatches" — real type conflicts (e.g., `int` vs `str`), filtered to exclude sampling artifacts
-   - "Path changes" — same field names in different locations with 3-section structure:
-     * Shared field locations and/or field paths (common to both sides)
-     * Only in [left]: paths unique to left side
-     * Only in [right]: paths unique to right side
+Fields that appear in only one of the compared schemas.
+
+### Type Mismatches
+
+Fields with the same name but different types between schemas.
+
+### Path Changes
+
+Fields that appear in different locations or structures between schemas.
+
+### Missing Data / NULL-ability
+
+Differences in field optionality and presence constraints.
 
 ---
 
-## Advanced Features
+## 🔄 Migration Analysis
 
-### Comprehensive Analysis with `--all-records`
+The migration analysis feature generates comprehensive reports for schema migrations based purely on the schema comparison results:
 
-By default, schema-diff samples a small number of records (3) for performance. Use `--all-records` to process every record for comprehensive field discovery:
+### Report Sections
 
-```bash
-# Standard sampling (fast, may miss rare fields)
-schema-diff large_dataset1.json.gz large_dataset2.json.gz -k 10
+- **📊 Summary Statistics** - Field counts, compatibility metrics
+- **🎯 Compatibility Assessment** - Overall migration complexity rating
+- **❌ Breaking Changes** - Issues requiring immediate attention
+- **⚠️ Warnings** - Changes that may impact your system
+- **💡 Recommendations** - Actionable steps for migration
+- **📊 Complete Schema Comparison** - Full technical comparison details
 
-# Comprehensive analysis (slower, finds all fields)
-schema-diff large_dataset1.json.gz large_dataset2.json.gz --all-records
+### Analysis Logic
+
+The analysis is data-driven and uses common patterns to categorize changes:
+
+- **Critical Fields** - IDs, keys, names, emails, status fields
+- **Metadata Fields** - Created/updated timestamps, audit fields
+- **Type Conflicts** - Always flagged as breaking changes
+- **Structure Changes** - Field moves and restructuring
+- **Nullability Changes** - Optionality and presence differences
+
+---
+
+## 🎯 Philosophy & Behavior
+
+### Sampling Strategy
+
+- **Default:** Smart sampling (1000 records) for performance
+- **Comprehensive:** `--all-records` for complete analysis
+- **Targeted:** `--first-record` or `--record N` for specific records
+
+### Type Inference
+
+- **Conservative:** Infers the most specific type that fits all samples
+- **Union Types:** Handles mixed types gracefully (e.g., `union(int|str)`)
+- **Nested Structures:** Deep analysis of objects and arrays
+- **Null Handling:** Distinguishes between missing fields and null values
+
+### Presence vs. Types
+
+- **Data Files:** Field presence indicates optionality
+- **Schema Files:** Explicit nullable/required declarations
+- **Alignment:** Matches presence constraints with type nullability
+
+### Path Normalization
+
+- **Dot Notation:** `parent.child.grandchild`
+- **Array Elements:** `array[].field` for consistent representation
+- **Nested Objects:** Flattened for comparison while preserving structure
+
+---
+
+## 🛠️ Configuration
+
+### Configuration Files
+
+`schema-diff` supports configuration files for default settings:
+
+```yaml
+# schema-diff.yml
+bigquery:
+  project: my-default-project
+  dataset: my-default-dataset
+
+sampling:
+  default_samples: 1000
+  max_memory_mb: 512
+
+output:
+  color: auto
+  show_common: false
 ```
 
-**When to use `--all-records`:**
-- Fields appear infrequently in your data
-- You need to ensure complete field coverage
-- Data quality validation requires comprehensive analysis
-- You're comparing schemas where sampling might miss important differences
+### Environment Variables
 
-**Safety features:**
-- Built-in 1M record limit to prevent memory issues
-- Progress indication for large datasets
+- `SCHEMA_DIFF_PROJECT` - Default BigQuery project
+- `SCHEMA_DIFF_DATASET` - Default BigQuery dataset
+- `NO_COLOR` - Disable colored output
 
-### Focused Comparison with `--fields`
+### File Discovery
 
-Compare only specific fields instead of analyzing the entire schema:
+Configuration files are automatically discovered in:
+
+1. Current directory: `schema-diff.yml` or `schema-diff.yaml`
+2. Home directory: `~/.schema-diff.yml`
+3. System config: `/etc/schema-diff.yml`
+
+---
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+**Large Files / Memory Usage:**
 
 ```bash
-# Compare only headline and full_name fields
-schema-diff users1.json users2.json --fields headline full_name
+# Use sampling instead of --all-records
+schema-diff large1.json.gz large2.json.gz -k 5000
 
-# Support for nested fields with dot notation
-schema-diff profiles1.json profiles2.json --fields experience.title education.institution
-
-# Support for array element paths with [] notation (clean array semantics)
-schema-diff profiles1.json profiles2.json --fields 'experience[].title' 'education[].institution'
-
-# Implicit array notation (automatically handles array elements)
-schema-diff profiles1.json profiles2.json --fields experience.title education.institution
-
-# Comma-separated or space-separated field lists
-schema-diff data1.json data2.json --fields "headline,full_name,industry"
+# Process specific records only
+schema-diff large1.json.gz large2.json.gz --first-record
 ```
 
-**Use cases:**
-- Focus on specific fields of interest
-- Reduce noise from unrelated schema differences
-- Performance optimization for large schemas
-- Field-specific data quality checks
-- Compare nested array elements (e.g., `experience[].title` vs `experience[].company`)
-
-**Array Support:**
-- **Explicit notation**: `experience[].title` - targets array element fields using clean array semantics
-- **Implicit notation**: `experience.title` - automatically handles array elements
-- **Mixed usage**: Can combine both notations in the same command
-- **Legacy notation**: `experience[0].title` automatically normalized to `experience[].title` for consistency
-
-### Combining Features
-
-Use both features together for powerful targeted analysis:
+**BigQuery Authentication:**
 
 ```bash
-# Comprehensive analysis of specific fields
-schema-diff dataset1.json.gz dataset2.json.gz --all-records --fields headline member_id industry
+# Set up application default credentials
+gcloud auth application-default login
 
-# Field-focused comparison with comprehensive coverage
-schema-diff events1.json.gz events2.json.gz --all-records --fields event_type timestamp user_id --show-common
+# Or use service account key
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+```
+
+**Missing Dependencies:**
+
+```bash
+# Install BigQuery support
+pip install -e ".[bigquery]"
+
+# Install validation support
+pip install -e ".[validation]"
+```
+
+**Complex Nested Structures:**
+
+```bash
+# Focus on specific fields
+schema-diff complex1.json complex2.json --fields user.profile.name user.settings
+
+# Show samples to understand structure
+schema-diff complex1.json complex2.json --show-samples -k 3
+```
+
+### Performance Tips
+
+1. **Use Sampling:** Default sampling is usually sufficient for schema comparison
+2. **Field Filtering:** Use `--fields` to focus on relevant parts of large schemas
+3. **Specific Records:** Use `--first-record` for quick checks
+4. **Compression:** `.gz` files are handled efficiently
+5. **Streaming:** Large NDJSON files are processed in streaming mode
+
+---
+
+## 🤝 Contributing
+
+### Development Setup
+
+```bash
+# Clone and install in development mode
+git clone <repository>
+cd schema-diff
+pip install -e ".[dev,bigquery,validation]"
+
+# Run tests
+pytest tests/
+
+# Run specific test categories
+pytest tests/test_compare.py
+pytest tests/test_bigquery_ddl.py
+```
+
+### Testing
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src/schema_diff
+
+# Run specific test file
+pytest tests/test_json_schema_parser.py -v
 ```
 
 ---
 
-## Any↔Any mode
+## 📄 License
 
-You can mix any two inputs:
-
-```bash
-# Data vs SQL
-schema-diff data.ndjson schema.sql --left data --right sql --right-table users
-
-# JSON Schema vs Spark
-schema-diff schema.json spark.txt --left jsonschema --right spark
-
-# dbt model vs SQL
-schema-diff manifest.json warehouse.sql   --left dbt-manifest --left-model analytics.users   --right sql --right-table users
-
-# Protobuf vs JSON Schema
-schema-diff demo.proto schema.json --left proto --left-message User --right jsonschema
-```
-
-KIND auto-detection by extension:
-- `.ndjson`, `.jsonl`, `.json(.gz)` → `data`
-- `.sql` → `sql`
-- `.yml` / `.yaml` → `dbt-yml`
-- `.proto` → `proto`
-- `.json` may also be `jsonschema` or `dbt-manifest` — use explicit `--left/--right` to be precise.
+[Add your license information here]
 
 ---
 
-## Examples
+## 🔗 Related Tools
 
-```bash
-# Compare Protobuf schema vs Data
-schema-diff data.json demo.proto --right proto --right-message User
-
-# Compare Protobuf vs SQL table
-schema-diff demo.proto model.sql --left proto --left-message User --right sql --right-table users
-```
-
-### Spark deep struct/array parsing
-
-The parser supports **recursive parsing of nested arrays and structs**, including BigQuery-like types:
-
-```bash
-# Spark schema with nested array<struct<...>>
-cat > spark_nested.txt <<'EOF'
-root
- |-- id: long (nullable = false)
- |-- tags: array<string> (nullable = true)
- |-- events: array<struct<
- |    ts: timestamp,
- |    meta: struct<
- |      key: string,
- |      value: string
- |    >
- |  >> (nullable = true)
-EOF
-
-# Compare Spark schema to data
-schema-diff data.json spark_nested.txt --left data --right spark --show-common
-```
-
-**Example output:**
-
-```
-=== Schema diff (types only, data.json → spark_nested.txt) ===
-
--- Only in spark_nested.txt --
-  events[].ts
-  events[].meta.key
-  events[].meta.value
-
--- Missing Data / NULL-ABILITY -- (2)
-  id: int → nullable int
-  tags: [str] → nullable array
-
--- Common fields (types agree) -- (0)
-
--- Type mismatches -- (0)
-
--- Path changes (same field name in different locations) -- (1)
-  user_id:
-    Shared field locations and/or field paths:
-      • user_id
-    Only in spark_nested.txt:
-      • events[].user_id
-```
-
----
-
-## JSON output
-
-```bash
-schema-diff data.json schema.sql --right sql --right-table p --json-out diff.json
-```
-
-`diff.json` contains the same sections printed to the console plus metadata. Use this for CI and auditing.
-
----
-
-## 🧪 Tests
-
-We use `pytest`:
-
-```bash
-pip install -e .[dev]
-pytest -q
-```
-
-Tests include:
-- **Parsers:** SQL (Postgres & BigQuery), Spark (with deep nested types), JSON Schema, Protobuf
-- **Data I/O:** NDJSON/JSON/arrays, gz handling
-- **Integration:** CLI flows (`data↔data`, `data↔jsonschema`, `jsonschema↔sql`, `proto↔data`, etc.)
-- **Determinism:** seeded sampling produces stable results
-
----
-
-## 🧭 Philosophy & behavior
-
-- **Presence vs Type:** We do **not** bake nullability into types. Optionality is tracked in `required_paths` and shown in the *Missing Data / NULL-ABILITY* section with source-aware terminology that distinguishes data presence ("missing data") from schema nullability ("nullable").
-- **Sampling:** Inference is by merging k sampled records (or all records with `--all-records`):
-  - If a field is present in some records but not others, its type becomes a union (`union(int|missing)` after presence normalization in comparisons).
-  - If an array has mixed element types, the element becomes a union (`["union(int|str)"]` → normalized per rules).
-  - Use `--all-records` for comprehensive field discovery when sampling might miss infrequent fields.
-- **Normalization:** Consistent, comparable trees regardless of source:
-  - Empty → base type (`empty_array`→`array`, `empty_object`→`object`, `empty_string`→`str`)
-  - Unions deduplicated/sorted, `"any"` removed when other specific types exist
-  - Arrays stay `[elem_type]` if known, else `"array"`
-
----
-
-## ⚠️ Limitations
-
-- **Sampling-based inference:** Types are inferred from sampled records; noisy data can under/over-report unions or presence. Use `--all-records` for comprehensive analysis when sampling is insufficient.
-- **Union explosion:** If many distinct types appear (e.g., 20 unique shapes in 20 samples), unions can grow.
-- **SQL dialects:** Postgres + BigQuery DDL covered; other dialects may need regex additions (PRs welcome).
-- **Complex unions:** Union explosion can occur with very diverse data; filtered type mismatches exclude common sampling artifacts.
-- **dbt support:** Requires `manifest.json` or `schema.yml`; we currently honor `not_null` tests for presence, not full assertion semantics.
-- **Protobuf support:** Only `proto2`/`proto3` message/enum/map/oneof basics are supported. Complex options and extensions are ignored.
-
----
-
-## Troubleshooting
-
-- **Wrong kind detection for `.json`:** Use `--left/--right` to force `jsonschema` or `dbt-manifest`.
-- **"Table not found" for SQL:** Provide `--*-table` when the DDL file defines multiple tables.
-- **Data presence noise:** Increase `-k/--samples` and consider `--infer-datetimes` if timestamps are formatted strings. The "Missing Data / NULL-ABILITY" section uses source-aware terminology: "missing data" for data sources, "nullable" for schema sources.
-- **Missing fields in comparison:** Fields that appear infrequently may not be sampled. Use `--all-records` for comprehensive field discovery.
-- **Too much output noise:** Use `--fields` to focus on specific fields of interest. Path changes section shows field location differences.
-- **Memory issues with large files:** The `--all-records` option has a built-in 1M record safety limit. For larger datasets, use sampling with higher `-k` values.
-- **Array notation confusion:** Legacy `[0]` notation is automatically normalized to `[]` for cleaner output and consistency.
+- **BigQuery CLI:** `bq` command-line tool
+- **dbt:** Data transformation tool
+- **JSON Schema:** Schema validation standard
+- **Apache Spark:** Big data processing framework

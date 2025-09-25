@@ -10,9 +10,9 @@ def test_json_schema_simple(tmp_path):
             "id": {"type": "integer"},
             "name": {"type": "string"},
             "ts": {"type": "string", "format": "date-time"},
-            "tags": {"type": "array", "items": {"type": "string"}}
+            "tags": {"type": "array", "items": {"type": "string"}},
         },
-        "required": ["id", "name"]
+        "required": ["id", "name"],
     }
     p = tmp_path / "schema.json"
     p.write_text(json.dumps(schema), encoding="utf-8")
@@ -40,7 +40,7 @@ def test_json_schema_presence(tmp_path):
             "id": {"type": "integer"},
             # allows JSON null as a value (not absence)
             "ts": {"type": ["string", "null"], "format": "date-time"},
-        }
+        },
     }
     p = tmp_path / "schema.json"
     p.write_text(json.dumps(sch), encoding="utf-8")
@@ -65,9 +65,9 @@ def test_nested_required(tmp_path):
             "user": {
                 "type": "object",
                 "required": ["id"],
-                "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}
+                "properties": {"id": {"type": "integer"}, "name": {"type": "string"}},
             }
-        }
+        },
     }
     p = tmp_path / "sch.json"
     p.write_text(json.dumps(js), encoding="utf-8")

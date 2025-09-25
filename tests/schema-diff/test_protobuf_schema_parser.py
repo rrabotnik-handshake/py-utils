@@ -5,8 +5,10 @@ from schema_diff.protobuf_schema_parser import (
 from pathlib import Path
 import textwrap
 
+
 def test_proto_basic(tmp_path):
-    proto = textwrap.dedent("""
+    proto = textwrap.dedent(
+        """
       syntax = "proto3";
       package demo;
 
@@ -23,7 +25,8 @@ def test_proto_basic(tmp_path):
         string city = 1;
         string country = 2;
       }
-    """)
+    """
+    )
     p = tmp_path / "demo.proto"
     p.write_text(proto, encoding="utf-8")
 
@@ -40,7 +43,8 @@ def test_proto_basic(tmp_path):
 
 
 def test_proto_required_proto2(tmp_path):
-    proto = textwrap.dedent("""
+    proto = textwrap.dedent(
+        """
       syntax = "proto2";
       message Person {
         required int32 id = 1;
@@ -50,7 +54,8 @@ def test_proto_required_proto2(tmp_path):
         }
         required P p = 3;
       }
-    """)
+    """
+    )
     p = tmp_path / "p.proto"
     p.write_text(proto, encoding="utf-8")
     tree, required, chosen = schema_from_protobuf_file(str(p))
@@ -148,8 +153,7 @@ def test_schema_for_outer_tree_and_requireds(tmp_path: Path):
     # b: int (from oneof)
     assert isinstance(tree, dict)
     assert tree["id"] == "int"
-    assert isinstance(tree["items"], list) and isinstance(
-        tree["items"][0], dict)
+    assert isinstance(tree["items"], list) and isinstance(tree["items"][0], dict)
     assert tree["items"][0]["name"] == "str"
     assert tree["kind"] == "str"
     assert tree["counts"] == "object"
@@ -175,11 +179,10 @@ def test_choose_message_by_unique_suffix(tmp_path: Path):
     p = write_proto(tmp_path)
 
     # Ask for Outer.Inner (unique suffix)
-    tree, required, chosen = schema_from_protobuf_file(
-        str(p), message="Outer.Inner")
+    tree, required, chosen = schema_from_protobuf_file(str(p), message="Outer.Inner")
     assert chosen == "foo.bar.Outer.Inner"
     assert tree == {"name": "str"}  # from the nested message definition
-    assert required == set()         # 'name' was optional
+    assert required == set()  # 'name' was optional
 
 
 def test_absolute_leading_dot_resolution(tmp_path: Path):
@@ -187,7 +190,8 @@ def test_absolute_leading_dot_resolution(tmp_path: Path):
 
     # Build Outer.Child explicitly; ensure the absolute .foo.bar.Outer.Inner was resolved
     tree, required, chosen = schema_from_protobuf_file(
-        str(p), message="foo.bar.Outer.Child")
+        str(p), message="foo.bar.Outer.Child"
+    )
     assert chosen == "foo.bar.Outer.Child"
     assert "inner" in tree and isinstance(tree["inner"], dict)
     assert tree["inner"]["name"] == "str"

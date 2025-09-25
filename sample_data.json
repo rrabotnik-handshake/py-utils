@@ -1,2 +1,0 @@
-{"event_id": "evt_123", "user_data": {"id": 456, "profile": {"name": "John", "email": "john@example.com", "metadata": [{"key": "role", "value": "admin"}]}}, "event_properties": [{"property_name": "source", "property_value": "web"}], "timestamp": "2024-01-01T12:00:00Z"}
-{"event_id": "evt_124", "user_data": {"id": 789, "profile": {"name": "Jane", "email": "jane@example.com", "metadata": []}}, "event_properties": [], "timestamp": "2024-01-01T13:00:00Z"}

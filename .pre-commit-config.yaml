@@ -1,0 +1,102 @@
+# Pre-commit hooks for schema-diff project
+# See https://pre-commit.com for more information
+
+repos:
+  # ========================
+  # 🔥 MODERN PYTHON LINTING & FORMATTING
+  # ========================
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.15
+    hooks:
+      # Linting (replaces flake8, pycodestyle, etc.)
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      # Formatting (replaces black, isort)
+      - id: ruff-format
+
+  # ========================
+  # 🔍 TYPE CHECKING
+  # ========================
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        args: [--ignore-missing-imports, --namespace-packages]
+        additional_dependencies: [types-requests, types-PyYAML]
+        files: ^src/
+
+  # ========================
+  # 🛡️ SECURITY SCANNING (DISABLED - FIX DEPENDENCY FIRST)
+  # ========================
+
+  # - repo: https://github.com/PyCQA/bandit
+  #   rev: 1.7.5
+  #   hooks:
+  #     - id: bandit
+  #       args: [-r, --skip, B101,B110,B311,B603,B404]
+  #       exclude: ^tests/
+
+  # ========================
+  # 🧹 DEAD CODE & UNUSED IMPORTS
+  # ========================
+
+  - repo: https://github.com/jendrikseipp/vulture
+    rev: v2.10
+    hooks:
+      - id: vulture
+        args: [--min-confidence, "80", src/]
+
+  # ========================
+  # 📁 FILE & PROJECT HYGIENE
+  # ========================
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      # Basic file checks
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+
+      # YAML/JSON validation
+      - id: check-yaml
+      - id: check-json
+      - id: pretty-format-json
+        args: [--autofix, --indent=2]
+
+      # Python-specific
+      - id: check-ast
+      - id: debug-statements
+      - id: check-builtin-literals
+      - id: check-docstring-first
+
+  # ========================
+  # 🔧 PYTHON UPGRADES
+  # ========================
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
+    hooks:
+      - id: pyupgrade
+        args: [--py39-plus]
+
+  # ========================
+  # 🌳 TRUNK - COMPREHENSIVE FORMATTING & LINTING
+  # ========================
+  # Note: Trunk formatting is handled via native Git hooks (see trunk.yaml)
+  # Run: trunk git-hooks install
+
+# ========================
+# ⚙️ CONFIGURATION
+# ========================
+default_language_version:
+  python: python3.13
+
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+  autofix_prs: true
+  autoupdate_schedule: weekly

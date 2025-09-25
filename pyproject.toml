@@ -9,18 +9,17 @@ description = "Diff schemas or sample data with helpful reports"
 readme = "README.md"
 requires-python = ">=3.9"
 
-dependencies = [
-  "ijson",
-  "deepdiff",
-  "pyyaml",
-  "protobuf",
-]
+dependencies = ["ijson", "deepdiff", "pyyaml", "protobuf"]
 
 [project.optional-dependencies]
-dev = ["pytest"]         # not installed by default; use for dev
+dev = ["pytest"] # not installed by default; use for dev
 bigquery = [
   "google-cloud-bigquery",
   "pygments",              # for SQL syntax highlighting
+]
+validation = [
+  "sqlparse",   # for SQL DDL validation
+  "jsonschema", # for JSON Schema validation
 ]
 
 [project.scripts]
@@ -29,3 +28,26 @@ schema-diff = "schema_diff.cli_main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["schema_diff*"]
+
+[tool.mypy]
+python_version = "3.9"
+mypy_path = "src"
+namespace_packages = true
+ignore_missing_imports = true
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+
+# Gradually enable stricter checking
+disallow_any_generics = false
+disallow_untyped_calls = false
+disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true

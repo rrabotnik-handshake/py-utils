@@ -5,6 +5,7 @@ import json
 import sys
 from schema_diff.io_utils import _run
 
+
 def test_inject_presence_scalars_and_arrays():
     ref = {
         "id": "int",
@@ -25,29 +26,51 @@ def test_inject_presence_scalars_and_arrays():
     assert n["tags"] == "union(array|missing)"
     assert "missing" in n["meta"]["note"]
 
+
 def test_compare_trees_plain_types_match(cfg_like):
     left = {"id": "int", "name": "str"}
     right = {"id": "int", "name": "str"}
 
-    compare_trees("L","R", left, set(), right, set(), cfg=cfg_like)
+    compare_trees("L", "R", left, set(), right, set(), cfg=cfg_like)
+
 
 def test_presence_only_diff_jsonschema_vs_sql(tmp_path):
     js = tmp_path / "schema.json"
-    js.write_text(json.dumps({
-        "type": "object",
-        "properties": {"id": {"type": "integer"}, "name": {"type": "string"}},
-        "required": ["id", "name"]
-    }), encoding="utf-8")
+    js.write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}, "name": {"type": "string"}},
+                "required": ["id", "name"],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     sql = tmp_path / "schema.sql"
-    sql.write_text("""CREATE TABLE t (
+    sql.write_text(
+        """CREATE TABLE t (
       id BIGINT NOT NULL,
       name TEXT NULL
-    );""", encoding="utf-8")
+    );""",
+        encoding="utf-8",
+    )
 
     exe = [sys.executable, "-m", "schema_diff.cli"]
-    res = _run(exe + [str(js), str(sql), "--left", "jsonschema",
-               "--right", "sql", "--right-table", "t", "--no-color"])
+    res = _run(
+        exe
+        + [
+            str(js),
+            str(sql),
+            "--left",
+            "jsonschema",
+            "--right",
+            "sql",
+            "--right-table",
+            "t",
+            "--no-color",
+        ]
+    )
     assert res.returncode == 0
     assert "No differences" in res.stdout or "Type mismatches -- (0)" in res.stdout
 
@@ -55,16 +78,23 @@ def test_presence_only_diff_jsonschema_vs_sql(tmp_path):
 def test_root_list_fields(tmp_path):
     left = tmp_path / "l.json"
     right = tmp_path / "r.json"
-    left.write_text(json.dumps(
-        [{"name": "id", "type": "integer"}]), encoding="utf-8")
-    right.write_text(json.dumps(
-        [{"name": "id", "type": "string"}]), encoding="utf-8")
+    left.write_text(json.dumps([{"name": "id", "type": "integer"}]), encoding="utf-8")
+    right.write_text(json.dumps([{"name": "id", "type": "string"}]), encoding="utf-8")
 
     exe = [sys.executable, "-m", "schema_diff.cli"]
 
     res = _run(
-        exe + [str(left), str(right),
-               "--left", "jsonschema", "--right", "jsonschema", "--no-color"])
+        exe
+        + [
+            str(left),
+            str(right),
+            "--left",
+            "jsonschema",
+            "--right",
+            "jsonschema",
+            "--no-color",
+        ]
+    )
     assert res.returncode == 0
     assert "-- Type mismatches --" in res.stdout
     assert "id:" in res.stdout  # Should show "id: nullable integer → nullable string"

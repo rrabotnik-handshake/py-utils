@@ -2,37 +2,46 @@ import gzip
 import json
 import sys
 import pytest
-from schema_diff.io_utils import CommandError, iter_records, sample_records, nth_record, _run
+from schema_diff.io_utils import (
+    CommandError,
+    iter_records,
+    sample_records,
+    nth_record,
+    _run,
+)
+
 
 def test_iter_records_ndjson(tmp_path, write_file):
-    p = write_file( "a.ndjson", '{"a":1}\n{"a":2}\n')
+    p = write_file("a.ndjson", '{"a":1}\n{"a":2}\n')
     assert list(iter_records(str(p))) == [{"a": 1}, {"a": 2}]
 
 
 def test_iter_records_json_array(tmp_path, write_file):
-    p = write_file( "a.json", '[{"a":1},{"a":2}]')
+    p = write_file("a.json", '[{"a":1},{"a":2}]')
     assert list(iter_records(str(p))) == [{"a": 1}, {"a": 2}]
 
 
 def test_iter_records_single_object(tmp_path, write_file):
-    p = write_file( "a.json", '{"a":1}')
+    p = write_file("a.json", '{"a":1}')
     assert list(iter_records(str(p))) == [{"a": 1}]
 
 
 def test_iter_records_gz_ndjson(tmp_path, write_file):
-    p = write_file( "a.ndjson.gz", '{"a":1}\n{"a":2}\n', gz=True)
+    p = write_file("a.ndjson.gz", '{"a":1}\n{"a":2}\n', gz=True)
     assert list(iter_records(str(p))) == [{"a": 1}, {"a": 2}]
 
 
 def test_nth_record(tmp_path, write_file):
-    p = write_file( "a.ndjson", '{"a":1}\n{"a":2}\n{"a":3}\n')
+    p = write_file("a.ndjson", '{"a":1}\n{"a":2}\n{"a":3}\n')
     assert nth_record(str(p), 2) == [{"a": 2}]
 
 
 def test_sample_records_seeded(tmp_path, write_file):
-    p = write_file( "a.ndjson", "\n".join(
-        json.dumps({"i": i}) for i in range(1, 11))+"\n")
+    p = write_file(
+        "a.ndjson", "\n".join(json.dumps({"i": i}) for i in range(1, 11)) + "\n"
+    )
     import random
+
     random.seed(123)
     s1 = sample_records(str(p), 3)
     random.seed(123)
@@ -45,15 +54,41 @@ def test_unreadable_file(tmp_path, write_file):
     p.write_text("{", encoding="utf-8")
     exe = [sys.executable, "-m", "schema_diff.cli"]
     with pytest.raises(CommandError):
-        _run(exe + [str(p), str(p), "--left", "data", "--right", "data", "--first-record", "--no-color"])
+        _run(
+            exe
+            + [
+                str(p),
+                str(p),
+                "--left",
+                "data",
+                "--right",
+                "data",
+                "--first-record",
+                "--no-color",
+            ]
+        )
+
 
 def test_sql_table_missing(tmp_path, write_file):
     p = tmp_path / "ddl.sql"
     p.write_text("CREATE TABLE x (id INT);", encoding="utf-8")
     exe = [sys.executable, "-m", "schema_diff.cli"]
     with pytest.raises(CommandError):
-        _run(exe + [str(p), str(p), "--left", "sql",
-              "--right", "sql", "--right-table", "y", "--no-color"])
+        _run(
+            exe
+            + [
+                str(p),
+                str(p),
+                "--left",
+                "sql",
+                "--right",
+                "sql",
+                "--right-table",
+                "y",
+                "--no-color",
+            ]
+        )
+
 
 def test_exports(tmp_path, write_file):
     left = tmp_path / "l.json"
@@ -63,8 +98,23 @@ def test_exports(tmp_path, write_file):
     dump = tmp_path / "dump.json"
     jout = tmp_path / "diff.json"
     exe = [sys.executable, "-m", "schema_diff.cli"]
-    res = _run(exe + [str(left), str(right), "--left", "data", "--right", "data", "--first-record",
-                                "--dump-schemas", str(dump), "--json-out", str(jout), "--no-color"])
+    res = _run(
+        exe
+        + [
+            str(left),
+            str(right),
+            "--left",
+            "data",
+            "--right",
+            "data",
+            "--first-record",
+            "--dump-schemas",
+            str(dump),
+            "--json-out",
+            str(jout),
+            "--no-color",
+        ]
+    )
     assert res.returncode == 0
     dj = json.loads(dump.read_text())
     assert "left" in dj and "right" in dj

@@ -1,6 +1,7 @@
 from schema_diff.spark_schema_parser import schema_from_spark_schema_file
 from schema_diff.normalize import walk_normalize
 
+
 def test_spark_parser_presence(tmp_path):
     spark = """root
  |-- id: long (nullable = false)
@@ -12,7 +13,7 @@ def test_spark_parser_presence(tmp_path):
     tree, required = schema_from_spark_schema_file(str(p))
     n = walk_normalize(tree)
     assert n["id"] == "int"
-    assert n["ts"] == "timestamp"              # pure type
+    assert n["ts"] == "timestamp"  # pure type
     assert n["tags"] in (["str"], "array")
     assert required == {"id"}
 

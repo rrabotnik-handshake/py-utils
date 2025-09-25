@@ -79,3 +79,10 @@ data/
 # Generated docs
 _site/
 docs/_build/
+
+# Output files
+output/
+
+
+# Tests
+tests/

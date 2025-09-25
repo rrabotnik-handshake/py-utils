@@ -19,17 +19,18 @@ CREATE TABLE public.people (
     n = walk_normalize(schema_tree)
 
     # Types
-    assert n["id"] == "int"                    # NOT NULL integer → "int"
-    assert n["full_name"] == "str"             # NOT NULL text → "str"
+    assert n["id"] == "int"  # NOT NULL integer → "int"
+    assert n["full_name"] == "str"  # NOT NULL text → "str"
 
     # nullable timestamp → union(timestamp|missing)
-    assert n["created_at"] == "timestamp"      # type only, no presence in type
-    assert required == {"id", "full_name"}     # NOT NULL columns only
+    assert n["created_at"] == "timestamp"  # type only, no presence in type
+    assert required == {"id", "full_name"}  # NOT NULL columns only
     # array element stays specific if known
     assert n["tags"] in ("array", ["str"])
 
     # Presence constraints are separate:
     assert required == {"id", "full_name"}
+
 
 def test_sql_schema_parser_not_null_array(tmp_path):
     text = """
@@ -51,6 +52,7 @@ CREATE TABLE p (
 
 def test_sql_int_aliases_map():
     from schema_diff.sql_schema_parser import _sql_dtype_to_internal
+
     for t in ["BIGINT", "bigint", "INT8", "INTEGER", "int", "int4"]:
         assert _sql_dtype_to_internal(t) == "int"
 
@@ -112,7 +114,9 @@ CREATE TABLE myds.events (
     assert n["nested"][0]["b"] == "str"
     # presence: NOT NULL detection for complex types needs investigation
     # TODO: Fix NOT NULL detection for ARRAY<TYPE> NOT NULL patterns
-    assert required == set()  # Current behavior - NOT NULL not detected for complex types
+    assert (
+        required == set()
+    )  # Current behavior - NOT NULL not detected for complex types
 
 
 def test_bq_options_ignored(tmp_path):
@@ -131,6 +135,8 @@ CREATE TABLE myds.files (
     assert n["name"] == "str"
     assert n["data"] == "str"
     assert required == {"name"}
+
+
 # presence only
 
 
@@ -145,6 +151,7 @@ def test_bq_backticks_and_options(tmp_path):
     p.write_text(sql, encoding="utf-8")
 
     from schema_diff.sql_schema_parser import schema_from_sql_schema_file
+
     tree, required = schema_from_sql_schema_file(str(p), table="users")
     assert tree["id"] == "int"
     # STRUCT now parsed correctly (enhanced functionality)
@@ -160,5 +167,6 @@ def test_sql_not_null_before_default_is_captured(tmp_path):
     p = tmp_path / "t.sql"
     p.write_text(sql, encoding="utf-8")
     from schema_diff.sql_schema_parser import schema_from_sql_schema_file
+
     tree, required = schema_from_sql_schema_file(str(p), table="t")
     assert "name" in required

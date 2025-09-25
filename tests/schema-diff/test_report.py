@@ -8,7 +8,7 @@ from schema_diff.report import build_report_struct
 def test_report_presence_vs_schema():
     diff = {
         "dictionary_item_removed": ["root['only_in_2']"],
-        "dictionary_item_added":   ["root['only_in_1']"],
+        "dictionary_item_added": ["root['only_in_1']"],
         "values_changed": {
             # schema mismatch
             "root['a']": {"old_value": "str", "new_value": "int"},
@@ -49,7 +49,20 @@ def test_show_common_keys(tmp_path):
     right.write_text(json.dumps({"b": "x", "c": 3}), encoding="utf-8")
 
     exe = [sys.executable, "-m", "schema_diff.cli"]
-    res = _run(exe + [str(left), str(right), "--left", "data", "--right", "data", "--first-record", "--show-common", "--no-color"])
+    res = _run(
+        exe
+        + [
+            str(left),
+            str(right),
+            "--left",
+            "data",
+            "--right",
+            "data",
+            "--first-record",
+            "--show-common",
+            "--no-color",
+        ]
+    )
     assert res.returncode == 0
     assert "Common fields" in res.stdout
 

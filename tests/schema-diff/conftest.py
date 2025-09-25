@@ -21,6 +21,7 @@ def write_file(tmp_path):
         else:
             p.write_text(text, encoding="utf-8")
         return str(p)
+
     return _w
 
 
@@ -29,4 +30,5 @@ def run_cli():
     def _run_cli(args: list[str]):
         exe = [sys.executable, "-m", "schema_diff.cli"]
         return _run(exe + args)
+
     return _run_cli
