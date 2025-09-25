@@ -18,7 +18,7 @@ Presence: NOT encoded in the tree (handled by compare layer via required_paths)
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Set, Tuple
+from typing import Any
 
 from .io_utils import open_text
 from .json_data_file_parser import merge_schema
@@ -27,7 +27,7 @@ from .utils import union_str  # single source of truth for union string building
 __all__ = ["load_json_schema", "schema_from_json_schema_file"]
 
 # -------- Mapping of JSON Schema scalar types to internal scalars ----------
-TYPE_MAP: Dict[str, str] = {
+TYPE_MAP: dict[str, str] = {
     "string": "str",
     "integer": "int",
     "number": "float|int",
@@ -38,7 +38,7 @@ TYPE_MAP: Dict[str, str] = {
 }
 
 
-def _map_string_with_format(node: Dict[str, Any]) -> str:
+def _map_string_with_format(node: dict[str, Any]) -> str:
     """
     Map JSON Schema {type:"string", format:...} to a specific internal scalar
     when format is date/time-like; otherwise "str".
@@ -79,7 +79,7 @@ def _literal_tname_for_enum(v: Any) -> str:
     return "any"
 
 
-def _schema_from_js(node: Any, *, optional: bool) -> Any:
+def _schema_from_js(node: Any, *, _optional: bool) -> Any:
     """
     Build the internal *type tree* from a JSON Schema node.
 
@@ -90,25 +90,41 @@ def _schema_from_js(node: Any, *, optional: bool) -> Any:
         return "any"
 
     # allOf / anyOf / oneOf -> union the branches
-    if any(k in node for k in ("oneOf", "anyOf", "allOf")):
+    if any(k in node for k in ("oneO", "anyO", "allOf")):
         branches: list[Any] = []
-        for k in ("oneOf", "anyOf", "allOf"):
+        for k in ("oneO", "anyO", "allOf"):
             if k in node and isinstance(node[k], list):
                 for sub in node[k]:
-                    branches.append(_schema_from_js(sub, optional=False))
+                    branches.append(_schema_from_js(sub, _optional=False))
         if not branches:
             return "any"
         u: Any = branches[0]
         for b in branches[1:]:
             if isinstance(u, dict) and isinstance(b, dict):
                 keys = set(u) | set(b)
-                u = {kk: merge_schema(u.get(kk, "missing"), b.get(
-                    kk, "missing")) for kk in keys}
+                u = {
+                    kk: merge_schema(u.get(kk, "missing"), b.get(kk, "missing"))
+                    for kk in keys
+                }
             else:
-                ua = u if isinstance(u, str) else "object" if isinstance(
-                    u, dict) else "array" if isinstance(u, list) else "any"
-                ub = b if isinstance(b, str) else "object" if isinstance(
-                    b, dict) else "array" if isinstance(b, list) else "any"
+                ua = (
+                    u
+                    if isinstance(u, str)
+                    else (
+                        "object"
+                        if isinstance(u, dict)
+                        else "array" if isinstance(u, list) else "any"
+                    )
+                )
+                ub = (
+                    b
+                    if isinstance(b, str)
+                    else (
+                        "object"
+                        if isinstance(b, dict)
+                        else "array" if isinstance(b, list) else "any"
+                    )
+                )
                 u = union_str([ua, ub])
         return u
 
@@ -121,7 +137,7 @@ def _schema_from_js(node: Any, *, optional: bool) -> Any:
 
     jtype = node.get("type")
 
-    # type: [...]  (multi-type)
+    # Handle type: [...] (multi-type)
     if isinstance(jtype, list):
         mapped = []
         for t in jtype:
@@ -134,17 +150,17 @@ def _schema_from_js(node: Any, *, optional: bool) -> Any:
     # objects (with/without explicit "type": "object")
     if jtype == "object" or ("properties" in node):
         props = node.get("properties", {}) or {}
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for k, v in props.items():
             # no presence injection here
-            out[k] = _schema_from_js(v, optional=False)
+            out[k] = _schema_from_js(v, _optional=False)
         return out if out else "object"
 
     # arrays (with/without explicit "type": "array")
     if jtype == "array" or ("items" in node):
         items = node.get("items")
         if isinstance(items, dict):
-            elem = _schema_from_js(items, optional=False)
+            elem = _schema_from_js(items, _optional=False)
             # ALWAYS represent arrays as a one-element list
             return [elem]
         # items absent or not a dict → generic array
@@ -161,7 +177,8 @@ def _schema_from_js(node: Any, *, optional: bool) -> Any:
 
 # ----- required paths collection -----
 
-def _collect_required_paths_json(node: Any, prefix: str = "") -> Set[str]:
+
+def _collect_required_paths_json(node: Any, prefix: str = "") -> set[str]:
     """
     Collect dotted paths from JSON Schema "required" lists.
 
@@ -172,12 +189,12 @@ def _collect_required_paths_json(node: Any, prefix: str = "") -> Set[str]:
     - For allOf/oneOf/anyOf, we take the UNION of branch requirements.
     - Arrays: we do not expand item-level required paths (presence is for the field).
     """
-    req: Set[str] = set()
+    req: set[str] = set()
     if not isinstance(node, dict):
         return req
 
     # combinators: union of branch requirements
-    for key in ("allOf", "oneOf", "anyOf"):
+    for key in ("allO", "oneO", "anyOf"):
         if isinstance(node.get(key), list):
             for sub in node[key]:
                 req |= _collect_required_paths_json(sub, prefix)
@@ -203,7 +220,7 @@ def load_json_schema(path: str) -> Any:
         return json.load(f)
 
 
-def schema_from_json_schema_file(path: str) -> Tuple[Any, Set[str]]:
+def schema_from_json_schema_file(path: str) -> tuple[Any, set[str]]:
     """
     Parse a JSON Schema file.
 
@@ -214,6 +231,6 @@ def schema_from_json_schema_file(path: str) -> Tuple[Any, Set[str]]:
       - required_paths: dotted paths that are presence-required by the schema
     """
     js = load_json_schema(path)
-    tree = _schema_from_js(js, optional=False)      # pure types
-    required = _collect_required_paths_json(js)     # presence set
+    tree = _schema_from_js(js, _optional=False)  # pure types
+    required = _collect_required_paths_json(js)  # presence set
     return tree, required

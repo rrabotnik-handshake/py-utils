@@ -43,7 +43,7 @@ Notes & constraints
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 __all__ = ["schema_from_spark_schema_file"]
 
@@ -56,22 +56,18 @@ _SPARK_TO_INTERNAL = {
     "integer": "int",
     "long": "int",
     "bigint": "int",
-
     # floats / decimals
     "float": "float",
     "double": "float",
     "decimal": "float",  # precision/scale not tracked; treat as numeric
-
     # booleans
     "boolean": "bool",
     "bool": "bool",
-
     # strings / bytes-ish
     "string": "str",
-    "binary": "str",     # treat Spark binary as base64-able string
+    "binary": "str",  # treat Spark binary as base64-able string
     "varchar": "str",
     "char": "str",
-
     # date/time
     "timestamp": "timestamp",
     "date": "date",
@@ -82,14 +78,15 @@ _SPARK_TO_INTERNAL = {
 #   |-- tags: array<string> (nullable = true)
 #   |-- info: struct<foo:int,bar:array<string>> (nullable = true)
 _LINE_RE = re.compile(
-    r'^\s*\|\-\-\s*(?P<name>[A-Za-z0-9_]+)\s*:\s*(?P<dtype>[^\(]+?)\s*(?:\((?P<attrs>[^)]*)\))?\s*$'
+    r"^\s*\|\-\-\s*(?P<name>[A-Za-z0-9_]+)\s*:\s*(?P<dtype>[^\(]+?)\s*(?:\((?P<attrs>[^)]*)\))?\s*$"
 )
 
 # Extract nullable flag from "(nullable = false)" part
-_NULLABLE_RE = re.compile(r'\bnullable\s*=\s*(true|false)\b', re.IGNORECASE)
+_NULLABLE_RE = re.compile(r"\bnullable\s*=\s*(true|false)\b", re.IGNORECASE)
 
 
 # ---------- Type string parser (recursive) ----------
+
 
 def _parse_scalar_type(tok: str) -> str:
     """
@@ -104,7 +101,7 @@ def _parse_scalar_type(tok: str) -> str:
     return _SPARK_TO_INTERNAL.get(base, "any")
 
 
-def _split_top_level_commas(s: str) -> List[str]:
+def _split_top_level_commas(s: str) -> list[str]:
     """
     Split by commas that are NOT inside angle brackets (for struct fields).
 
@@ -113,17 +110,17 @@ def _split_top_level_commas(s: str) -> List[str]:
     "a:int,b:array<string>,c:struct<x:int,y:string>"
       -> ["a:int", "b:array<string>", "c:struct<x:int,y:string>"]
     """
-    parts: List[str] = []
-    buf: List[str] = []
+    parts: list[str] = []
+    buf: list[str] = []
     depth = 0
     for ch in s:
-        if ch == '<':
+        if ch == "<":
             depth += 1
             buf.append(ch)
-        elif ch == '>':
+        elif ch == ">":
             depth = max(0, depth - 1)
             buf.append(ch)
-        elif ch == ',' and depth == 0:
+        elif ch == "," and depth == 0:
             parts.append("".join(buf).strip())
             buf = []
         else:
@@ -164,7 +161,7 @@ def _parse_dtype(dtype: str) -> Any:
         if not inner:
             return "object"
         fields = _split_top_level_commas(inner)
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         for f in fields:
             # each f is "name:type"
             if ":" not in f:
@@ -184,7 +181,8 @@ def _parse_dtype(dtype: str) -> Any:
 
 # ---------- Hierarchical structure parser ----------
 
-def _parse_field_line(line: str) -> Tuple[int, str, str, bool]:
+
+def _parse_field_line(line: str) -> tuple[int, str, str, bool]:
     """
     Parse a single field line and extract indentation level, name, type, and nullability.
 
@@ -196,10 +194,12 @@ def _parse_field_line(line: str) -> Tuple[int, str, str, bool]:
     # Level 0: " |-- field"
     # Level 1: " |    |-- field"
     # Level 2: " |    |    |-- field"
-    indent_level = line.count('|    ')
+    indent_level = line.count("|    ")
 
     # Updated regex to handle any indentation level
-    field_re = re.compile(r'\|\-\-\s*(?P<name>[A-Za-z0-9_]+)\s*:\s*(?P<dtype>[^\(]+?)\s*(?:\((?P<attrs>[^)]*)\))?\s*$')
+    field_re = re.compile(
+        r"\|\-\-\s*(?P<name>[A-Za-z0-9_]+)\s*:\s*(?P<dtype>[^\(]+?)\s*(?:\((?P<attrs>[^)]*)\))?\s*$"
+    )
     match = field_re.search(line)
 
     if not match:
@@ -207,18 +207,18 @@ def _parse_field_line(line: str) -> Tuple[int, str, str, bool]:
 
     name = match.group("name")
     dtype = (match.group("dtype") or "").strip()
-    attrs = (match.group("attrs") or "")
+    attrs = match.group("attrs") or ""
 
     # Parse nullability
     nullable = True
     nullable_match = _NULLABLE_RE.search(attrs)
     if nullable_match:
-        nullable = (nullable_match.group(1).lower() == "true")
+        nullable = nullable_match.group(1).lower() == "true"
 
     return indent_level, name, dtype, nullable
 
 
-def _parse_hierarchical_structure(lines: List[str]) -> Tuple[Dict[str, Any], Set[str]]:
+def _parse_hierarchical_structure(lines: list[str]) -> tuple[dict[str, Any], set[str]]:
     """
     Parse the hierarchical Spark schema structure into a nested type tree.
 
@@ -227,12 +227,12 @@ def _parse_hierarchical_structure(lines: List[str]) -> Tuple[Dict[str, Any], Set
     |    |-- element: struct
     |    |    |-- nested_field: string
     """
-    tree: Dict[str, Any] = {}
-    required: Set[str] = set()
+    tree: dict[str, Any] = {}
+    required: set[str] = set()
 
     # Stack to track current nesting context and path
     # Each item is (indent_level, current_dict, path_prefix)
-    context_stack: List[Tuple[int, Dict[str, Any], str]] = [(0, tree, "")]
+    context_stack: list[tuple[int, dict[str, Any], str]] = [(0, tree, "")]
 
     i = 0
     while i < len(lines):
@@ -286,7 +286,9 @@ def _parse_hierarchical_structure(lines: List[str]) -> Tuple[Dict[str, Any], Set
 
         elif field_type.lower().startswith("struct"):
             # Parse nested struct fields (hierarchical format)
-            struct_dict, i, nested_required = _parse_struct_fields(lines, i, indent_level, full_path)
+            struct_dict, i, nested_required = _parse_struct_fields(
+                lines, i, indent_level, full_path
+            )
             current_dict[field_name] = struct_dict
             # Add nested required paths
             required.update(nested_required)
@@ -305,7 +307,9 @@ def _parse_hierarchical_structure(lines: List[str]) -> Tuple[Dict[str, Any], Set
     return tree, required
 
 
-def _parse_array_element_structure(lines: List[str], start_idx: int, element_indent: int, path_prefix: str) -> Tuple[Any, int, Set[str]]:
+def _parse_array_element_structure(
+    lines: list[str], start_idx: int, element_indent: int, path_prefix: str
+) -> tuple[Any, int, set[str]]:
     """
     Parse the structure of an array element starting from the 'element: struct' line.
 
@@ -314,15 +318,17 @@ def _parse_array_element_structure(lines: List[str], start_idx: int, element_ind
     (element_type, last_processed_index, required_paths) : Tuple[Any, int, Set[str]]
     """
     element_indent, _, element_type, _ = _parse_field_line(lines[start_idx])
-    required_paths: Set[str] = set()
+    required_paths: set[str] = set()
 
     if element_type.lower() == "struct":
         # Parse the struct fields that follow
-        struct_fields = {}
+        struct_fields: dict[str, Any] = {}
         i = start_idx + 1
 
         while i < len(lines):
-            field_indent, field_name, field_type, is_nullable = _parse_field_line(lines[i])
+            field_indent, field_name, field_type, is_nullable = _parse_field_line(
+                lines[i]
+            )
 
             if field_indent <= element_indent:
                 # We've reached the end of this struct
@@ -337,7 +343,11 @@ def _parse_array_element_structure(lines: List[str], start_idx: int, element_ind
                     if i + 1 < len(lines):
                         next_indent, next_name, _, _ = _parse_field_line(lines[i + 1])
                         if next_indent == field_indent + 1 and next_name == "element":
-                            nested_element, i, nested_required = _parse_array_element_structure(
+                            (
+                                nested_element,
+                                i,
+                                nested_required,
+                            ) = _parse_array_element_structure(
                                 lines, i + 1, field_indent + 1, f"{field_path}[0]"
                             )
                             struct_fields[field_name] = [nested_element]
@@ -348,7 +358,9 @@ def _parse_array_element_structure(lines: List[str], start_idx: int, element_ind
                         struct_fields[field_name] = ["any"]
                 elif field_type.lower().startswith("struct"):
                     # Nested struct within the struct
-                    nested_struct, i, nested_required = _parse_struct_fields(lines, i, field_indent, field_path)
+                    nested_struct, i, nested_required = _parse_struct_fields(
+                        lines, i, field_indent, field_path
+                    )
                     struct_fields[field_name] = nested_struct
                     required_paths.update(nested_required)
                 else:
@@ -367,7 +379,9 @@ def _parse_array_element_structure(lines: List[str], start_idx: int, element_ind
         return _parse_scalar_type(element_type), start_idx, required_paths
 
 
-def _parse_struct_fields(lines: List[str], start_idx: int, struct_indent: int, path_prefix: str) -> Tuple[Dict[str, Any], int, Set[str]]:
+def _parse_struct_fields(
+    lines: list[str], start_idx: int, struct_indent: int, path_prefix: str
+) -> tuple[dict[str, Any], int, set[str]]:
     """
     Parse struct fields starting from a struct declaration.
 
@@ -375,8 +389,8 @@ def _parse_struct_fields(lines: List[str], start_idx: int, struct_indent: int, p
     -------
     (struct_dict, last_processed_index, required_paths) : Tuple[Dict[str, Any], int, Set[str]]
     """
-    struct_fields = {}
-    required_paths: Set[str] = set()
+    struct_fields: dict[str, Any] = {}
+    required_paths: set[str] = set()
     i = start_idx + 1
 
     while i < len(lines):
@@ -395,7 +409,11 @@ def _parse_struct_fields(lines: List[str], start_idx: int, struct_indent: int, p
                 if i + 1 < len(lines):
                     next_indent, next_name, _, _ = _parse_field_line(lines[i + 1])
                     if next_indent == field_indent + 1 and next_name == "element":
-                        nested_element, i, nested_required = _parse_array_element_structure(
+                        (
+                            nested_element,
+                            i,
+                            nested_required,
+                        ) = _parse_array_element_structure(
                             lines, i + 1, field_indent + 1, f"{field_path}[0]"
                         )
                         struct_fields[field_name] = [nested_element]
@@ -406,7 +424,9 @@ def _parse_struct_fields(lines: List[str], start_idx: int, struct_indent: int, p
                     struct_fields[field_name] = ["any"]
             elif field_type.lower().startswith("struct"):
                 # Handle nested structs
-                nested_struct, i, nested_required = _parse_struct_fields(lines, i, field_indent, field_path)
+                nested_struct, i, nested_required = _parse_struct_fields(
+                    lines, i, field_indent, field_path
+                )
                 struct_fields[field_name] = nested_struct
                 required_paths.update(nested_required)
             else:
@@ -424,7 +444,8 @@ def _parse_struct_fields(lines: List[str], start_idx: int, struct_indent: int, p
 
 # ---------- Main parser ----------
 
-def schema_from_spark_schema_file(path: str) -> Tuple[Any, Set[str]]:
+
+def schema_from_spark_schema_file(path: str) -> tuple[Any, set[str]]:
     """
     Parse a Spark schema text dump into (type_tree, required_paths).
 
@@ -450,8 +471,12 @@ def schema_from_spark_schema_file(path: str) -> Tuple[Any, Set[str]]:
     - Now properly handles nested structures by parsing indentation levels.
     """
     # Read all lines and build hierarchical structure
-    with open(path, "r", encoding="utf-8") as f:
-        lines = [line.rstrip("\n") for line in f if line.strip() and line.strip().lower() != "root"]
+    with open(path, encoding="utf-8") as f:
+        lines = [
+            line.rstrip("\n")
+            for line in f
+            if line.strip() and line.strip().lower() != "root"
+        ]
 
     if not lines:
         return "object", set()

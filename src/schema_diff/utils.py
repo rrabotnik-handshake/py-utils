@@ -19,25 +19,22 @@ Key features:
 """
 
 from __future__ import annotations
-from copy import deepcopy
-from typing import Any, Iterable, Dict, Set
 
+from collections.abc import Iterable
+from copy import deepcopy
+from typing import Any
 
 __all__ = [
-
     # tree coercion / presence
     "coerce_root_to_field_dict",
     "wrap_optional",
     "inject_presence_for_diff",
-
     # path analysis
     "flatten_paths",
     "paths_by_name",
     "compute_path_changes",
-
     # field filtering
     "filter_schema_by_fields",
-
     # string utilities
     "strip_quotes_ident",
     "union_str",
@@ -49,6 +46,7 @@ __all__ = [
 # ──────────────────────────────────────────────────────────────────────────────
 # Coercion & Presence helpers
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def coerce_root_to_field_dict(tree: Any) -> Any:
     """
@@ -63,7 +61,7 @@ def coerce_root_to_field_dict(tree: Any) -> Any:
 
     # case 1: [{'name': ..., 'type': ...}, ...]
     if all(isinstance(el, dict) and "name" in el for el in tree):
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for el in tree:
             name = str(el["name"])
             # prefer 'type', but tolerate other common keys
@@ -73,7 +71,7 @@ def coerce_root_to_field_dict(tree: Any) -> Any:
 
     # case 2: [{'id': 'int'}, {'name': 'str'}, ...]
     if all(isinstance(el, dict) and len(el) == 1 for el in tree):
-        out: Dict[str, Any] = {}
+        out = {}
         for el in tree:
             (name, t) = next(iter(el.items()))
             out[str(name)] = t
@@ -122,7 +120,7 @@ def inject_presence_for_diff(tree: Any, required_paths: Iterable[str] | None) ->
         A deep-copied tree where non-required **leaf** fields are unioned with 'missing'.
         Presence applies to the field holding an array, not the array's element type.
     """
-    required: Set[str] = set(required_paths or [])
+    required: set[str] = set(required_paths or [])
     out = deepcopy(tree)
 
     def walk(node: Any, prefix: str) -> None:
@@ -148,6 +146,7 @@ def inject_presence_for_diff(tree: Any, required_paths: Iterable[str] | None) ->
 # ──────────────────────────────────────────────────────────────────────────────
 # Path analysis (used to detect moved/nested fields)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def flatten_paths(tree: Any, prefix: str = "") -> list[str]:
     """
@@ -223,13 +222,16 @@ def compute_path_changes(left_tree: Any, right_tree: Any) -> list[dict[str, Any]
 
             # Only include if there are actually unique paths on either side
             if left_only or right_only:
-                out.append({
-                    "name": name,
-                    "shared": sorted(common_paths),
-                    "left": sorted(left_only),
-                    "right": sorted(right_only)
-                })
+                out.append(
+                    {
+                        "name": name,
+                        "shared": sorted(common_paths),
+                        "left": sorted(left_only),
+                        "right": sorted(right_only),
+                    }
+                )
     return out
+
 
 # ---------- Generic helpers ----------
 
@@ -249,6 +251,7 @@ def union_str(types: list[str]) -> str:
     if "any" in atoms and len(atoms) > 1:
         atoms.remove("any")
     return atoms[0] if len(atoms) == 1 else "union(" + "|".join(atoms) + ")"
+
 
 # ---------- DeepDiff path helpers ----------
 
@@ -292,6 +295,7 @@ def fmt_dot_path(p: str) -> str:
 # Field filtering helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def filter_schema_by_fields(schema: Any, fields: list[str]) -> Any:
     """
     Filter a schema tree to include only specific fields with comprehensive path support.
@@ -326,18 +330,24 @@ def filter_schema_by_fields(schema: Any, fields: list[str]) -> Any:
     if not isinstance(schema, dict):
         return schema
 
-    filtered = {}
+    filtered: dict[str, Any] = {}
 
     for field in fields:
         # Handle array element paths like "experience[0].title"
         if "[0]." in field:
             array_field, rest = field.split("[0].", 1)
-            if array_field in schema and isinstance(schema[array_field], list) and len(schema[array_field]) > 0:
+            if (
+                array_field in schema
+                and isinstance(schema[array_field], list)
+                and len(schema[array_field]) > 0
+            ):
                 if array_field not in filtered:
                     filtered[array_field] = [{}]
                 # Recursively filter the array element
                 if isinstance(schema[array_field][0], dict):
-                    nested_filtered = filter_schema_by_fields(schema[array_field][0], [rest])
+                    nested_filtered = filter_schema_by_fields(
+                        schema[array_field][0], [rest]
+                    )
                     if isinstance(filtered[array_field][0], dict):
                         filtered[array_field][0].update(nested_filtered)
                     else:
@@ -353,15 +363,21 @@ def filter_schema_by_fields(schema: Any, fields: list[str]) -> Any:
                         filtered[root_field] = {}
                 # Recursively filter nested fields
                 if isinstance(schema[root_field], dict):
-                    nested_filtered = filter_schema_by_fields(schema[root_field], [rest])
+                    nested_filtered = filter_schema_by_fields(
+                        schema[root_field], [rest]
+                    )
                     if isinstance(filtered[root_field], dict):
                         filtered[root_field].update(nested_filtered)
                     else:
                         filtered[root_field] = nested_filtered
-                elif isinstance(schema[root_field], list) and len(schema[root_field]) > 0:
+                elif (
+                    isinstance(schema[root_field], list) and len(schema[root_field]) > 0
+                ):
                     # Handle array field without explicit [0] notation
                     if isinstance(schema[root_field][0], dict):
-                        nested_filtered = filter_schema_by_fields(schema[root_field][0], [rest])
+                        nested_filtered = filter_schema_by_fields(
+                            schema[root_field][0], [rest]
+                        )
                         filtered[root_field] = [nested_filtered]
         else:
             # Simple field name

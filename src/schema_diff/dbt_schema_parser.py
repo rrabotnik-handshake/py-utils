@@ -19,42 +19,62 @@ Both return:
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional, Tuple, Set, List
+import re
+from typing import Any
 
 import yaml
-import re
 
 from .io_utils import open_text
 
-
 # Adapter-agnostic normalization of dbt/emitted data types to internal labels.
 # Arrays are represented as [elem_type]; normalizer can later collapse ["any"] -> "array".
-TYPE_MAP_DBT: Dict[str, str] = {
+TYPE_MAP_DBT: dict[str, str] = {
     # integers
-    "tinyint": "int", "smallint": "int", "int2": "int", "integer": "int", "int": "int",
-    "int4": "int", "bigint": "int", "int8": "int", "serial": "int", "bigserial": "int",
-
+    "tinyint": "int",
+    "smallint": "int",
+    "int2": "int",
+    "integer": "int",
+    "int": "int",
+    "int4": "int",
+    "bigint": "int",
+    "int8": "int",
+    "serial": "int",
+    "bigserial": "int",
     # floats / decimals
-    "float": "float", "float4": "float", "float8": "float",
-    "double": "float", "double precision": "float",
-    "real": "float", "numeric": "float", "decimal": "float",
+    "float": "float",
+    "float4": "float",
+    "float8": "float",
+    "double": "float",
+    "double precision": "float",
+    "real": "float",
+    "numeric": "float",
+    "decimal": "float",
     "bignumeric": "float",
-
     # boolean
-    "boolean": "bool", "bool": "bool",
-
+    "boolean": "bool",
+    "bool": "bool",
     # strings / text / ids / json
-    "varchar": "str", "character varying": "str",
-    "char": "str", "character": "str", "text": "str", "citext": "str",
-    "uuid": "str", "json": "str", "jsonb": "str", "bytea": "str",
+    "varchar": "str",
+    "character varying": "str",
+    "char": "str",
+    "character": "str",
+    "text": "str",
+    "citext": "str",
+    "uuid": "str",
+    "json": "str",
+    "jsonb": "str",
+    "bytea": "str",
     "string": "str",
     "bytes": "str",
-
     # date/time
     "date": "date",
-    "time": "time", "time without time zone": "time", "time with time zone": "time",
-    "timestamp": "timestamp", "timestamp without time zone": "timestamp",
-    "timestamp with time zone": "timestamp", "timestamptz": "timestamp",
+    "time": "time",
+    "time without time zone": "time",
+    "time with time zone": "time",
+    "timestamp": "timestamp",
+    "timestamp without time zone": "timestamp",
+    "timestamp with time zone": "timestamp",
+    "timestamptz": "timestamp",
     "datetime": "timestamp",
 }
 
@@ -82,8 +102,7 @@ def _normalize_dtype(dtype: str) -> str | list[str]:
         inner = m.group(1).strip()
         # strip inner precision too
         inner_base = inner.split("(", 1)[0].strip()
-        mapped_inner = TYPE_MAP_DBT.get(
-            inner_base, TYPE_MAP_DBT.get(inner, "any"))
+        mapped_inner = TYPE_MAP_DBT.get(inner_base, TYPE_MAP_DBT.get(inner, "any"))
         return ["any" if mapped_inner == "any" else mapped_inner]
 
     base = s.split("(", 1)[0].strip()
@@ -91,7 +110,7 @@ def _normalize_dtype(dtype: str) -> str | list[str]:
     return ["any" if mapped == "any" else mapped] if is_array else mapped
 
 
-def _iter_test_names(tests_field: Any) -> List[str]:
+def _iter_test_names(tests_field: Any) -> list[str]:
     """
     Normalize dbt 'tests' lists that may contain strings or dicts.
 
@@ -99,7 +118,7 @@ def _iter_test_names(tests_field: Any) -> List[str]:
       ["not_null", {"unique": {...}}, "accepted_values"]
       → ["not_null", "unique", "accepted_values"]
     """
-    out: List[str] = []
+    out: list[str] = []
     if not isinstance(tests_field, list):
         return out
     for tdef in tests_field:
@@ -113,7 +132,9 @@ def _iter_test_names(tests_field: Any) -> List[str]:
 # ---------------- Manifest.json (preferred: has types) --------------------
 
 
-def schema_from_dbt_manifest(path: str, model: Optional[str] = None) -> Tuple[Dict[str, Any], Set[str]]:
+def schema_from_dbt_manifest(
+    path: str, model: str | None = None
+) -> tuple[dict[str, Any], set[str]]:
     """
     Parse dbt target/manifest.json, pull column `data_type` for the target model.
 
@@ -128,8 +149,8 @@ def schema_from_dbt_manifest(path: str, model: Optional[str] = None) -> Tuple[Di
     with open_text(path) as f:
         man = json.load(f)
 
-    nodes: Dict[str, Any] = man.get("nodes", {}) or {}
-    matches: List[tuple[str, Any]] = []
+    nodes: dict[str, Any] = man.get("nodes", {}) or {}
+    matches: list[tuple[str, Any]] = []
     mlc = (model or "").lower()
 
     for node_id, node in nodes.items():
@@ -151,13 +172,12 @@ def schema_from_dbt_manifest(path: str, model: Optional[str] = None) -> Tuple[Di
     _, node = sorted(matches, key=lambda x: (x[0] != mlc, x[0]))[0]
 
     cols = node.get("columns", {}) or {}
-    schema: Dict[str, Any] = {}
-    required: Set[str] = set()
+    schema: dict[str, Any] = {}
+    required: set[str] = set()
 
     for col_name, col_meta in cols.items():
         # Prefer adapter-reported data_type; fallback to 'type' if present
-        dtype = (col_meta.get("data_type")
-                 or col_meta.get("type") or "").strip()
+        dtype = (col_meta.get("data_type") or col_meta.get("type") or "").strip()
         mapped = _normalize_dtype(dtype) if dtype else "any"
         schema[col_name] = mapped
 
@@ -176,7 +196,9 @@ def schema_from_dbt_manifest(path: str, model: Optional[str] = None) -> Tuple[Di
 # ---------------- schema.yml (tests; usually no types) --------------------
 
 
-def schema_from_dbt_schema_yml(path: str, model: Optional[str] = None) -> Tuple[Dict[str, Any], Set[str]]:
+def schema_from_dbt_schema_yml(
+    path: str, model: str | None = None
+) -> tuple[dict[str, Any], set[str]]:
     """
     Parse a dbt schema.yml (v2). Uses tests for presence (not_null).
     Types are often not present, so columns default to "any" unless a custom
@@ -191,13 +213,14 @@ def schema_from_dbt_schema_yml(path: str, model: Optional[str] = None) -> Tuple[
     """
     if yaml is None:
         raise RuntimeError(
-            "pyyaml is required to parse dbt schema.yml. Install 'pyyaml'.")
+            "pyyaml is required to parse dbt schema.yml. Install 'pyyaml'."
+        )
 
     with open_text(path) as f:
         data = yaml.safe_load(f) or {}
 
     models = data.get("models") or []
-    matches: List[Dict[str, Any]] = []
+    matches: list[dict[str, Any]] = []
     mlc = (model or "").lower()
 
     for m in models:
@@ -211,8 +234,8 @@ def schema_from_dbt_schema_yml(path: str, model: Optional[str] = None) -> Tuple[
 
     m = matches[0]
     cols = m.get("columns") or []
-    schema: Dict[str, Any] = {}
-    required: Set[str] = set()
+    schema: dict[str, Any] = {}
+    required: set[str] = set()
 
     for c in cols:
         col_name = c.get("name")
@@ -220,8 +243,9 @@ def schema_from_dbt_schema_yml(path: str, model: Optional[str] = None) -> Tuple[
             continue
 
         # Optional declared type in schema.yml (non-standard; seen in some projects)
-        declared = (c.get("data_type") or (
-            c.get("meta") or {}).get("type") or "").strip()
+        declared = (
+            c.get("data_type") or (c.get("meta") or {}).get("type") or ""
+        ).strip()
         mapped = _normalize_dtype(declared) if declared else "any"
         schema[col_name] = mapped
 
@@ -232,7 +256,9 @@ def schema_from_dbt_schema_yml(path: str, model: Optional[str] = None) -> Tuple[
     return schema, required
 
 
-def schema_from_dbt_model(path: str, model: Optional[str] = None) -> Tuple[Dict[str, Any], Set[str]]:
+def schema_from_dbt_model(
+    path: str, model: str | None = None
+) -> tuple[dict[str, Any], set[str]]:
     """
     Parse a dbt model .sql file and extract field information from SELECT statements.
 
@@ -254,16 +280,18 @@ def schema_from_dbt_model(path: str, model: Optional[str] = None) -> Tuple[Dict[
         content = f.read()
 
     # Remove comments (both -- and /* */ style)
-    content = re.sub(r'--.*$', '', content, flags=re.MULTILINE)
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+    content = re.sub(r"--.*$", "", content, flags=re.MULTILINE)
+    content = re.sub(r"/\*.*?\*/", "", content, flags=re.DOTALL)
 
     # Find SELECT statements - look for field patterns
     # This is a simple heuristic approach
-    schema: Dict[str, Any] = {}
-    required: Set[str] = set()
+    schema: dict[str, Any] = {}
+    required: set[str] = set()
 
     # Extract field names from SELECT clauses
-    select_sections = re.findall(r'select\s+(.*?)(?:from|\{|\;|$)', content, re.DOTALL | re.IGNORECASE)
+    select_sections = re.findall(
+        r"select\s+(.*?)(?:from|\{|\;|$)", content, re.DOTALL | re.IGNORECASE
+    )
 
     for select_text in select_sections:
         # Clean up the select text
@@ -272,30 +300,34 @@ def schema_from_dbt_model(path: str, model: Optional[str] = None) -> Tuple[Dict[
             continue
 
         # Split by commas and extract field names
-        fields = re.split(r',(?![^()]*\))', select_text)  # Split by comma but not inside parentheses
+        fields = re.split(
+            r",(?![^()]*\))", select_text
+        )  # Split by comma but not inside parentheses
 
         for field in fields:
             field = field.strip()
-            if not field or field == '*':
+            if not field or field == "*":
                 continue
 
             # Extract field name using various patterns
             field_name = None
 
             # Case 1: field AS alias
-            as_match = re.search(r'^\s*(?:\w+\.)?\w+\s+as\s+(\w+)\s*$', field, re.IGNORECASE)
+            as_match = re.search(
+                r"^\s*(?:\w+\.)?\w+\s+as\s+(\w+)\s*$", field, re.IGNORECASE
+            )
             if as_match:
                 field_name = as_match.group(1)
 
             # Case 2: function(...) AS alias
-            elif re.search(r'^\s*\w+\([^)]*\)\s+as\s+(\w+)\s*$', field, re.IGNORECASE):
-                func_match = re.search(r'as\s+(\w+)\s*$', field, re.IGNORECASE)
+            elif re.search(r"^\s*\w+\([^)]*\)\s+as\s+(\w+)\s*$", field, re.IGNORECASE):
+                func_match = re.search(r"as\s+(\w+)\s*$", field, re.IGNORECASE)
                 if func_match:
                     field_name = func_match.group(1)
 
             # Case 3: simple field or alias.field
-            elif re.match(r'^\s*(?:\w+\.)?(\w+)\s*$', field):
-                simple_match = re.search(r'(?:\w+\.)?(\w+)\s*$', field)
+            elif re.match(r"^\s*(?:\w+\.)?(\w+)\s*$", field):
+                simple_match = re.search(r"(?:\w+\.)?(\w+)\s*$", field)
                 if simple_match:
                     field_name = simple_match.group(1)
 

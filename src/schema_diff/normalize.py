@@ -32,7 +32,7 @@ Public helpers exposed
 
 from __future__ import annotations
 
-from typing import Any, List, Set
+from typing import Any
 
 # Mapping of "empty_*" markers to their base kinds
 BASE_OF_EMPTY = {
@@ -52,7 +52,7 @@ def _is_union(s: Any) -> bool:
     return isinstance(s, str) and s.startswith("union(") and s.endswith(")")
 
 
-def _union_parts(s: str) -> List[str]:
+def _union_parts(s: str) -> list[str]:
     """Split a union string into its member list; return [s] if not a union."""
     return s[6:-1].split("|") if _is_union(s) else [s]
 
@@ -67,7 +67,7 @@ def normalize_union(s: Any) -> Any:
     - If only one member remains, return that member instead of 'union(...)'.
     """
     if _is_union(s):
-        parts = sorted(set(collapse_empty(p) for p in _union_parts(s)))
+        parts = sorted({collapse_empty(p) for p in _union_parts(s)})
         if "any" in parts and len(parts) > 1:
             parts.remove("any")
         return parts[0] if len(parts) == 1 else "union(" + "|".join(parts) + ")"
@@ -121,7 +121,7 @@ def _has_any(x: Any) -> bool:
     if isinstance(x, list) and len(x) == 1 and x[0] == "any":
         return True
     if _is_union(x):
-        parts: Set[str] = set(_union_parts(x))  # type: ignore[arg-type]
+        parts: set[str] = set(_union_parts(x))  # type: ignore[arg-type]
         return parts == {"any"} or "any" in parts
     return False
 
@@ -134,7 +134,8 @@ def is_presence_issue(a: Any, b: Any) -> bool:
     regardless of other members in the union. The reporter uses this to separate
     'Missing / optional (presence)' from true type mismatches.
     """
-    def parts(s: Any) -> Set[str]:
+
+    def parts(s: Any) -> set[str]:
         if isinstance(s, str) and s.startswith("union(") and s.endswith(")"):
             return set(s[6:-1].split("|"))
         return {s} if isinstance(s, str) else {str(s)}

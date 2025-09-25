@@ -15,7 +15,7 @@ import os
 import re
 import sys
 from datetime import datetime
-from typing import List, Tuple, Dict, Any, Optional, Set
+from typing import Any
 
 from google.cloud import bigquery
 from google.cloud.bigquery.schema import SchemaField
@@ -24,10 +24,11 @@ from google.cloud.bigquery.schema import SchemaField
 # Pretty printing + coloring
 # =========================
 
+
 def pretty_print_ddl(ddl: str) -> str:
     """Light post-formatter: add blank line before constraints and split long ALTER lines."""
     lines = ddl.splitlines()
-    pretty = []
+    pretty: list[str] = []
     seen_body_close = False
     for line in lines:
         line = line.rstrip()
@@ -52,32 +53,39 @@ def pretty_print_ddl(ddl: str) -> str:
 
 try:
     from pygments import highlight
-    from pygments.lexers import SqlLexer
     from pygments.formatters import Terminal256Formatter
+    from pygments.lexers import SqlLexer
+
     _HAS_PYGMENTS = True
 except Exception:
     _HAS_PYGMENTS = False
 
 ANSI = {
     "reset": "\033[0m",
-    "kw": "\033[1;34m",        # bold blue
-    "ident": "\033[36m",       # cyan
-    "string": "\033[32m",      # green
-    "comment": "\033[2;37m",   # faint gray
-    "type": "\033[35m",        # magenta
-    "num": "\033[33m",         # yellow
+    "kw": "\033[1;34m",  # bold blue
+    "ident": "\033[36m",  # cyan
+    "string": "\033[32m",  # green
+    "comment": "\033[2;37m",  # faint gray
+    "type": "\033[35m",  # magenta
+    "num": "\033[33m",  # yellow
 }
 
-KW_RE = re.compile(r"\b("
+KW_RE = re.compile(
+    r"\b("
     r"CREATE|OR|REPLACE|TABLE|ALTER|ADD|PRIMARY|KEY|FOREIGN|REFERENCES|NOT|NULL|ENFORCED|"
     r"PARTITION|BY|RANGE_BUCKET|GENERATE_ARRAY|CLUSTER|OPTIONS|STRUCT|ARRAY|WITH|AS|"
     r"SELECT|FROM|WHERE|ORDER|GROUP|HAVING|AND|OR|ON|JOIN|LEFT|RIGHT|FULL|OUTER"
-r")\b", re.IGNORECASE)
+    r")\b",
+    re.IGNORECASE,
+)
 
-TYPE_RE = re.compile(r"\b("
+TYPE_RE = re.compile(
+    r"\b("
     r"INT64|NUMERIC|BIGNUMERIC|FLOAT64|BOOL|BOOLEAN|STRING|BYTES|DATE|DATETIME|TIME|TIMESTAMP|"
     r"GEOGRAPHY|JSON|INTERVAL"
-r")\b", re.IGNORECASE)
+    r")\b",
+    re.IGNORECASE,
+)
 
 IDENT_RE = re.compile(r"`[^`]+`")
 STRING_RE = re.compile(r"'([^'\\]|\\.)*'|\"([^\"\\]|\\.)*\"")
@@ -86,12 +94,24 @@ NUM_RE = re.compile(r"\b\d+\b")
 
 
 def _fallback_color_sql(sql: str) -> str:
-    def repl_comment(m): return f"{ANSI['comment']}{m.group(0)}{ANSI['reset']}"
-    def repl_string(m): return f"{ANSI['string']}{m.group(0)}{ANSI['reset']}"
-    def repl_ident(m): return f"{ANSI['ident']}{m.group(0)}{ANSI['reset']}"
-    def repl_type(m): return f"{ANSI['type']}{m.group(0)}{ANSI['reset']}"
-    def repl_num(m): return f"{ANSI['num']}{m.group(0)}{ANSI['reset']}"
-    def repl_kw(m): return f"{ANSI['kw']}{m.group(0)}{ANSI['reset']}"
+    def repl_comment(m):
+        return f"{ANSI['comment']}{m.group(0)}{ANSI['reset']}"
+
+    def repl_string(m):
+        return f"{ANSI['string']}{m.group(0)}{ANSI['reset']}"
+
+    def repl_ident(m):
+        return f"{ANSI['ident']}{m.group(0)}{ANSI['reset']}"
+
+    def repl_type(m):
+        return f"{ANSI['type']}{m.group(0)}{ANSI['reset']}"
+
+    def repl_num(m):
+        return f"{ANSI['num']}{m.group(0)}{ANSI['reset']}"
+
+    def repl_kw(m):
+        return f"{ANSI['kw']}{m.group(0)}{ANSI['reset']}"
+
     s = COMMENT_RE.sub(repl_comment, sql)
     s = STRING_RE.sub(repl_string, s)
     s = IDENT_RE.sub(repl_ident, s)
@@ -119,16 +139,12 @@ def colorize_sql(sql: str, mode: str = "auto") -> str:
 
     if _HAS_PYGMENTS:
         try:
-            return highlight(sql, SqlLexer(), Terminal256Formatter())
+            result = highlight(sql, SqlLexer(), Terminal256Formatter())
+            return str(result)
         except Exception:
             pass
 
     return _fallback_color_sql(sql)
-
-
-def strip_ansi(s: str) -> str:
-    """Remove ANSI escape sequences (for clean file output)."""
-    return re.sub(r"\x1b\[[0-9;]*m", "", s)
 
 
 def print_pretty_colored_ddl(ddl: str, color_mode: str = "auto") -> str:
@@ -137,6 +153,7 @@ def print_pretty_colored_ddl(ddl: str, color_mode: str = "auto") -> str:
     colored = colorize_sql(pretty, mode=color_mode)
     print(colored)
     return pretty  # return uncolored, pretty text for optional file write
+
 
 # =========================
 # INFORMATION_SCHEMA queries
@@ -209,7 +226,9 @@ ORDER BY table_name, constraint_type, constraint_name
 """
 
 
-def get_constraints(client: bigquery.Client, project_id: str, dataset_id: str, table_id: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+def get_constraints(
+    client: bigquery.Client, project_id: str, dataset_id: str, table_id: str
+) -> tuple[list[str], list[dict[str, Any]]]:
     """Retrieve PK and FK constraints using INFORMATION_SCHEMA with parameters."""
     try:
         job = client.query(
@@ -233,7 +252,7 @@ def get_constraints(client: bigquery.Client, project_id: str, dataset_id: str, t
                 ]
             ),
         )
-        foreign_keys: List[Dict[str, Any]] = []
+        foreign_keys: list[dict[str, Any]] = []
         for r in job.result():
             foreign_keys.append(
                 {
@@ -250,7 +269,9 @@ def get_constraints(client: bigquery.Client, project_id: str, dataset_id: str, t
         return [], []
 
 
-def get_batch_constraints(client: bigquery.Client, project_id: str, dataset_id: str, table_ids: List[str]) -> Dict[str, Tuple[List[str], List[Dict[str, Any]]]]:
+def get_batch_constraints(
+    client: bigquery.Client, project_id: str, dataset_id: str, table_ids: list[str]
+) -> dict[str, tuple[list[str], list[dict[str, Any]]]]:
     """Retrieve constraints for multiple tables in a single query."""
     if not table_ids:
         return {}
@@ -266,7 +287,7 @@ def get_batch_constraints(client: bigquery.Client, project_id: str, dataset_id: 
             ),
         )
 
-        results: Dict[str, Tuple[List[str], List[Dict[str, Any]]]] = {}
+        results: dict[str, tuple[list[str], list[dict[str, Any]]]] = {}
         for table_id in table_ids:
             results[table_id] = ([], [])
 
@@ -280,18 +301,22 @@ def get_batch_constraints(client: bigquery.Client, project_id: str, dataset_id: 
                 fks = results[table_name][1]
                 for i, col in enumerate(row["columns"]):
                     ref = row["references"][i]
-                    fks.append({
-                        "constraint_name": row["constraint_name"],
-                        "column": col,
-                        "referenced_dataset": ref["referenced_dataset"] or dataset_id,
-                        "referenced_table": ref["referenced_table"] or "UNKNOWN",
-                        "referenced_column": ref["referenced_column"] or "UNKNOWN",
-                    })
+                    fks.append(
+                        {
+                            "constraint_name": row["constraint_name"],
+                            "column": col,
+                            "referenced_dataset": ref["referenced_dataset"]
+                            or dataset_id,
+                            "referenced_table": ref["referenced_table"] or "UNKNOWN",
+                            "referenced_column": ref["referenced_column"] or "UNKNOWN",
+                        }
+                    )
 
         return results
     except Exception as e:
         print(f"Error retrieving batch constraints: {e}")
         return {table_id: ([], []) for table_id in table_ids}
+
 
 # =========================
 # DDL rendering helpers
@@ -311,7 +336,7 @@ def _render_scalar_type(bq_type: str) -> str:
 def _render_col_options(field: SchemaField) -> str:
     opts = []
     if field.description:
-        desc = field.description.replace('"', r'\"')
+        desc = field.description.replace('"', r"\"")
         opts.append(f'description="{desc}"')
     # You can add policy_tags, column security, etc. here.
     if not opts:
@@ -323,7 +348,7 @@ def _render_not_null(field: SchemaField) -> str:
     return " NOT NULL" if field.mode == "REQUIRED" else ""
 
 
-def _render_struct_type(fields: List[SchemaField], level: int) -> str:
+def _render_struct_type(fields: list[SchemaField], level: int) -> str:
     """
     Return a multi-line STRUCT type with nested indentation:
     STRUCT<
@@ -333,7 +358,7 @@ def _render_struct_type(fields: List[SchemaField], level: int) -> str:
       >
     >
     """
-    inner_lines: List[str] = []
+    inner_lines: list[str] = []
     for idx, f in enumerate(fields):
         # Build the field type (may be nested)
         field_type_rendered = _render_type_for_field(f, level + 1)  # may be multiline
@@ -388,8 +413,8 @@ def _render_column(field: SchemaField, level: int) -> str:
     return f"{INDENT * level}`{field.name}` {type_str}{tail}"
 
 
-def _render_columns(schema: List[SchemaField]) -> str:
-    lines: List[str] = []
+def _render_columns(schema: list[SchemaField]) -> str:
+    lines: list[str] = []
     for i, f in enumerate(schema):
         col = _render_column(f, 1)  # columns start indented once
         if i < len(schema) - 1:
@@ -399,7 +424,7 @@ def _render_columns(schema: List[SchemaField]) -> str:
     return "\n".join(lines)
 
 
-def _render_partitioning(tbl: bigquery.Table) -> Optional[str]:
+def _render_partitioning(tbl: bigquery.Table) -> str | None:
     tp = tbl.time_partitioning
     rp = getattr(tbl, "range_partitioning", None)
 
@@ -439,26 +464,34 @@ def _render_partitioning(tbl: bigquery.Table) -> Optional[str]:
     return None
 
 
-def _render_clustering(tbl: bigquery.Table) -> Optional[str]:
+def _render_clustering(tbl: bigquery.Table) -> str | None:
     if tbl.clustering_fields:
         fields = ", ".join(f"`{f}`" for f in tbl.clustering_fields)
         return f"CLUSTER BY {fields}"
     return None
 
 
-def _render_table_options(tbl: bigquery.Table) -> Optional[str]:
+def _render_table_options(tbl: bigquery.Table) -> str | None:
     opts = []
     if tbl.description:
-        desc_escaped = tbl.description.replace('"', r'\"')
+        desc_escaped = tbl.description.replace('"', r"\"")
         opts.append(f'description="{desc_escaped}"')
     # You can emit labels here if desired.
     return f"OPTIONS({', '.join(opts)})" if opts else None
+
 
 # =========================
 # DDL generator
 # =========================
 
-def generate_table_ddl(client: bigquery.Client, project_id: str, dataset_id: str, table_id: str, include_constraints: bool = True) -> str:
+
+def generate_table_ddl(
+    client: bigquery.Client,
+    project_id: str,
+    dataset_id: str,
+    table_id: str,
+    include_constraints: bool = True,
+) -> str:
     """Generate DDL for a single BigQuery table."""
     table_ref = f"{project_id}.{dataset_id}.{table_id}"
     tbl: bigquery.Table = client.get_table(table_ref)
@@ -467,7 +500,7 @@ def generate_table_ddl(client: bigquery.Client, project_id: str, dataset_id: str
     columns_block = _render_columns(tbl.schema)
     closing = ")"
 
-    ddl_lines: List[str] = [create_header, columns_block, closing]
+    ddl_lines: list[str] = [create_header, columns_block, closing]
 
     part = _render_partitioning(tbl)
     if part:
@@ -483,7 +516,9 @@ def generate_table_ddl(client: bigquery.Client, project_id: str, dataset_id: str
         pk_cols, fks = get_constraints(client, project_id, dataset_id, table_id)
         if pk_cols:
             cols = ", ".join(f"`{c}`" for c in pk_cols)
-            ddl_lines.append(f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED")
+            ddl_lines.append(
+                f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED"
+            )
 
         for fk in fks:
             ref = f"{project_id}.{fk['referenced_dataset']}.{fk['referenced_table']}"
@@ -492,11 +527,21 @@ def generate_table_ddl(client: bigquery.Client, project_id: str, dataset_id: str
                 f"REFERENCES `{ref}`(`{fk['referenced_column']}`) NOT ENFORCED"
             )
 
-    ddl = "\n".join(ddl_lines) + ";\n" + f"-- End of script generated at {datetime.now():%Y-%m-%d %H:%M:%S}"
+    ddl = (
+        "\n".join(ddl_lines)
+        + ";\n"
+        + f"-- End of script generated at {datetime.now():%Y-%m-%d %H:%M:%S}"
+    )
     return ddl
 
 
-def generate_dataset_ddl(client: bigquery.Client, project_id: str, dataset_id: str, table_ids: Optional[List[str]] = None, include_constraints: bool = True) -> Dict[str, str]:
+def generate_dataset_ddl(
+    client: bigquery.Client,
+    project_id: str,
+    dataset_id: str,
+    table_ids: list[str] | None = None,
+    include_constraints: bool = True,
+) -> dict[str, str]:
     """Generate DDL for multiple tables in a dataset."""
     if table_ids is None:
         # Get all tables in dataset
@@ -510,7 +555,9 @@ def generate_dataset_ddl(client: bigquery.Client, project_id: str, dataset_id: s
     # Get batch constraints if needed
     constraints_map = {}
     if include_constraints:
-        constraints_map = get_batch_constraints(client, project_id, dataset_id, table_ids)
+        constraints_map = get_batch_constraints(
+            client, project_id, dataset_id, table_ids
+        )
 
     ddls = {}
     for table_id in table_ids:
@@ -522,7 +569,7 @@ def generate_dataset_ddl(client: bigquery.Client, project_id: str, dataset_id: s
             columns_block = _render_columns(tbl.schema)
             closing = ")"
 
-            ddl_lines: List[str] = [create_header, columns_block, closing]
+            ddl_lines: list[str] = [create_header, columns_block, closing]
 
             part = _render_partitioning(tbl)
             if part:
@@ -538,7 +585,9 @@ def generate_dataset_ddl(client: bigquery.Client, project_id: str, dataset_id: s
                 pk_cols, fks = constraints_map[table_id]
                 if pk_cols:
                     cols = ", ".join(f"`{c}`" for c in pk_cols)
-                    ddl_lines.append(f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED")
+                    ddl_lines.append(
+                        f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED"
+                    )
 
                 for fk in fks:
                     ref = f"{project_id}.{fk['referenced_dataset']}.{fk['referenced_table']}"
@@ -547,7 +596,11 @@ def generate_dataset_ddl(client: bigquery.Client, project_id: str, dataset_id: s
                         f"REFERENCES `{ref}`(`{fk['referenced_column']}`) NOT ENFORCED"
                     )
 
-            ddl = "\n".join(ddl_lines) + ";\n" + f"-- End of script generated at {datetime.now():%Y-%m-%d %H:%M:%S}"
+            ddl = (
+                "\n".join(ddl_lines)
+                + ";\n"
+                + f"-- End of script generated at {datetime.now():%Y-%m-%d %H:%M:%S}"
+            )
             ddls[table_id] = ddl
 
         except Exception as e:
@@ -561,13 +614,17 @@ def generate_dataset_ddl(client: bigquery.Client, project_id: str, dataset_id: s
 # Schema extraction for schema-diff integration
 # =========================
 
-def bigquery_schema_to_internal(schema: List[SchemaField]) -> Tuple[Dict[str, Any], Set[str]]:
+
+def bigquery_schema_to_internal(
+    schema: list[SchemaField],
+) -> tuple[dict[str, Any], set[str]]:
     """
     Convert BigQuery schema to internal schema-diff format.
 
     Returns:
         (schema_tree, required_paths)
     """
+
     def convert_field(field: SchemaField, path_prefix: str = "") -> Any:
         field_path = f"{path_prefix}.{field.name}" if path_prefix else field.name
 
@@ -589,7 +646,9 @@ def bigquery_schema_to_internal(schema: List[SchemaField]) -> Tuple[Dict[str, An
             else:
                 return base_type
 
-    def collect_required_paths(schema: List[SchemaField], path_prefix: str = "") -> Set[str]:
+    def collect_required_paths(
+        schema: list[SchemaField], path_prefix: str = ""
+    ) -> set[str]:
         required = set()
         for field in schema:
             field_path = f"{path_prefix}.{field.name}" if path_prefix else field.name
@@ -601,7 +660,9 @@ def bigquery_schema_to_internal(schema: List[SchemaField]) -> Tuple[Dict[str, An
             if field.field_type == "RECORD":
                 if field.mode == "REPEATED":
                     # For repeated records, collect paths with array notation
-                    nested_required = collect_required_paths(field.fields, f"{field_path}[]")
+                    nested_required = collect_required_paths(
+                        field.fields, f"{field_path}[]"
+                    )
                 else:
                     nested_required = collect_required_paths(field.fields, field_path)
                 required.update(nested_required)
@@ -622,7 +683,7 @@ def bigquery_schema_to_internal(schema: List[SchemaField]) -> Tuple[Dict[str, An
     return tree, required_paths
 
 
-def _normalize_bigquery_arrays(tree: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_bigquery_arrays(tree: Any) -> Any:
     """
     Normalize BigQuery array wrapper patterns like {'list': [{'element': ...}]} to [...].
 
@@ -633,17 +694,18 @@ def _normalize_bigquery_arrays(tree: Dict[str, Any]) -> Dict[str, Any]:
         normalized = {}
         for key, value in tree.items():
             # Check for BigQuery array wrapper pattern
-            if (isinstance(value, dict) and
-                len(value) == 1 and
-                'list' in value and
-                isinstance(value['list'], list) and
-                len(value['list']) == 1 and
-                isinstance(value['list'][0], dict) and
-                len(value['list'][0]) == 1 and
-                'element' in value['list'][0]):
-
+            if (
+                isinstance(value, dict)
+                and len(value) == 1
+                and "list" in value
+                and isinstance(value["list"], list)
+                and len(value["list"]) == 1
+                and isinstance(value["list"][0], dict)
+                and len(value["list"][0]) == 1
+                and "element" in value["list"][0]
+            ):
                 # Extract the element structure and normalize recursively
-                element_structure = value['list'][0]['element']
+                element_structure = value["list"][0]["element"]
                 normalized[key] = [_normalize_bigquery_arrays(element_structure)]
             else:
                 # Recursively normalize nested structures
@@ -681,7 +743,9 @@ def _map_bq_type_to_internal(bq_type: str) -> str:
     return type_map.get(bq_type, bq_type.lower())
 
 
-def get_live_table_schema(project_id: str, dataset_id: str, table_id: str) -> Tuple[Dict[str, Any], Set[str]]:
+def get_live_table_schema(
+    project_id: str, dataset_id: str, table_id: str
+) -> tuple[dict[str, Any], set[str]]:
     """
     Get live BigQuery table schema in schema-diff internal format.
 

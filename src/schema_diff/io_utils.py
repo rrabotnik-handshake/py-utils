@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import io
 import gzip
+import io
 import json
-import ijson
 import subprocess
-from typing import Any, List, Iterator, Sequence
+from collections.abc import Iterator, Sequence
+from typing import Any
+
+import ijson
 
 # Constants
 MAX_RECORD_SAFETY_LIMIT = 1_000_000  # Safety limit for --all-records
@@ -32,8 +34,8 @@ class CommandError(Exception):
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
-        super().__init__(
-            f"Command {cmd} failed with {returncode}: {stderr.strip()}")
+        super().__init__(f"Command {cmd} failed with {returncode}: {stderr.strip()}")
+
 
 def _run(args, cwd=None, env=None, check_untrusted=True):
     """
@@ -63,11 +65,10 @@ def _run(args, cwd=None, env=None, check_untrusted=True):
     for a in args:
         if not isinstance(a, str):
             raise ValueError(f"Non-string arg: {a!r}")
-        if check_untrusted and any(c in a for c in [';', '|', '&', '\n', '\r']):
+        if check_untrusted and any(c in a for c in [";", "|", "&", "\n", "\r"]):
             raise ValueError(f"Suspicious characters in arg: {a!r}")
 
-    res = subprocess.run(
-        args, cwd=cwd, capture_output=True, text=True, env=env)
+    res = subprocess.run(args, cwd=cwd, capture_output=True, text=True, env=env)
 
     if res.returncode != 0:
         raise CommandError(args, res.returncode, res.stdout, res.stderr)
@@ -86,7 +87,12 @@ def open_text(path: str) -> io.TextIOWrapper:
     magic = f.read(2)
     f.seek(0)
     if magic == b"\x1f\x8b":
-        return io.TextIOWrapper(gzip.GzipFile(fileobj=f), encoding="utf-8-sig", errors="strict")
+        # Type ignore: gzip.GzipFile is compatible with IO[bytes] but MyPy doesn't recognize it
+        return io.TextIOWrapper(
+            gzip.GzipFile(fileobj=f),  # type: ignore
+            encoding="utf-8-sig",
+            errors="strict",
+        )
     return io.TextIOWrapper(f, encoding="utf-8-sig", errors="strict")
 
 
@@ -155,8 +161,7 @@ def iter_records(path: str) -> Iterator[Any]:
         if s.startswith("["):
             # Reopen as binary for ijson
             with open_binary(path) as fb:
-                for item in ijson.items(fb, "item"):
-                    yield item
+                yield from ijson.items(fb, "item")
             return
 
         # 4) Last resort: line-by-line JSON-ish
@@ -166,13 +171,13 @@ def iter_records(path: str) -> Iterator[Any]:
                 yield json.loads(line)
 
 
-def sample_records(path: str, k: int) -> List[Any]:
+def sample_records(path: str, k: int) -> list[Any]:
     """
     Reservoir-sample `k` records from the file without loading everything.
     """
     import random
 
-    reservoir: List[Any] = []
+    reservoir: list[Any] = []
     n = 0
     for rec in iter_records(path):
         n += 1
@@ -185,7 +190,7 @@ def sample_records(path: str, k: int) -> List[Any]:
     return reservoir
 
 
-def nth_record(path: str, n: int) -> List[Any]:
+def nth_record(path: str, n: int) -> list[Any]:
     """
     Return the 1-based Nth record (as a single-item list), or [] if missing.
     """
@@ -197,7 +202,7 @@ def nth_record(path: str, n: int) -> List[Any]:
     return []
 
 
-def all_records(path: str, max_records: int = None) -> List[Any]:
+def all_records(path: str, max_records: int | None = None) -> list[Any]:
     """
     Read ALL records from a file. Use with caution for large files.
 

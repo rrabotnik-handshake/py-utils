@@ -17,23 +17,39 @@ kind-detection, sniffing, and per-source quirks confined to this module.
 """
 
 from __future__ import annotations
-from typing import Any, Optional, Set, Tuple
-import json
 
+import json
+from typing import Any
+
+from .dbt_schema_parser import (
+    schema_from_dbt_manifest,
+    schema_from_dbt_model,
+    schema_from_dbt_schema_yml,
+)
+from .io_utils import (
+    MAX_RECORD_SAFETY_LIMIT,
+    nth_record,
+    open_text,
+    sample_records,
+    sniff_ndjson,
+)
 from .json_data_file_parser import merged_schema_from_samples
 from .json_schema_parser import schema_from_json_schema_file
+from .protobuf_schema_parser import list_protobuf_messages, schema_from_protobuf_file
 from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
-from .dbt_schema_parser import schema_from_dbt_manifest, schema_from_dbt_schema_yml, schema_from_dbt_model
-from .protobuf_schema_parser import schema_from_protobuf_file, list_protobuf_messages
-from .io_utils import sample_records, nth_record, open_text, sniff_ndjson, MAX_RECORD_SAFETY_LIMIT
 from .utils import coerce_root_to_field_dict  # single canonical helper
 
 __all__ = [
     "load_left_or_right",
-    "KIND_DATA", "KIND_JSONSCHEMA", "KIND_SPARK",
-    "KIND_SQL", "KIND_DBT_MANIFEST", "KIND_DBT_YML",
-    "KIND_AUTO", "KIND_PROTOBUF",
+    "KIND_DATA",
+    "KIND_JSONSCHEMA",
+    "KIND_SPARK",
+    "KIND_SQL",
+    "KIND_DBT_MANIFEST",
+    "KIND_DBT_YML",
+    "KIND_AUTO",
+    "KIND_PROTOBUF",
 ]
 
 # ---- Kind constants -------------------------------------------------------
@@ -52,6 +68,7 @@ KIND_AUTO = "auto"
 
 # ---- Small helpers --------------------------------------------------------
 
+
 def _ensure_tree_required(x) -> tuple[Any, set[str]]:
     """
     Accept a value that might be:
@@ -69,7 +86,7 @@ def _ensure_tree_required(x) -> tuple[Any, set[str]]:
     return x, set()
 
 
-def _sniff_json_kind(path: str) -> Optional[str]:
+def _sniff_json_kind(path: str) -> str | None:
     """
     Peek into a .json/.json.gz (or similar) and try to distinguish:
       - dbt manifest (nodes/sources/child_map or metadata.dbt_version)
@@ -112,20 +129,24 @@ def _sniff_json_kind(path: str) -> Optional[str]:
 
         # dbt manifest signatures
         if (
-            ("nodes" in obj and isinstance(obj["nodes"], dict)) or
-            ("sources" in obj and isinstance(obj["sources"], dict)) or
-            ("child_map" in obj) or
-            (isinstance(obj.get("metadata"), dict)
-             and "dbt_version" in obj["metadata"])
+            ("nodes" in obj and isinstance(obj["nodes"], dict))
+            or ("sources" in obj and isinstance(obj["sources"], dict))
+            or ("child_map" in obj)
+            or (
+                isinstance(obj.get("metadata"), dict)
+                and "dbt_version" in obj["metadata"]
+            )
         ):
             return KIND_DBT_MANIFEST
 
         # JSON Schema signatures
         if (
-            obj.get("$schema") or
-            (obj.get("type") == "object" and isinstance(obj.get("properties"), dict)) or
-            any(k in obj for k in ("oneOf", "anyOf",
-                "allOf", "definitions", "$defs", "items"))
+            obj.get("$schema")
+            or (obj.get("type") == "object" and isinstance(obj.get("properties"), dict))
+            or any(
+                k in obj
+                for k in ("oneO", "anyOf", "allO", "definitions", "$defs", "items")
+            )
         ):
             return KIND_JSONSCHEMA
 
@@ -150,26 +171,27 @@ def _sniff_sql_kind(path: str) -> str:
 
     # Remove comments to avoid false positives
     import re
-    content = re.sub(r'--.*$', '', content, flags=re.MULTILINE)
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
+    content = re.sub(r"--.*$", "", content, flags=re.MULTILINE)
+    content = re.sub(r"/\*.*?\*/", "", content, flags=re.DOTALL)
 
     # Strong indicators of dbt models
     dbt_indicators = [
-        'select',           # SELECT statements (most common in dbt models)
-        '{{',               # Jinja templating
-        'ref(',             # dbt ref() function
-        'source(',          # dbt source() function
-        'config(',          # dbt config() function
-        'var(',             # dbt var() function
+        "select",  # SELECT statements (most common in dbt models)
+        "{{",  # Jinja templating
+        "ref(",  # dbt ref() function
+        "source(",  # dbt source() function
+        "config(",  # dbt config() function
+        "var(",  # dbt var() function
     ]
 
     # Strong indicators of SQL DDL
     ddl_indicators = [
-        'create table',
-        'create or replace table',
-        'create schema',
-        'alter table',
-        'drop table',
+        "create table",
+        "create or replace table",
+        "create schema",
+        "alter table",
+        "drop table",
     ]
 
     dbt_score = sum(1 for indicator in dbt_indicators if indicator in content)
@@ -205,10 +227,18 @@ def _guess_kind(path: str) -> str:
         return KIND_PROTOBUF
 
     # JSON / NDJSON (optionally gz)
-    if any(p.endswith(suf) for suf in (
-        ".json", ".json.gz", ".ndjson", ".ndjson.gz",
-        ".jsonl", ".jsonl.gz", ".gz"
-    )):
+    if any(
+        p.endswith(suf)
+        for suf in (
+            ".json",
+            ".json.gz",
+            ".ndjson",
+            ".ndjson.gz",
+            ".jsonl",
+            ".jsonl.gz",
+            ".gz",
+        )
+    ):
         sniff = _sniff_json_kind(path)
         if sniff:
             return sniff
@@ -223,18 +253,19 @@ def _guess_kind(path: str) -> str:
 
 # ---- Public API -----------------------------------------------------------
 
+
 def load_left_or_right(
     path: str,
     *,
-    kind: Optional[str],
+    kind: str | None,
     cfg,
     samples: int,
-    first_record: Optional[int] = None,
+    first_record: int | None = None,
     all_records: bool = False,
-    sql_table: Optional[str] = None,
-    dbt_model: Optional[str] = None,
-    proto_message: Optional[str] = None,
-) -> Tuple[Any, Set[str], str]:
+    sql_table: str | None = None,
+    dbt_model: str | None = None,
+    proto_message: str | None = None,
+) -> tuple[Any, set[str], str]:
     """
     Load `path` as either a DATA source or a SCHEMA source and return:
         (type_tree, required_paths, label)
@@ -282,6 +313,7 @@ def load_left_or_right(
     if chosen == KIND_DATA:
         if all_records:
             from .io_utils import all_records as all_records_fn
+
             recs = all_records_fn(path, max_records=MAX_RECORD_SAFETY_LIMIT)
             title = f"; all {len(recs)} records"
         elif first_record is not None:
@@ -306,16 +338,12 @@ def load_left_or_right(
             # If we can't parse here, fall back to the strict parser
             pass
 
-        tree, required = _ensure_tree_required(
-            schema_from_json_schema_file(path)
-        )
+        tree, required = _ensure_tree_required(schema_from_json_schema_file(path))
         return tree, required, path
 
     # Spark schema (recursively parsed)
     if chosen == KIND_SPARK:
-        tree, required = _ensure_tree_required(
-            schema_from_spark_schema_file(path)
-        )
+        tree, required = _ensure_tree_required(schema_from_spark_schema_file(path))
         return tree, required, path
 
     # SQL schema (CREATE TABLE / column list)
@@ -353,6 +381,7 @@ def load_left_or_right(
     # BIGQUERY: live table schema extraction
     if chosen == KIND_BIGQUERY:
         from .bigquery_ddl import get_live_table_schema
+
         # Parse BigQuery table reference from path
         # Expected format: project:dataset.table or project.dataset.table
         if ":" in path:
@@ -365,10 +394,19 @@ def load_left_or_right(
         if "." in table_part:
             dataset_id, table_id = table_part.split(".", 1)
         else:
-            raise ValueError(f"Invalid BigQuery table reference: {path}. Expected format: project:dataset.table or dataset.table")
+            raise ValueError(
+                f"Invalid BigQuery table reference: {path}. Expected format: project:dataset.table or dataset.table"
+            )
 
         # Use default project if not specified
-        from google.cloud import bigquery
+        try:
+            from google.cloud import bigquery
+        except ImportError as e:
+            raise ImportError(
+                "BigQuery functionality requires optional dependencies. "
+                "Install with: pip install -e '.[bigquery]'"
+            ) from e
+
         if project_part:
             project_id = project_part
         else:
@@ -377,7 +415,9 @@ def load_left_or_right(
                 client = bigquery.Client()
                 project_id = client.project
             except Exception as e:
-                raise ValueError("No project specified and unable to determine default project. Use format: project:dataset.table") from e
+                raise ValueError(
+                    "No project specified and unable to determine default project. Use format: project:dataset.table"
+                ) from e
 
         tree, required = get_live_table_schema(project_id, dataset_id, table_id)
         label = f"bigquery://{project_id}.{dataset_id}.{table_id}"
@@ -407,8 +447,11 @@ def load_left_or_right(
         tree, required, selected = schema_from_protobuf_file(
             path, message=proto_message
         )
-        label = f"{path}#{selected or proto_message}" if (
-            selected or proto_message) else path
+        label = (
+            f"{path}#{selected or proto_message}"
+            if (selected or proto_message)
+            else path
+        )
         return tree, (required or set()), label
 
     raise ValueError(f"Unknown kind: {kind}")

@@ -14,9 +14,10 @@ Conventions
 
 from __future__ import annotations
 
-from typing import Any, List
-from .infer import tname
+from typing import Any
+
 from .config import Config
+from .infer import tname
 
 __all__ = [
     "to_schema",
@@ -69,7 +70,7 @@ def union_types(a: str, b: str) -> str:
     if a == b:
         return a
 
-    def atoms(s: str) -> List[str]:
+    def atoms(s: str) -> list[str]:
         return s[6:-1].split("|") if s.startswith("union(") and s.endswith(")") else [s]
 
     merged = sorted(set(atoms(a) + atoms(b)))
@@ -122,18 +123,22 @@ def merge_schema(a: Any, b: Any) -> Any:
             return "empty_array"
 
     # Handle mixed empty_array (string) with populated array (list)
-    if (isinstance(a, str) and a == "empty_array" and isinstance(b, list)) or \
-       (isinstance(b, str) and b == "empty_array" and isinstance(a, list)):
+    if (isinstance(a, str) and a == "empty_array" and isinstance(b, list)) or (
+        isinstance(b, str) and b == "empty_array" and isinstance(a, list)
+    ):
         # Preserve the populated array structure
         return a if isinstance(a, list) else b
 
     # Mixed kinds: fall back to scalar names and union them
     from .infer import tname as _t
-    return union_types(a if isinstance(a, str) else _t(a, Config()),
-                       b if isinstance(b, str) else _t(b, Config()))
+
+    return union_types(
+        a if isinstance(a, str) else _t(a, Config()),
+        b if isinstance(b, str) else _t(b, Config()),
+    )
 
 
-def merged_schema_from_samples(recs: List[Any], cfg: Config) -> Any:
+def merged_schema_from_samples(recs: list[Any], cfg: Config) -> Any:
     """
     Merge a list of JSON records into a single schema tree.
     Returns "missing" if `recs` is empty.

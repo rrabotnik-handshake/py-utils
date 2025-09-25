@@ -25,20 +25,25 @@ Implementation notes:
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set
 import json
+from typing import Any
 
 from deepdiff import DeepDiff
 
-from .normalize import walk_normalize
 from .json_data_file_parser import merged_schema_from_samples
+from .normalize import walk_normalize
 from .report import (
     build_report_struct,
-    print_report_text,
     print_common_fields,
     print_path_changes,
+    print_report_text,
 )
-from .utils import coerce_root_to_field_dict, inject_presence_for_diff, compute_path_changes
+from .utils import (
+    coerce_root_to_field_dict,
+    compute_path_changes,
+    inject_presence_for_diff,
+)
+
 
 # ----------------------------------------------------------------------
 # Data → reference (presence-aware) comparison
@@ -53,9 +58,9 @@ def compare_data_to_ref(
     dump_schemas: str | None = None,
     json_out: str | None = None,
     title_suffix: str = "",
-    required_paths: Optional[Set[str]] = None,
+    required_paths: set[str] | None = None,
     show_common: bool = False,
-    ref_source_type: Optional[str] = None,
+    ref_source_type: str | None = None,
 ) -> None:
     """
     Compare a DATA sample (from `file1`) to a reference schema with source-aware presence handling.
@@ -111,27 +116,44 @@ def compare_data_to_ref(
 
     if not diff:
         RED, GRN, YEL, CYN, RST = cfg.colors()
-        print(f"\n{CYN}=== Schema diff (types only, {file1} → {ref_label}{title_suffix}) ==={RST}\nNo differences.")
+        print(
+            f"\n{CYN}=== Schema diff (types only, {file1} → {ref_label}{title_suffix}) ==={RST}\nNo differences."
+        )
         if dump_schemas:
             with open(dump_schemas, "w", encoding="utf-8") as fh:
-                json.dump({"file1": sch1n, "ref": sch2n},
-                          fh, ensure_ascii=False, indent=2)
+                json.dump(
+                    {"file1": sch1n, "ref": sch2n}, fh, ensure_ascii=False, indent=2
+                )
         if json_out:
             with open(json_out, "w", encoding="utf-8") as fh:
                 json.dump(
-                    {"meta": {"direction": f"{file1} -> {ref_label}", "mode": title_suffix.strip('; ').strip()},
-                     "note": "No differences"},
-                    fh, ensure_ascii=False, indent=2,
+                    {
+                        "meta": {
+                            "direction": f"{file1} -> {ref_label}",
+                            "mode": title_suffix.strip("; ").strip(),
+                        },
+                        "note": "No differences",
+                    },
+                    fh,
+                    ensure_ascii=False,
+                    indent=2,
                 )
         return
 
     report = build_report_struct(
-        diff, file1, ref_label, include_presence=cfg.show_presence)
+        diff, file1, ref_label, include_presence=cfg.show_presence
+    )
     report["meta"]["mode"] = title_suffix.strip("; ").strip()
 
     print_report_text(
-        report, file1, ref_label, colors=cfg.colors(), show_presence=cfg.show_presence, title_suffix=title_suffix,
-        left_source_type="data", right_source_type=ref_source_type or "data"
+        report,
+        file1,
+        ref_label,
+        colors=cfg.colors(),
+        show_presence=cfg.show_presence,
+        title_suffix=title_suffix,
+        left_source_type="data",
+        right_source_type=ref_source_type or "data",
     )
 
     # Field moved/nested differently?
@@ -140,8 +162,7 @@ def compare_data_to_ref(
 
     if dump_schemas:
         with open(dump_schemas, "w", encoding="utf-8") as fh:
-            json.dump({"file1": sch1n, "ref": sch2n},
-                      fh, ensure_ascii=False, indent=2)
+            json.dump({"file1": sch1n, "ref": sch2n}, fh, ensure_ascii=False, indent=2)
     if json_out:
         with open(json_out, "w", encoding="utf-8") as fh:
             json.dump(report, fh, ensure_ascii=False, indent=2)
@@ -154,18 +175,18 @@ def compare_trees(
     left_label: str,
     right_label: str,
     left_tree: Any,
-    left_required: Set[str],
+    left_required: set[str],
     right_tree: Any,
-    right_required: Set[str],
+    right_required: set[str],
     *,
     cfg,
-    dump_schemas: Optional[str] = None,
-    json_out: Optional[str] = None,
+    dump_schemas: str | None = None,
+    json_out: str | None = None,
     title_suffix: str = "",
     show_common: bool = False,
-    left_source_type: Optional[str] = None,
-    right_source_type: Optional[str] = None,
-) -> None:
+    left_source_type: str | None = None,
+    right_source_type: str | None = None,
+) -> dict | None:
     """
     Compare two *type trees* (schemas) and print a human-friendly diff with enhanced presence injection.
 
@@ -202,7 +223,15 @@ def compare_trees(
 
     # Apply presence injection to schema sources (not data sources)
     # Data sources already have 'missing' unions; schema sources need them injected
-    SCHEMA_SOURCES = {'sql', 'spark', 'jsonschema', 'protobuf', 'dbt-manifest', 'dbt-yml', 'dbt-model'}
+    SCHEMA_SOURCES = {
+        "sql",
+        "spark",
+        "jsonschema",
+        "protobuf",
+        "dbt-manifest",
+        "dbt-yml",
+        "dbt-model",
+    }
 
     if left_source_type in SCHEMA_SOURCES:
         # Left side is a schema source - apply presence injection
@@ -226,8 +255,7 @@ def compare_trees(
     sch2n = coerce_root_to_field_dict(sch2n)
 
     if show_common:
-        print_common_fields(left_label, right_label,
-                            sch1n, sch2n, cfg.colors())
+        print_common_fields(left_label, right_label, sch1n, sch2n, cfg.colors())
 
     diff = DeepDiff(sch1n, sch2n, ignore_order=True)
 
@@ -236,22 +264,35 @@ def compare_trees(
 
     if not diff:
         print(
-            f"\n{CYN}=== Schema diff (types only, {direction}{title_suffix}) ==={RST}\nNo differences.")
+            f"\n{CYN}=== Schema diff (types only, {direction}{title_suffix}) ==={RST}\nNo differences."
+        )
         if dump_schemas:
             with open(dump_schemas, "w", encoding="utf-8") as fh:
-                json.dump({"left": sch1n, "right": sch2n},
-                          fh, ensure_ascii=False, indent=2)
+                json.dump(
+                    {"left": sch1n, "right": sch2n}, fh, ensure_ascii=False, indent=2
+                )
         if json_out:
             with open(json_out, "w", encoding="utf-8") as fh:
                 json.dump(
-                    {"meta": {"direction": direction, "mode": title_suffix.strip('; ').strip()},
-                     "note": "No differences"},
-                    fh, ensure_ascii=False, indent=2,
+                    {
+                        "meta": {
+                            "direction": direction,
+                            "mode": title_suffix.strip("; ").strip(),
+                        },
+                        "note": "No differences",
+                    },
+                    fh,
+                    ensure_ascii=False,
+                    indent=2,
                 )
-        return
+        return {
+            "meta": {"direction": direction, "mode": title_suffix.strip("; ").strip()},
+            "note": "No differences",
+        }
 
     report = build_report_struct(
-        diff, left_label, right_label, include_presence=cfg.show_presence)
+        diff, left_label, right_label, include_presence=cfg.show_presence
+    )
     report["meta"]["mode"] = title_suffix.strip("; ").strip()
 
     print_report_text(
@@ -267,14 +308,14 @@ def compare_trees(
 
     # Path changes on normalized/coerced trees
     path_changes = compute_path_changes(sch1n, sch2n)
-    print_path_changes(left_label, right_label,
-                       path_changes, colors=cfg.colors())
+    print_path_changes(left_label, right_label, path_changes, colors=cfg.colors())
 
     if dump_schemas:
         with open(dump_schemas, "w", encoding="utf-8") as fh:
-            json.dump({"left": sch1n, "right": sch2n},
-                      fh, ensure_ascii=False, indent=2)
+            json.dump({"left": sch1n, "right": sch2n}, fh, ensure_ascii=False, indent=2)
 
     if json_out:
         with open(json_out, "w", encoding="utf-8") as fh:
             json.dump(report, fh, ensure_ascii=False, indent=2)
+
+    return report

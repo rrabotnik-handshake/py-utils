@@ -22,11 +22,11 @@ Key features
 
 from __future__ import annotations
 
-from typing import Any
 import json
+from typing import Any
 
-from .utils import fmt_dot_path, clean_deepdiff_path
 from .normalize import _has_any, is_presence_issue
+from .utils import clean_deepdiff_path, fmt_dot_path
 
 
 def fmt_presence_type(type_repr: str, is_schema_source: bool = False) -> str:
@@ -48,7 +48,11 @@ def fmt_presence_type(type_repr: str, is_schema_source: bool = False) -> str:
     if type_repr == "missing":
         return "missing data" if not is_schema_source else "nullable"
 
-    if isinstance(type_repr, str) and type_repr.startswith("union(") and type_repr.endswith(")"):
+    if (
+        isinstance(type_repr, str)
+        and type_repr.startswith("union(")
+        and type_repr.endswith(")")
+    ):
         # Parse union type like "union(missing|str)" or "union(str|missing)"
         parts = type_repr[6:-1].split("|")
         if "missing" in parts:
@@ -156,7 +160,9 @@ def _root_list_value_change_fallback(diff) -> tuple[list[str], list[str]]:
     return only1, only2
 
 
-def build_report_struct(diff, f1: str, f2: str, include_presence: bool) -> dict[str, Any]:
+def build_report_struct(
+    diff, f1: str, f2: str, include_presence: bool
+) -> dict[str, Any]:
     """
     Convert a DeepDiff into a stable, JSON-serializable report structure.
 
@@ -196,10 +202,12 @@ def build_report_struct(diff, f1: str, f2: str, include_presence: bool) -> dict[
         if lb1 or lb2:
             fb1, fb2 = lb1, lb2
 
-    only_in_2 = sorted(clean_deepdiff_path(p)
-                       for p in diff.get("dictionary_item_added", []))
-    only_in_1 = sorted(clean_deepdiff_path(p)
-                       for p in diff.get("dictionary_item_removed", []))
+    only_in_2 = sorted(
+        clean_deepdiff_path(p) for p in diff.get("dictionary_item_added", [])
+    )
+    only_in_1 = sorted(
+        clean_deepdiff_path(p) for p in diff.get("dictionary_item_removed", [])
+    )
     if not only_in_1 and not only_in_2 and (fb1 or fb2):
         only_in_1, only_in_2 = fb1, fb2
 
@@ -238,7 +246,11 @@ def build_report_struct(diff, f1: str, f2: str, include_presence: bool) -> dict[
                 elif value == "empty_array":
                     return "array (unstructured)"
                 return value  # Already a schema string like "str", "int", etc.
-            elif isinstance(value, list) and len(value) == 1 and isinstance(value[0], dict):
+            elif (
+                isinstance(value, list)
+                and len(value) == 1
+                and isinstance(value[0], dict)
+            ):
                 # Structured array - show that it contains objects
                 return "array of objects"
             elif isinstance(value, list):
@@ -247,8 +259,9 @@ def build_report_struct(diff, f1: str, f2: str, include_presence: bool) -> dict[
                 return "object"
             else:
                 # Fallback to basic type inference
-                from .infer import tname
                 from .config import Config
+                from .infer import tname
+
                 return tname(value, Config())
 
         old_repr = schema_repr(old)
@@ -256,10 +269,10 @@ def build_report_struct(diff, f1: str, f2: str, include_presence: bool) -> dict[
 
         # Filter out likely sampling artifacts (different array representations)
         is_sampling_artifact = (
-            (old_repr == "array (unstructured)" and new_repr == "array of objects") or
-            (old_repr == "array of objects" and new_repr == "array (unstructured)") or
-            (old_repr == "array (unstructured)" and new_repr == "array") or
-            (old_repr == "array" and new_repr == "array (unstructured)")
+            (old_repr == "array (unstructured)" and new_repr == "array of objects")
+            or (old_repr == "array of objects" and new_repr == "array (unstructured)")
+            or (old_repr == "array (unstructured)" and new_repr == "array")
+            or (old_repr == "array" and new_repr == "array (unstructured)")
         )
 
         # Extract nested fields from type changes (unstructured -> structured arrays)
@@ -275,28 +288,46 @@ def build_report_struct(diff, f1: str, f2: str, include_presence: bool) -> dict[
                     paths.extend(extract_nested_fields(value, field_path))
             elif isinstance(schema_tree, list) and len(schema_tree) == 1:
                 # Structured array: extract fields from the element
-                element_paths = extract_nested_fields(schema_tree[0], f"{path_prefix}[]")
+                element_paths = extract_nested_fields(
+                    schema_tree[0], f"{path_prefix}[]"
+                )
                 paths.extend(element_paths)
             return paths
 
         # Check if this is a transition from unstructured to structured array
-        if (isinstance(old, str) and old in ("array", "empty_array") and
-            isinstance(new, list) and len(new) == 1 and isinstance(new[0], dict)):
+        if (
+            isinstance(old, str)
+            and old in ("array", "empty_array")
+            and isinstance(new, list)
+            and len(new) == 1
+            and isinstance(new[0], dict)
+        ):
             # Extract nested fields from the new structured array
             nested_fields = extract_nested_fields(new[0], f"{base_path}[]")
             only_in_2.extend(nested_fields)
 
         # Check if this is a transition from structured to unstructured array
-        elif (isinstance(new, str) and new in ("array", "empty_array") and
-              isinstance(old, list) and len(old) == 1 and isinstance(old[0], dict)):
+        elif (
+            isinstance(new, str)
+            and new in ("array", "empty_array")
+            and isinstance(old, list)
+            and len(old) == 1
+            and isinstance(old[0], dict)
+        ):
             # Extract nested fields from the old structured array
             nested_fields = extract_nested_fields(old[0], f"{base_path}[]")
             only_in_1.extend(nested_fields)
 
         # Only add if there's actually a meaningful difference and not a sampling artifact
         if old_repr != new_repr and not is_sampling_artifact:
-            entry = {"path": clean_deepdiff_path(p), "file1": old_repr, "file2": new_repr}
-            (presence if is_presence_issue(old_repr, new_repr) else schema).append(entry)
+            entry = {
+                "path": clean_deepdiff_path(p),
+                "file1": old_repr,
+                "file2": new_repr,
+            }
+            (presence if is_presence_issue(old_repr, new_repr) else schema).append(
+                entry
+            )
 
     # Stable order for deterministic output
     schema.sort(key=lambda x: x["path"])
@@ -357,25 +388,40 @@ def print_report_text(
         pres = report["presence_issues"]
 
         # Determine which sides are schema sources for proper terminology
-        SCHEMA_SOURCES = {'sql', 'spark', 'jsonschema', 'protobuf', 'dbt-manifest', 'dbt-yml', 'dbt-model'}
+        SCHEMA_SOURCES = {
+            "sql",
+            "spark",
+            "jsonschema",
+            "protobuf",
+            "dbt-manifest",
+            "dbt-yml",
+            "dbt-model",
+        }
         left_is_schema = left_source_type in SCHEMA_SOURCES
         right_is_schema = right_source_type in SCHEMA_SOURCES
 
         # Filter out items where both sides are identical after formatting
         actual_presence_issues = []
         for e in pres:
-            left_formatted = fmt_presence_type(e['file1'], is_schema_source=left_is_schema)
-            right_formatted = fmt_presence_type(e['file2'], is_schema_source=right_is_schema)
+            left_formatted = fmt_presence_type(
+                e["file1"], is_schema_source=left_is_schema
+            )
+            right_formatted = fmt_presence_type(
+                e["file2"], is_schema_source=right_is_schema
+            )
 
             # Only include if there's an actual difference after formatting
             if left_formatted != right_formatted:
                 actual_presence_issues.append((e, left_formatted, right_formatted))
 
-        print(f"\n{YEL}-- Missing Data / NULL-ABILITY -- ({len(actual_presence_issues)}){RST}")
+        print(
+            f"\n{YEL}-- Missing Data / NULL-ABILITY -- ({len(actual_presence_issues)}){RST}"
+        )
 
         for e, left_formatted, right_formatted in actual_presence_issues:
             print(
-                f"  {CYN}{fmt_dot_path(e['path'])}{RST}: {left_formatted} → {right_formatted}")
+                f"  {CYN}{fmt_dot_path(e['path'])}{RST}: {left_formatted} → {right_formatted}"
+            )
 
     mism = report["schema_mismatches"]
     print(f"\n{YEL}-- Type mismatches -- ({len(mism)}){RST}")
@@ -412,9 +458,11 @@ def print_samples(
     print(f"\n{CYN}=== Samples: {tag} ({len(recs)}) ==={RST}")
     for i, r in enumerate(recs, 1):
         js = json.dumps(r, ensure_ascii=False, indent=2)
-        js_to_show = js[:max_chars] + \
-            "..." if (max_chars and max_chars >
-                      0 and len(js) > max_chars) else js
+        js_to_show = (
+            js[:max_chars] + "..."
+            if (max_chars and max_chars > 0 and len(js) > max_chars)
+            else js
+        )
         print(f"{YEL}-- {tag} sample {i}{RST}\n{js_to_show}")
 
 
@@ -448,12 +496,14 @@ def print_common_fields(
 
     # Use flatten_paths to get all nested field paths
     from .utils import flatten_paths
+
     paths1 = flatten_paths(d1)
     paths2 = flatten_paths(d2)
     common_paths = sorted(set(paths1) & set(paths2))
 
     print(
-        f"\n{YEL}-- Common fields in {left_label} ∩ {right_label} -- ({len(common_paths)}){RST}")
+        f"\n{YEL}-- Common fields in {left_label} ∩ {right_label} -- ({len(common_paths)}){RST}"
+    )
     for path in common_paths:
         clean_path = fmt_dot_path(path)
         print(f"  {CYN}{clean_path}{RST}")
@@ -488,7 +538,9 @@ def print_path_changes(
         (RED, GRN, YEL, CYN, RST) color codes; pass empty strings to disable.
     """
     RED, GRN, YEL, CYN, RST = colors
-    print(f"\n{YEL}-- Path changes (same field name in different locations) -- ({len(changes)}){RST}")
+    print(
+        f"\n{YEL}-- Path changes (same field name in different locations) -- ({len(changes)}){RST}"
+    )
     for ch in changes:
         name = ch["name"]
         shared_paths = ch["shared"]

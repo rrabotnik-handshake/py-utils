@@ -23,8 +23,9 @@ Notes
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Set, Tuple
+
 import re
+from typing import Any
 
 __all__ = ["list_protobuf_messages", "schema_from_protobuf_file"]
 
@@ -69,18 +70,16 @@ _FIELD_RE = re.compile(
 )
 
 # Single-line statements
-PACKAGE_LINE_RE = re.compile(
-    r'^\s*package\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*;\s*$'
-)
+PACKAGE_LINE_RE = re.compile(r"^\s*package\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*;\s*$")
 IMPORT_LINE_RE = re.compile(
     r'^\s*import\s+(?:public\s+|weak\s+)?["\']([^"\']+)["\']\s*;\s*$'
 )
 
 # Block open/close
-MESSAGE_OPEN_RE = re.compile(r'^\s*message\s+([A-Za-z_]\w*)\s*\{\s*$')
-ENUM_OPEN_RE = re.compile(r'^\s*enum\s+([A-Za-z_]\w*)\s*\{\s*$')
-ONEOF_OPEN_RE = re.compile(r'^\s*oneof\s+([A-Za-z_]\w*)\s*\{\s*$')
-BLOCK_CLOSE_RE = re.compile(r'^\s*\}\s*$')
+MESSAGE_OPEN_RE = re.compile(r"^\s*message\s+([A-Za-z_]\w*)\s*\{\s*$")
+ENUM_OPEN_RE = re.compile(r"^\s*enum\s+([A-Za-z_]\w*)\s*\{\s*$")
+ONEOF_OPEN_RE = re.compile(r"^\s*oneof\s+([A-Za-z_]\w*)\s*\{\s*$")
+BLOCK_CLOSE_RE = re.compile(r"^\s*\}\s*$")
 
 # Comments
 
@@ -110,9 +109,9 @@ def _map_type(t: str) -> str:
 def _resolve_ref(
     type_token: str,
     field_scope_fqn: str,
-    package: Optional[str],
-    known_msgs: Set[str],
-) -> Optional[str]:
+    package: str | None,
+    known_msgs: set[str],
+) -> str | None:
     """
     Resolve a message/enum type token to a known message/enum FQN.
 
@@ -142,20 +141,20 @@ def _resolve_ref(
     return t if t in known_msgs else None
 
 
-def list_protobuf_messages(path: str) -> List[str]:
+def list_protobuf_messages(path: str) -> list[str]:
     """
     Return fully-qualified names of all message definitions in a .proto file.
     Enums and oneofs are ignored; only messages are returned.
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = f.read()
 
     text = _strip_comments(raw)
-    lines: List[str] = [ln.rstrip("\n") for ln in text.splitlines()]
+    lines: list[str] = [ln.rstrip("\n") for ln in text.splitlines()]
 
-    package: Optional[str] = None
-    stack: List[str] = []
-    out: List[str] = []
+    package: str | None = None
+    stack: list[str] = []
+    out: list[str] = []
 
     def fq_from_stack() -> str:
         fq = ".".join(stack)
@@ -183,7 +182,10 @@ def list_protobuf_messages(path: str) -> List[str]:
         mo = ONEOF_OPEN_RE.match(ln)
         if me or mo:
             # track nesting so subsequent closes pop correctly
-            stack.append("(enum)" if me else f"oneof:{mo.group(1)}")
+            if me:
+                stack.append("(enum)")
+            elif mo:
+                stack.append(f"oneof:{mo.group(1)}")
             continue
 
         if BLOCK_CLOSE_RE.match(ln):
@@ -197,11 +199,11 @@ def list_protobuf_messages(path: str) -> List[str]:
 
 def _build_message_tree(
     msg_fqn: str,
-    msgs: Dict[str, Dict[str, Any]],
-    enums: Set[str],
-    package: Optional[str],
-    children: Dict[str, List[str]],
-) -> Dict[str, Any]:
+    msgs: dict[str, dict[str, Any]],
+    enums: set[str],
+    package: str | None,
+    children: dict[str, list[str]],
+) -> dict[str, Any]:
     """
     Recursively inline a message definition into a JSON-like type tree.
     - message fields → nested dict
@@ -210,7 +212,7 @@ def _build_message_tree(
     - repeated(*)   → [elem_type]
     """
     fields = msgs.get(msg_fqn, {})
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     known_msgs = set(msgs.keys())
 
     for fname, finfo in fields.items():
@@ -227,12 +229,11 @@ def _build_message_tree(
             ref_fqn = _resolve_ref(raw, scope, package, known_msgs | enums)
             if ref_fqn:
                 if ref_fqn in enums:
-                    t = "str"          # enums → strings
+                    t = "str"  # enums → strings
                 elif ref_fqn in msgs:
-                    t = _build_message_tree(
-                        ref_fqn, msgs, enums, package, children)
+                    t = _build_message_tree(ref_fqn, msgs, enums, package, children)
                 else:
-                    t = "object"       # external/unknown type
+                    t = "object"  # external/unknown type
             else:
                 t = "object"
         else:
@@ -245,19 +246,20 @@ def _build_message_tree(
     # Expose nested message *definitions* as properties (when not referenced by name)
     for child_fqn in children.get(msg_fqn, []):
         child_name = child_fqn.rsplit(".", 1)[-1]
-        out[child_name] = _build_message_tree(
-            child_fqn, msgs, enums, package, children)
+        out[child_name] = _build_message_tree(child_fqn, msgs, enums, package, children)
 
     return out
 
 
-def _parse_proto_structure(text: str) -> Tuple[
-    Dict[str, Dict[str, Any]],  # msgs: FQN -> { field_name -> info }
-    Set[str],                   # enums: set of FQN enum names
-    List[str],                  # top_order: list of top-level message FQNs
-    Optional[str],              # package
+def _parse_proto_structure(
+    text: str,
+) -> tuple[
+    dict[str, dict[str, Any]],  # msgs: FQN -> { field_name -> info }
+    set[str],  # enums: set of FQN enum names
+    list[str],  # top_order: list of top-level message FQNs
+    str | None,  # package
     # children: parent message FQN -> [child message FQNs]
-    Dict[str, List[str]],
+    dict[str, list[str]],
 ]:
     """
     Lightweight parser for .proto structure.
@@ -271,24 +273,24 @@ def _parse_proto_structure(text: str) -> Tuple[
     text = _strip_comments(text)
     lines = [ln for ln in text.splitlines() if ln.strip()]
 
-    package: Optional[str] = None
-    msgs: Dict[str, Dict[str, Any]] = {}
-    enums: Set[str] = set()
-    top_order: List[str] = []
-    children: Dict[str, List[str]] = {}
+    package: str | None = None
+    msgs: dict[str, dict[str, Any]] = {}
+    enums: set[str] = set()
+    top_order: list[str] = []
+    children: dict[str, list[str]] = {}
 
     # Stack of ('message'|'enum'|'oneof', fqn_or_name)
-    stack: List[Tuple[str, str]] = []
-    cur_msg_fqn: Optional[str] = None
+    stack: list[tuple[str, str]] = []
+    cur_msg_fqn: str | None = None
 
-    def join_nested(parent_fqn: Optional[str], name: str) -> str:
+    def join_nested(parent_fqn: str | None, name: str) -> str:
         # parent_fqn is already FQN; only add package at top-level
         if parent_fqn:
             return f"{parent_fqn}.{name}"
         return f"{package}.{name}" if package else name
 
     # maintain a live set of enum short names for quick checks
-    enum_short_names: Set[str] = set()
+    enum_short_names: set[str] = set()
 
     def _is_enum_token(t: str) -> bool:
         """Return True if type token refers to a known enum (FQN, absolute, or suffix)."""
@@ -380,10 +382,10 @@ def _parse_proto_structure(text: str) -> Tuple[
 
             msgs[cur_msg_fqn][name] = {
                 "kind": kind,
-                "type": t,                  # raw token; resolution happens later
+                "type": t,  # raw token; resolution happens later
                 "repeated": (label == "repeated"),
                 "required": (label == "required"),
-                "scope": cur_msg_fqn,       # where this field was declared
+                "scope": cur_msg_fqn,  # where this field was declared
             }
 
     return msgs, enums, top_order, package, children
@@ -391,22 +393,23 @@ def _parse_proto_structure(text: str) -> Tuple[
 
 def _collect_required_paths_proto(
     start_fqn: str,
-    msgs: Dict[str, Dict[str, Any]],
-    package: Optional[str],
-    children: Dict[str, List[str]],
-) -> Set[str]:
+    msgs: dict[str, dict[str, Any]],
+    package: str | None,
+    children: dict[str, list[str]],
+) -> set[str]:
     """
     Collect dotted required paths by walking required fields recursively through
     referenced messages and nested definitions.
     """
-    required: Set[str] = set()
+    required: set[str] = set()
     known_msgs = set(msgs.keys())
 
-    def resolves_to(child_fqn: str, field_info: Dict[str, Any], scope_fqn: str) -> bool:
+    def resolves_to(child_fqn: str, field_info: dict[str, Any], scope_fqn: str) -> bool:
         if field_info.get("kind") != "message":
             return False
-        ref = _resolve_ref(field_info["type"], field_info.get(
-            "scope", scope_fqn), package, known_msgs)
+        ref = _resolve_ref(
+            field_info["type"], field_info.get("scope", scope_fqn), package, known_msgs
+        )
         return ref == child_fqn
 
     def walk(msg_fqn: str, prefix: str = ""):
@@ -417,8 +420,9 @@ def _collect_required_paths_proto(
             if finfo.get("required"):
                 required.add(path)
             if finfo["kind"] == "message":
-                ref = _resolve_ref(finfo["type"], finfo.get(
-                    "scope", msg_fqn), package, known_msgs)
+                ref = _resolve_ref(
+                    finfo["type"], finfo.get("scope", msg_fqn), package, known_msgs
+                )
                 if ref:
                     walk(ref, path)
         # (2) traverse nested message definitions not referenced by a field
@@ -433,7 +437,9 @@ def _collect_required_paths_proto(
     return required
 
 
-def schema_from_protobuf_file(path: str, message: Optional[str] = None) -> Tuple[Dict[str, Any], Set[str], str]:
+def schema_from_protobuf_file(
+    path: str, message: str | None = None
+) -> tuple[dict[str, Any], set[str], str]:
     """
     Parse a .proto file and produce:
       - tree: inlined type tree for the chosen message
@@ -444,7 +450,7 @@ def schema_from_protobuf_file(path: str, message: Optional[str] = None) -> Tuple
       - absolute FQN (e.g., "pkg.Outer.Inner")
       - unique suffix (e.g., "Outer.Inner")
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         text = f.read()
 
     msgs, enums, top, package, children = _parse_proto_structure(text)
@@ -452,7 +458,7 @@ def schema_from_protobuf_file(path: str, message: Optional[str] = None) -> Tuple
         raise ValueError(f"No messages found in {path}")
 
     # Resolve desired message → FQN (absolute or unique suffix)
-    def pick_fqn(name_or_suffix: Optional[str]) -> str:
+    def pick_fqn(name_or_suffix: str | None) -> str:
         if name_or_suffix is None:
             return top[0]
         q = name_or_suffix.lstrip(".")
@@ -463,16 +469,17 @@ def schema_from_protobuf_file(path: str, message: Optional[str] = None) -> Tuple
         cand = [k for k in msgs if k.endswith("." + q) or k == q]
         if not cand:
             raise ValueError(
-                f"Message '{name_or_suffix}' not found in {path}. Available: {', '.join(top)}")
+                f"Message '{name_or_suffix}' not found in {path}. Available: {', '.join(top)}"
+            )
         if len(cand) > 1:
             raise ValueError(
-                f"Ambiguous message suffix '{name_or_suffix}'. Options: {', '.join(cand)}")
+                f"Ambiguous message suffix '{name_or_suffix}'. Options: {', '.join(cand)}"
+            )
         return cand[0]
 
     chosen_fqn = pick_fqn(message)
 
     tree = _build_message_tree(chosen_fqn, msgs, enums, package, children)
-    required = _collect_required_paths_proto(
-        chosen_fqn, msgs, package, children)
+    required = _collect_required_paths_proto(chosen_fqn, msgs, package, children)
 
     return tree, required, chosen_fqn

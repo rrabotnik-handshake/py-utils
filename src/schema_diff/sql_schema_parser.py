@@ -1,10 +1,3 @@
-from __future__ import annotations
-import re
-from typing import Any, Dict, Optional, Tuple, Set
-
-from .utils import strip_quotes_ident
-from .io_utils import open_text
-
 """
 SQL DDL schema parser with comprehensive BigQuery support.
 
@@ -41,80 +34,108 @@ Enhanced Capabilities:
         * If none exist, the parser treats the file as a loose column list.
 """
 
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from .io_utils import open_text
+from .utils import strip_quotes_ident
+
 # --- Regexes ---------------------------------------------------------------
 
 # Accepts: CREATE TABLE `proj.ds.table` (...), proj.schema.table, schema.table, or table (with/without IF NOT EXISTS)
 SQL_CREATE_RE_FULL = re.compile(
-    r'^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<full>[^(\s]+)\s*\(',
-    re.IGNORECASE
+    r"^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<full>[^(\s]+)\s*\(",
+    re.IGNORECASE,
 )
 
 # Legacy: captures optional schema + table (no backticks/nesting)
 SQL_CREATE_RE_ST = re.compile(
-    r'^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?'
+    r"^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
     r'(?:(?P<schema>["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?)\.)?'
     r'(?P<table>["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?)\s*\(',
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 
 SQL_COL_RE = re.compile(
-    r'^\s*'
-    r'(?P<col>["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?)\s+'
+    r"^\s*" r'(?P<col>["`\[]?[A-Za-z_][A-Za-z0-9_]*["`\]]?)\s+'
     # dtype: capture everything until comma or EOL (we'll handle STRUCT parsing separately)
-    r'(?P<dtype>.+?)'
-    r'(?:\s+(?P<null>NOT\s+NULL|NULL))?'
-    r'\s*(?:,|$)',
-    re.IGNORECASE
+    r"(?P<dtype>.+?)" r"(?:\s+(?P<null>NOT\s+NULL|NULL))?" r"\s*(?:,|$)",
+    re.IGNORECASE,
 )
 
 
 # Constraint-only lines we skip inside CREATE TABLE
 SQL_CONSTRAINT_LINE_RE = re.compile(
-    r'^\s*(PRIMARY\s+KEY|UNIQUE|FOREIGN\s+KEY|CHECK|CONSTRAINT)\b',
-    re.IGNORECASE
+    r"^\s*(PRIMARY\s+KEY|UNIQUE|FOREIGN\s+KEY|CHECK|CONSTRAINT)\b", re.IGNORECASE
 )
 
-NOT_NULL_RE = re.compile(r'\bNOT\s+NULL\b', re.IGNORECASE)
+NOT_NULL_RE = re.compile(r"\bNOT\s+NULL\b", re.IGNORECASE)
 
 # Comments
-SQL_BLOCK_COMMENT_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
-SQL_LINE_COMMENT_RE = re.compile(r'--.*?$', re.MULTILINE)
+SQL_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+SQL_LINE_COMMENT_RE = re.compile(r"--.*?$", re.MULTILINE)
 
 # --- Type mapping ----------------------------------------------------------
 
-TYPE_MAP_SQL: Dict[str, str] = {
+TYPE_MAP_SQL: dict[str, str] = {
     # Postgres-ish numerics
-    "tinyint": "int", "smallint": "int", "int2": "int", "integer": "int", "int": "int",
-    "int4": "int", "bigint": "int", "int8": "int", "serial": "int", "bigserial": "int",
-    "float": "float", "float4": "float", "float8": "float", "double": "float",
-    "double precision": "float", "real": "float", "numeric": "float", "decimal": "float",
-
+    "tinyint": "int",
+    "smallint": "int",
+    "int2": "int",
+    "integer": "int",
+    "int": "int",
+    "int4": "int",
+    "bigint": "int",
+    "int8": "int",
+    "serial": "int",
+    "bigserial": "int",
+    "float": "float",
+    "float4": "float",
+    "float8": "float",
+    "double": "float",
+    "double precision": "float",
+    "real": "float",
+    "numeric": "float",
+    "decimal": "float",
     # boolean
-    "boolean": "bool", "bool": "bool",
-
+    "boolean": "bool",
+    "bool": "bool",
     # strings / json / bytes
-    "varchar": "str", "character varying": "str",
-    "char": "str", "character": "str",
-    "text": "str", "citext": "str",
-    "uuid": "str", "json": "str", "jsonb": "str",
+    "varchar": "str",
+    "character varying": "str",
+    "char": "str",
+    "character": "str",
+    "text": "str",
+    "citext": "str",
+    "uuid": "str",
+    "json": "str",
+    "jsonb": "str",
     "bytea": "str",
-
     # date/time
     "date": "date",
-    "time": "time", "time without time zone": "time", "time with time zone": "time",
-    "timestamp": "timestamp", "timestamp without time zone": "timestamp",
-    "timestamp with time zone": "timestamp", "timestamptz": "timestamp",
+    "time": "time",
+    "time without time zone": "time",
+    "time with time zone": "time",
+    "timestamp": "timestamp",
+    "timestamp without time zone": "timestamp",
+    "timestamp with time zone": "timestamp",
+    "timestamptz": "timestamp",
     "datetime": "timestamp",
-
     # BigQuery numerics / bool / strings / geography
-    "int64": "int", "float64": "float", "bignumeric": "float",
-    "string": "str", "bytes": "str", "geography": "str",
+    "int64": "int",
+    "float64": "float",
+    "bignumeric": "float",
+    "string": "str",
+    "bytes": "str",
+    "geography": "str",
 }
 
 # Trim tokens that may trail the dtype on the same line
 _DTYPE_TRAILERS_RE = re.compile(
-    r'\s+(DEFAULT|COLLATE|REFERENCES|GENERATED|AS|IDENTITY|ON\s+UPDATE|ON\s+DELETE|OPTIONS|NOT\s+NULL|NULL)\b',
-    re.IGNORECASE
+    r"\s+(DEFAULT|COLLATE|REFERENCES|GENERATED|AS|IDENTITY|ON\s+UPDATE|ON\s+DELETE|OPTIONS|NOT\s+NULL|NULL)\b",
+    re.IGNORECASE,
 )
 
 # --- Helpers ---------------------------------------------------------------
@@ -132,7 +153,7 @@ def _clean_dtype_token(dt: str) -> str:
     dt = dt.strip()
     m = _DTYPE_TRAILERS_RE.search(dt)
     if m:
-        dt = dt[:m.start()].rstrip()
+        dt = dt[: m.start()].rstrip()
     return dt
 
 
@@ -142,21 +163,21 @@ def _balanced_inner(s: str, start: int) -> tuple[str, int] | tuple[None, int]:
     starting at `start`, handling nested angle brackets. If unbalanced, return
     (None, start).
     """
-    if start >= len(s) or s[start] != '<':
+    if start >= len(s) or s[start] != "<":
         return None, start
     depth = 0
     i = start
     inner_chars: list[str] = []
     while i < len(s):
         ch = s[i]
-        if ch == '<':
+        if ch == "<":
             depth += 1
             if depth > 1:
                 inner_chars.append(ch)
-        elif ch == '>':
+        elif ch == ">":
             depth -= 1
             if depth == 0:
-                return ''.join(inner_chars).strip(), i + 1
+                return "".join(inner_chars).strip(), i + 1
             else:
                 inner_chars.append(ch)
         else:
@@ -165,7 +186,7 @@ def _balanced_inner(s: str, start: int) -> tuple[str, int] | tuple[None, int]:
     return None, start  # unbalanced
 
 
-def _parse_struct_type(struct_type: str) -> Dict[str, Any]:
+def _parse_struct_type(struct_type: str) -> dict[str, Any] | str:
     """
     Parse BigQuery STRUCT<...> syntax into a nested type tree.
 
@@ -180,7 +201,7 @@ def _parse_struct_type(struct_type: str) -> Dict[str, Any]:
 
     # Parse comma-separated field definitions
     fields = _split_struct_fields(inner)
-    struct_dict: Dict[str, Any] = {}
+    struct_dict: dict[str, Any] = {}
 
     for field_def in fields:
         field_name, field_type = _parse_struct_field(field_def)
@@ -205,13 +226,13 @@ def _split_struct_fields(fields_str: str) -> list[str]:
     while i < len(fields_str):
         char = fields_str[i]
 
-        if char == '<':
+        if char == "<":
             depth += 1
             current_field += char
-        elif char == '>':
+        elif char == ">":
             depth -= 1
             current_field += char
-        elif char == ',' and depth == 0:
+        elif char == "," and depth == 0:
             # End of current field
             if current_field.strip():
                 fields.append(current_field.strip())
@@ -242,11 +263,11 @@ def _parse_struct_field(field_def: str) -> tuple[str, str]:
     split_pos = -1
 
     for i, char in enumerate(field_def):
-        if char == '<':
+        if char == "<":
             depth += 1
-        elif char == '>':
+        elif char == ">":
             depth -= 1
-        elif char == ' ' and depth == 0 and split_pos == -1:
+        elif char == " " and depth == 0 and split_pos == -1:
             split_pos = i
             break
 
@@ -293,7 +314,7 @@ def _sql_dtype_to_internal(dtype_raw: str) -> Any:
         dt = dt[:-2].strip()
 
     # Strip precision/length (e.g., varchar(255) -> varchar)
-    base = re.sub(r'\([^)]*\)', '', dt).strip()
+    base = re.sub(r"\([^)]*\)", "", dt).strip()
     mapped = TYPE_MAP_SQL.get(base, TYPE_MAP_SQL.get(dt, "any"))
 
     return [mapped] if is_array else mapped
@@ -311,13 +332,17 @@ def _normalize_bigquery_arrays(schema: Any) -> Any:
     """
     if isinstance(schema, dict):
         # Check for BigQuery array pattern: {'list': [{'element': ...}]}
-        if (len(schema) == 1 and 'list' in schema and
-            isinstance(schema['list'], list) and len(schema['list']) == 1 and
-            isinstance(schema['list'][0], dict) and len(schema['list'][0]) == 1 and
-            'element' in schema['list'][0]):
-
+        if (
+            len(schema) == 1
+            and "list" in schema
+            and isinstance(schema["list"], list)
+            and len(schema["list"]) == 1
+            and isinstance(schema["list"][0], dict)
+            and len(schema["list"][0]) == 1
+            and "element" in schema["list"][0]
+        ):
             # Extract the element structure and make it an array
-            element_structure = schema['list'][0]['element']
+            element_structure = schema["list"][0]["element"]
             # Recursively normalize the element structure
             normalized_element = _normalize_bigquery_arrays(element_structure)
             return [normalized_element]
@@ -379,7 +404,7 @@ def _reconstruct_multiline_structs(text: str) -> str:
         line = lines[i].strip()
 
         # Check if this line starts a column definition with STRUCT
-        if line and ('STRUCT<' in line or 'ARRAY<' in line):
+        if line and ("STRUCT<" in line or "ARRAY<" in line):
             # This might be a multi-line definition
             reconstructed_line = _collect_multiline_definition(lines, i)
             if reconstructed_line:
@@ -393,7 +418,7 @@ def _reconstruct_multiline_structs(text: str) -> str:
             result_lines.append(lines[i])
             i += 1
 
-    return '\n'.join(result_lines)
+    return "\n".join(result_lines)
 
 
 def _collect_multiline_definition(lines: list[str], start_idx: int) -> str:
@@ -411,13 +436,13 @@ def _collect_multiline_definition(lines: list[str], start_idx: int) -> str:
         line = lines[i].strip()
 
         # Count angle brackets to track STRUCT/ARRAY nesting
-        depth += line.count('<') - line.count('>')
-        if '<' in line:
+        depth += line.count("<") - line.count(">")
+        if "<" in line:
             definition_started = True
 
         # Add continuation lines
         if i > start_idx and line:
-            clean_line = line.replace('`', '').replace('"', '')
+            clean_line = line.replace("`", "").replace('"', "")
             result_parts.append(clean_line)
 
         # If we've closed all brackets and started a definition, we're done
@@ -425,8 +450,8 @@ def _collect_multiline_definition(lines: list[str], start_idx: int) -> str:
             break
 
     # Join and normalize whitespace
-    result = ' '.join(result_parts)
-    return re.sub(r'\s*([,<>])\s*', r'\1', result).replace(',', ', ')
+    result = " ".join(result_parts)
+    return re.sub(r"\s*([,<>])\s*", r"\1", result).replace(",", ", ")
 
 
 def _find_definition_end(lines: list[str], start_idx: int) -> int:
@@ -440,10 +465,10 @@ def _find_definition_end(lines: list[str], start_idx: int) -> int:
         line = lines[i].strip()
 
         for char in line:
-            if char == '<':
+            if char == "<":
                 depth += 1
                 definition_started = True
-            elif char == '>':
+            elif char == ">":
                 depth -= 1
 
         if definition_started and depth == 0:
@@ -465,12 +490,12 @@ def _extract_complete_type(line: str) -> str:
         return ""
 
     # Skip column name, get the rest
-    after_col = line.strip().split(None, 1)[1] if ' ' in line.strip() else ""
+    after_col = line.strip().split(None, 1)[1] if " " in line.strip() else ""
 
     # If it's a simple type (no STRUCT/ARRAY), just return until comma or constraints
-    if not ('STRUCT<' in after_col or 'ARRAY<' in after_col):
+    if not ("STRUCT<" in after_col or "ARRAY<" in after_col):
         # Simple type - return until comma or constraint keywords
-        for keyword in ['NOT NULL', 'NULL', 'DEFAULT', 'OPTIONS', 'CONSTRAINT', ',']:
+        for keyword in ["NOT NULL", "NULL", "DEFAULT", "OPTIONS", "CONSTRAINT", ","]:
             if keyword in after_col:
                 return after_col.split(keyword)[0].strip()
         return after_col.strip()
@@ -481,11 +506,11 @@ def _extract_complete_type(line: str) -> str:
     started = False
 
     for char in after_col:
-        if char == '<':
+        if char == "<":
             depth += 1
             started = True
             result += char
-        elif char == '>':
+        elif char == ">":
             depth -= 1
             result += char
             if started and depth == 0:
@@ -493,7 +518,7 @@ def _extract_complete_type(line: str) -> str:
                 break
         elif started:
             result += char
-        elif not started and char != ' ':
+        elif not started and char != " ":
             result += char
 
     return result.strip()
@@ -501,7 +526,10 @@ def _extract_complete_type(line: str) -> str:
 
 # --- Main API --------------------------------------------------------------
 
-def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple[Dict[str, Any], Set[str]]:
+
+def schema_from_sql_schema_file(
+    path: str, table: str | None = None
+) -> tuple[dict[str, Any], set[str]]:
     """
     Parse SQL schema content from `path`.
 
@@ -522,13 +550,13 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
     text = _reconstruct_multiline_structs(text)
     lines = text.splitlines()
 
-    tables: Dict[str, Dict[str, Any]] = {}
-    required_by_table: Dict[str, Set[str]] = {}
-    name_lc_to_full: Dict[str, str] = {}
+    tables: dict[str, dict[str, Any]] = {}
+    required_by_table: dict[str, set[str]] = {}
+    name_lc_to_full: dict[str, str] = {}
 
-    current: Optional[Dict[str, Any]] = None
-    current_required: Optional[Set[str]] = None
-    current_name: Optional[str] = None
+    current: dict[str, Any] | None = None
+    current_required: set[str] | None = None
+    current_name: str | None = None
     paren_depth = 0
     in_block = False
 
@@ -563,7 +591,7 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
                 table_name = full_name.split(".")[-1].strip("`")
                 # position of the first '(' to slice remainder
                 hdr_open_idx = raw.upper().find("(")
-            else:
+            elif m_std:
                 schema_name = strip_quotes_ident(m_std.group("schema") or "")
                 table_name = strip_quotes_ident(m_std.group("table"))
                 full_name = f"{schema_name}.{table_name}" if schema_name else table_name
@@ -581,7 +609,7 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
             # Start with depth=1 (we just consumed the header's '('), then adjust with the remainder.
             paren_depth = 1
 
-            remainder = raw[hdr_open_idx + 1:] if hdr_open_idx != -1 else ""
+            remainder = raw[hdr_open_idx + 1 :] if hdr_open_idx != -1 else ""
             rem_line = remainder.strip()
 
             if rem_line:
@@ -599,7 +627,7 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
                         dtype_raw = m_col.group("dtype") or ""
 
                         # For STRUCT/ARRAY types, extract the complete type definition
-                        if 'STRUCT<' in rem_line or 'ARRAY<' in rem_line:
+                        if "STRUCT<" in rem_line or "ARRAY<" in rem_line:
                             dtype_raw = _extract_complete_type(rem_line)
 
                         col = strip_quotes_ident(col_raw)
@@ -609,7 +637,9 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
 
                         # Presence: regex-captured group first; fallback to raw search
                         null_grp = (m_col.group("null") or "").upper()
-                        if null_grp == "NOT NULL" or (not null_grp and NOT_NULL_RE.search(remainder)):
+                        if null_grp == "NOT NULL" or (
+                            not null_grp and NOT_NULL_RE.search(remainder)
+                        ):
                             current_required.add(col)
 
                     if paren_depth <= 0:
@@ -618,7 +648,6 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
             # Done handling this header line; move to next input line
             continue
         # ---- END CREATE TABLE header handling ----
-
 
         if in_block:
             paren_depth += raw.count("(") - raw.count(")")
@@ -637,7 +666,7 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
 
                 # For STRUCT types, extract the complete type definition
                 # Note: ARRAY types work fine with regex-captured dtype, but STRUCT may need multi-line handling
-                if 'STRUCT<' in line:
+                if "STRUCT<" in line:
                     dtype_raw = _extract_complete_type(line)
 
                 col = strip_quotes_ident(col_raw)
@@ -656,7 +685,9 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
 
         # Outside CREATE TABLE: loose column list
         # Skip SQL DDL statements that shouldn't be treated as columns
-        if line.upper().startswith(('CREATE ', 'ALTER ', 'DROP ', 'INSERT ', 'UPDATE ', 'DELETE ', 'SELECT ')):
+        if line.upper().startswith(
+            ("CREATE ", "ALTER ", "DROP ", "INSERT ", "UPDATE ", "DELETE ", "SELECT ")
+        ):
             continue
 
         m_col = SQL_COL_RE.match(line)
@@ -671,7 +702,7 @@ def schema_from_sql_schema_file(path: str, table: Optional[str] = None) -> Tuple
             dtype_raw = m_col.group("dtype") or ""
 
             # For STRUCT/ARRAY types, extract the complete type definition
-            if 'STRUCT<' in line or 'ARRAY<' in line:
+            if "STRUCT<" in line or "ARRAY<" in line:
                 dtype_raw = _extract_complete_type(line)
 
             mapped = _sql_dtype_to_internal(dtype_raw)
