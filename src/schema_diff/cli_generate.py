@@ -152,7 +152,20 @@ def add_generate_subcommands(subparsers) -> None:
 def cmd_generate(args) -> None:
     """Handle 'schema-diff generate' command."""
     try:
-        # No need for conflicting argument validation anymore
+        # Resolve GCS path if needed
+        from .gcs_utils import get_gcs_status, is_gcs_path, resolve_path
+
+        original_data_file = args.data_file
+        if is_gcs_path(args.data_file):
+            print(f"🌐 GCS Status: {get_gcs_status()}", file=sys.stderr)
+            print(f"📥 Resolving GCS path: {args.data_file}", file=sys.stderr)
+
+            force_download = getattr(args, "force_download", False)
+            try:
+                args.data_file = resolve_path(args.data_file, force_download)
+            except Exception as e:
+                print(f"❌ Failed to resolve GCS path: {e}", file=sys.stderr)
+                sys.exit(1)
 
         # Initialize configuration
         cfg = Config()
@@ -224,7 +237,13 @@ def cmd_generate(args) -> None:
         # Output schema
         if args.output:
             # Use utility function to write to output directory
-            filename = generate_filename(args.data_file, args.format, args.table_name)
+            # Use original GCS path for better filename if available
+            filename_source = (
+                original_data_file
+                if "original_data_file" in locals()
+                else args.data_file
+            )
+            filename = generate_filename(filename_source, args.format, args.table_name)
             output_path = write_output_file(schema_output, filename, "schemas")
 
             print_output_success(output_path, "Schema")

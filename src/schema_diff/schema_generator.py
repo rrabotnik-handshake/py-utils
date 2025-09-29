@@ -447,7 +447,7 @@ def _generate_json_schema(
         properties = {}
         required = []
 
-        for key, value in obj.items():
+        for key, value in sorted(obj.items()):
             current_path = f"{path}.{key}" if path else key
 
             if isinstance(value, dict):
@@ -667,7 +667,7 @@ def _generate_sql_ddl(
         """Build column definitions, flattening nested objects."""
         columns = []
 
-        for key, value in obj.items():
+        for key, value in sorted(obj.items()):
             column_name = f"{prefix}{key}" if prefix else key
             safe_name = escape_sql_identifier(column_name)
 
@@ -878,7 +878,7 @@ def _generate_bigquery_ddl(
         fields = []
         indent = "  " * indent_level
 
-        items = list(obj.items())
+        items = list(sorted(obj.items()))
         for i, (key, value) in enumerate(items):
             is_last = i == len(items) - 1
             comma = "" if is_last else ","
@@ -948,7 +948,7 @@ def _generate_bigquery_ddl(
     else:
         # Simple flat schema
         columns = []
-        items = list(schema.items())
+        items = list(sorted(schema.items()))
         for i, (key, value) in enumerate(items):
             is_last = i == len(items) - 1
             comma = "" if is_last else ","
@@ -1151,7 +1151,7 @@ def _generate_spark_schema(schema: Dict[str, Any]) -> str:
         if indent_level == 0:
             lines.append("root")
 
-        for key, value in obj.items():
+        for key, value in sorted(obj.items()):
             escaped_key = escape_spark_identifier(key)
 
             if isinstance(value, dict):
@@ -1254,7 +1254,7 @@ def _generate_bigquery_json_schema(
         """Build BigQuery fields array."""
         fields = []
 
-        for key, value in obj.items():
+        for key, value in sorted(obj.items()):
             current_path = f"{path}.{key}" if path else key
 
             if isinstance(value, dict) and not str(value).startswith(
@@ -1330,7 +1330,7 @@ def _generate_openapi_schema(
         properties = {}
         required = []
 
-        for key, value in obj.items():
+        for key, value in sorted(obj.items()):
             current_path = f"{path}.{key}" if path else key
 
             if isinstance(value, dict) and not str(value).startswith(

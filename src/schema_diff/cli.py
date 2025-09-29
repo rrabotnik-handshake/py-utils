@@ -99,7 +99,7 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
     # ----------------------------------------------------------------------
     # Positional arguments
     # ----------------------------------------------------------------------
-    parser.add_argument("file1", help="left input (data or schema)")
+    parser.add_argument("file1", nargs="?", help="left input (data or schema)")
     parser.add_argument(
         "file2", nargs="?", default=None, help="right input (data or schema)"
     )
@@ -305,6 +305,21 @@ def build_parser(color_enabled: bool) -> argparse.ArgumentParser:
         help="treat ISO-like strings as timestamp/date/time on the DATA side",
     )
 
+    # ----------------------------------------------------------------------
+    # GCS (Google Cloud Storage) options
+    # ----------------------------------------------------------------------
+    gcs = parser.add_argument_group("GCS (Google Cloud Storage)")
+    gcs.add_argument(
+        "--force-download",
+        action="store_true",
+        help="re-download GCS files even if they exist locally (default: use cached files)",
+    )
+    gcs.add_argument(
+        "--gcs-info",
+        metavar="GCS_PATH",
+        help="show metadata information about a GCS object and exit",
+    )
+
     return parser
 
 
@@ -312,15 +327,101 @@ def main():
     """
     CLI entrypoint.
     1. Parse arguments
-    2. Decide which comparison mode to run (general, classic data→schema, or data↔data)
-    3. Dispatch to the appropriate compare function
+    2. Resolve GCS paths if needed
+    3. Decide which comparison mode to run (general, classic data→schema, or data↔data)
+    4. Dispatch to the appropriate compare function
     """
     parser = build_parser(True)
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
+    # Handle --gcs-info flag (early exit)
+    # ------------------------------------------------------------------
+    if args.gcs_info:
+        from .gcs_utils import get_gcs_info, is_gcs_path
+
+        if not is_gcs_path(args.gcs_info):
+            print(f"❌ Not a valid GCS path: {args.gcs_info}")
+            print("   GCS paths should start with:")
+            print("   - gs://bucket-name/path/to/file")
+            print("   - https://storage.cloud.google.com/bucket-name/path/to/file")
+            print("   - https://storage.googleapis.com/bucket-name/path/to/file")
+            return 1
+
+        try:
+            info = get_gcs_info(args.gcs_info)
+            print(f"📁 GCS Object Information: {args.gcs_info}")
+            print(f"   Bucket: {info['bucket']}")
+            print(f"   Object: {info['name']}")
+            print(f"   Size: {info['size']:,} bytes")
+            print(f"   Content Type: {info['content_type']}")
+            print(f"   Last Modified: {info['updated']}")
+            print(f"   MD5 Hash: {info['md5_hash']}")
+            print(f"   ETag: {info['etag']}")
+        except Exception as e:
+            print(f"❌ Failed to get GCS object info: {e}")
+            return 1
+
+        return 0
+
+    # ------------------------------------------------------------------
+    # GCS Path Resolution
+    # ------------------------------------------------------------------
+    from .gcs_utils import get_gcs_status, is_gcs_path, resolve_path
+
+    # Check if GCS paths are used and if GCS is available
+    gcs_paths = []
+    if args.file1 and is_gcs_path(args.file1):
+        gcs_paths.append(args.file1)
+    if args.file2 and is_gcs_path(args.file2):
+        gcs_paths.append(args.file2)
+    if args.json_schema and is_gcs_path(args.json_schema):
+        gcs_paths.append(args.json_schema)
+    if args.spark_schema and is_gcs_path(args.spark_schema):
+        gcs_paths.append(args.spark_schema)
+    if args.sql_schema and is_gcs_path(args.sql_schema):
+        gcs_paths.append(args.sql_schema)
+
+    if gcs_paths:
+        print(f"🌐 GCS Status: {get_gcs_status()}")
+
+        # Add --force-download flag support
+        force_download = getattr(args, "force_download", False)
+
+        # Resolve GCS paths to local paths
+        try:
+            if args.file1 and is_gcs_path(args.file1):
+                print(f"📥 Resolving GCS path: {args.file1}")
+                args.file1 = resolve_path(args.file1, force_download)
+
+            if args.file2 and is_gcs_path(args.file2):
+                print(f"📥 Resolving GCS path: {args.file2}")
+                args.file2 = resolve_path(args.file2, force_download)
+
+            if args.json_schema and is_gcs_path(args.json_schema):
+                print(f"📥 Resolving GCS path: {args.json_schema}")
+                args.json_schema = resolve_path(args.json_schema, force_download)
+
+            if args.spark_schema and is_gcs_path(args.spark_schema):
+                print(f"📥 Resolving GCS path: {args.spark_schema}")
+                args.spark_schema = resolve_path(args.spark_schema, force_download)
+
+            if args.sql_schema and is_gcs_path(args.sql_schema):
+                print(f"📥 Resolving GCS path: {args.sql_schema}")
+                args.sql_schema = resolve_path(args.sql_schema, force_download)
+
+        except Exception as e:
+            print(f"❌ Failed to resolve GCS paths: {e}")
+            return 1
+
+    # ------------------------------------------------------------------
     # Input validation and mode selection
     # ------------------------------------------------------------------
+
+    # Validate that file1 is provided when not using --gcs-info
+    if not args.file1 and not args.gcs_info:
+        parser.error("file1 is required unless using --gcs-info")
+
     classic_selected = [args.json_schema, args.spark_schema, args.sql_schema]
     if sum(1 for x in classic_selected if x) > 1:
         parser.error("Use only one of --json-schema, --spark-schema, or --sql-schema.")

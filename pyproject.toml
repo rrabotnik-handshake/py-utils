@@ -17,6 +17,9 @@ bigquery = [
   "google-cloud-bigquery",
   "pygments",              # for SQL syntax highlighting
 ]
+gcs = [
+  "google-cloud-storage", # for GCS file download support
+]
 validation = [
   "sqlparse",   # for SQL DDL validation
   "jsonschema", # for JSON Schema validation
