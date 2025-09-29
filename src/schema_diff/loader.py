@@ -14,6 +14,8 @@ Supported kinds:
 
 The goal: keep CLI and other callers simple and consistent, and keep all
 kind-detection, sniffing, and per-source quirks confined to this module.
+
+This module now uses the ParserFactory pattern for better extensibility and type safety.
 """
 
 from __future__ import annotations
@@ -21,24 +23,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .dbt_schema_parser import (
-    schema_from_dbt_manifest,
-    schema_from_dbt_model,
-    schema_from_dbt_schema_yml,
-)
-from .io_utils import (
-    MAX_RECORD_SAFETY_LIMIT,
-    nth_record,
-    open_text,
-    sample_records,
-    sniff_ndjson,
-)
-from .json_data_file_parser import merged_schema_from_samples
-from .json_schema_parser import schema_from_json_schema_file
-from .protobuf_schema_parser import list_protobuf_messages, schema_from_protobuf_file
-from .spark_schema_parser import schema_from_spark_schema_file
-from .sql_schema_parser import schema_from_sql_schema_file
-from .utils import coerce_root_to_field_dict  # single canonical helper
+from .io_utils import open_text, sniff_ndjson
+from .parser_factory import ParserFactory
+from .protobuf_schema_parser import list_protobuf_messages
 
 __all__ = [
     "load_left_or_right",
@@ -303,155 +290,116 @@ def load_left_or_right(
     -----
     - For DATA sources, all_records=True enables comprehensive field discovery
     - For SCHEMA sources, supports BigQuery DDL, nested Spark schemas, and standard JSON Schema
-    - All parser calls are normalized through `_ensure_tree_required` for consistency
+    - Now uses ParserFactory pattern for better extensibility and type safety
     """
     chosen = kind or KIND_AUTO
     if chosen == KIND_AUTO:
         chosen = _guess_kind(path)
 
-    # DATA: sample or pick a specific record and infer a type tree
-    if chosen == KIND_DATA:
-        if all_records:
-            from .io_utils import all_records as all_records_fn
-
-            recs = all_records_fn(path, max_records=MAX_RECORD_SAFETY_LIMIT)
-            title = f"; all {len(recs)} records"
-        elif first_record is not None:
-            recs = nth_record(path, first_record or 1)
-            title = f"; record #{first_record or 1}"
-        else:
-            recs = sample_records(path, samples)
-            title = f"; random {samples}-record samples"
-        tree = merged_schema_from_samples(recs, cfg)
-        return tree, set(), f"{path}{title}"
-
-    # JSON Schema (also tolerates "list-of-fields" JSON roots)
-    if chosen == KIND_JSONSCHEMA:
-        try:
-            with open_text(path) as f:
-                raw = json.load(f)
-            coerced = coerce_root_to_field_dict(raw)
-            # If original root is a list and coercion produced a dict, accept it directly
-            if isinstance(raw, list) and isinstance(coerced, dict) and coerced:
-                return coerced, set(), path
-        except Exception:
-            # If we can't parse here, fall back to the strict parser
-            pass
-
-        tree, required = _ensure_tree_required(schema_from_json_schema_file(path))
-        return tree, required, path
-
-    # Spark schema (recursively parsed)
-    if chosen == KIND_SPARK:
-        tree, required = _ensure_tree_required(schema_from_spark_schema_file(path))
-        return tree, required, path
-
-    # SQL schema (CREATE TABLE / column list)
-    if chosen == KIND_SQL:
-        tree, required = _ensure_tree_required(
-            schema_from_sql_schema_file(path, table=sql_table)
-        )
-        label = path if not sql_table else f"{path}#{sql_table}"
-        return tree, required, label
-
-    # dbt manifest
-    if chosen == KIND_DBT_MANIFEST:
-        tree, required = _ensure_tree_required(
-            schema_from_dbt_manifest(path, model=dbt_model)
-        )
-        label = path if not dbt_model else f"{path}#{dbt_model}"
-        return tree, required, label
-
-    # dbt schema.yml
-    if chosen == KIND_DBT_YML:
-        tree, required = _ensure_tree_required(
-            schema_from_dbt_schema_yml(path, model=dbt_model)
-        )
-        label = path if not dbt_model else f"{path}#{dbt_model}"
-        return tree, required, label
-
-    # dbt model.sql
-    if chosen == KIND_DBT_MODEL:
-        tree, required = _ensure_tree_required(
-            schema_from_dbt_model(path, model=dbt_model)
-        )
-        label = path if not dbt_model else f"{path}#{dbt_model}"
-        return tree, required, label
-
-    # BIGQUERY: live table schema extraction
+    # Handle BigQuery live table extraction (special case)
     if chosen == KIND_BIGQUERY:
-        from .bigquery_ddl import get_live_table_schema
+        return _handle_bigquery_live_table(path)
 
-        # Parse BigQuery table reference from path
-        # Expected format: project:dataset.table or project.dataset.table
-        if ":" in path:
-            project_part, table_part = path.split(":", 1)
-        else:
-            # Assume current project, parse as dataset.table
-            project_part = None
-            table_part = path
+    # Handle Protobuf message selection (special case)
+    if chosen == KIND_PROTOBUF:
+        return _handle_protobuf_parsing(path, proto_message)
 
-        if "." in table_part:
-            dataset_id, table_id = table_part.split(".", 1)
-        else:
-            raise ValueError(
-                f"Invalid BigQuery table reference: {path}. Expected format: project:dataset.table or dataset.table"
-            )
+    # Use ParserFactory for standard parsing
+    try:
+        result = ParserFactory.parse_file(
+            path=path,
+            kind=chosen,
+            cfg=cfg,
+            samples=samples,
+            all_records=all_records,
+            first_record=(first_record is not None),
+            record_n=first_record,
+            table=sql_table,
+            model=dbt_model,
+            message=proto_message,
+        )
 
-        # Use default project if not specified
+        return result.schema_tree, result.required_paths, result.label
+
+    except ValueError as e:
+        if "Unknown parser kind" in str(e):
+            raise ValueError(f"Unknown kind: {chosen}") from e
+        raise
+
+
+def _handle_bigquery_live_table(path: str) -> tuple[Any, set[str], str]:
+    """Handle BigQuery live table schema extraction."""
+    from .bigquery_ddl import get_live_table_schema
+
+    # Parse BigQuery table reference from path
+    # Expected format: project:dataset.table or project.dataset.table
+    if ":" in path:
+        project_part, table_part = path.split(":", 1)
+    else:
+        # Assume current project, parse as dataset.table
+        project_part = None
+        table_part = path
+
+    if "." in table_part:
+        dataset_id, table_id = table_part.split(".", 1)
+    else:
+        raise ValueError(
+            f"Invalid BigQuery table reference: {path}. Expected format: project:dataset.table or dataset.table"
+        )
+
+    # Use default project if not specified
+    try:
+        from google.cloud import bigquery
+    except ImportError as e:
+        raise ImportError(
+            "BigQuery functionality requires optional dependencies. "
+            "Install with: pip install -e '.[bigquery]'"
+        ) from e
+
+    if project_part:
+        project_id = project_part
+    else:
+        # Try to get default project
         try:
-            from google.cloud import bigquery
-        except ImportError as e:
-            raise ImportError(
-                "BigQuery functionality requires optional dependencies. "
-                "Install with: pip install -e '.[bigquery]'"
+            client = bigquery.Client()
+            project_id = client.project
+        except Exception as e:
+            raise ValueError(
+                "No project specified and unable to determine default project. Use format: project:dataset.table"
             ) from e
 
-        if project_part:
-            project_id = project_part
-        else:
-            # Try to get default project
-            try:
-                client = bigquery.Client()
-                project_id = client.project
-            except Exception as e:
-                raise ValueError(
-                    "No project specified and unable to determine default project. Use format: project:dataset.table"
-                ) from e
+    tree, required = get_live_table_schema(project_id, dataset_id, table_id)
+    label = f"bigquery://{project_id}.{dataset_id}.{table_id}"
+    return tree, required, label
 
-        tree, required = get_live_table_schema(project_id, dataset_id, table_id)
-        label = f"bigquery://{project_id}.{dataset_id}.{table_id}"
-        return tree, required, label
 
-    # Protobuf (.proto)
-    if chosen == KIND_PROTOBUF:
-        # Autoselect single message; prompt if multiple
-        if not proto_message:
-            try:
-                msgs = list_protobuf_messages(path)  # List[str]
-            except Exception:
-                msgs = []
-            if len(msgs) == 1:
-                proto_message = msgs[0]
-            elif len(msgs) > 1:
-                # Show a reasonable preview; avoid dumping thousands
-                preview = ", ".join(msgs[:50])
-                more = f" (+{len(msgs)-50} more)" if len(msgs) > 50 else ""
-                raise ValueError(
-                    f"Multiple Protobuf messages in {path}. "
-                    "Choose one with --left-message/--right-message. "
-                    f"Available: {preview}{more}"
-                )
-            # else: zero → let the parser raise a clear error
+def _handle_protobuf_parsing(
+    path: str, proto_message: str | None
+) -> tuple[Any, set[str], str]:
+    """Handle Protobuf message selection and parsing."""
+    from .protobuf_schema_parser import schema_from_protobuf_file
 
-        tree, required, selected = schema_from_protobuf_file(
-            path, message=proto_message
-        )
-        label = (
-            f"{path}#{selected or proto_message}"
-            if (selected or proto_message)
-            else path
-        )
-        return tree, (required or set()), label
+    # Autoselect single message; prompt if multiple
+    if not proto_message:
+        try:
+            msgs = list_protobuf_messages(path)  # List[str]
+        except Exception:
+            msgs = []
+        if len(msgs) == 1:
+            proto_message = msgs[0]
+        elif len(msgs) > 1:
+            # Show a reasonable preview; avoid dumping thousands
+            preview = ", ".join(msgs[:50])
+            more = f" (+{len(msgs)-50} more)" if len(msgs) > 50 else ""
+            raise ValueError(
+                f"Multiple Protobuf messages in {path}. "
+                "Choose one with --left-message/--right-message. "
+                f"Available: {preview}{more}"
+            )
+        # else: zero → let the parser raise a clear error
 
-    raise ValueError(f"Unknown kind: {kind}")
+    tree, required, selected = schema_from_protobuf_file(path, message=proto_message)
+    label = (
+        f"{path}#{selected or proto_message}" if (selected or proto_message) else path
+    )
+    return tree, (required or set()), label

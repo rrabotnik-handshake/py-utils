@@ -3,6 +3,8 @@ Google Cloud Storage utilities for schema-diff.
 
 This module provides functionality to detect, download, and cache files from GCS
 for use with schema-diff operations.
+
+Enhanced with retry decorators for robust GCS operations.
 """
 
 from __future__ import annotations
@@ -12,6 +14,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 from urllib.parse import unquote, urlparse
+
+from .decorators import retry_gcs_operation
 
 try:
     from google.cloud import storage
@@ -101,6 +105,7 @@ def get_local_filename(gcs_path: str, data_dir: str = "data") -> str:
     return os.path.join(data_dir, filename)
 
 
+@retry_gcs_operation
 def download_gcs_file(
     gcs_path: str, local_path: Optional[str] = None, force: bool = False
 ) -> str:
@@ -223,6 +228,7 @@ def cleanup_temp_files(paths: list[str]) -> None:
                 print(f"⚠️  Could not clean up {path}: {e}")
 
 
+@retry_gcs_operation
 def get_gcs_info(gcs_path: str) -> dict[str, any]:
     """
     Get metadata information about a GCS object.

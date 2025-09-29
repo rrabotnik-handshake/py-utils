@@ -138,6 +138,13 @@ def add_generate_subcommands(subparsers) -> None:
         help="Skip schema validation",
     )
 
+    # GCS options
+    generate_parser.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Re-download GCS files even if they exist locally (default: use cached files)",
+    )
+
     generate_parser.set_defaults(func=cmd_generate)
 
     # schema-diff formats - List supported formats

@@ -39,6 +39,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .decorators import cache_expensive_operation, validate_and_time
 from .io_utils import open_text
 from .utils import strip_quotes_ident
 
@@ -527,6 +528,8 @@ def _extract_complete_type(line: str) -> str:
 # --- Main API --------------------------------------------------------------
 
 
+@cache_expensive_operation
+@validate_and_time
 def schema_from_sql_schema_file(
     path: str, table: str | None = None
 ) -> tuple[dict[str, Any], set[str]]:

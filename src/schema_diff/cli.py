@@ -49,7 +49,6 @@ from .compare import compare_data_to_ref, compare_trees
 from .config import Config
 from .helpfmt import ColorDefaultsFormatter
 from .io_utils import MAX_RECORD_SAFETY_LIMIT, all_records, nth_record, sample_records
-from .json_data_file_parser import merged_schema_from_samples
 from .json_schema_parser import schema_from_json_schema_file
 from .loader import load_left_or_right
 from .normalize import walk_normalize
@@ -663,7 +662,7 @@ def main():
         if args.show_samples:
             print_samples(args.file1, s1, colors=cfg.colors())
 
-        compare_data_to_ref(
+        report = compare_data_to_ref(
             args.file1,
             label,
             ref_schema,
@@ -676,6 +675,86 @@ def main():
             show_common=args.show_common,
             ref_source_type=args.right,
         )
+
+        # Migration analysis (when output is requested)
+        if args.output and report:
+            import io
+            import sys
+
+            from .migration_analyzer import (
+                analyze_migration_impact,
+                generate_migration_report,
+            )
+
+            # Capture console output for full diff
+            old_stdout = sys.stdout
+            sys.stdout = buffer = io.StringIO()
+
+            # Re-run the comparison to capture console output
+            compare_data_to_ref(
+                args.file1,
+                label,
+                ref_schema,
+                cfg=cfg,
+                s1_records=s1,
+                title_suffix=title1,
+                required_paths=required_paths,
+                show_common=args.show_common,
+                ref_source_type=args.right,
+            )
+
+            sys.stdout = old_stdout
+            full_diff_output = buffer.getvalue()
+
+            # Build commands used for analysis
+            commands_used = []
+            cmd_parts = ["schema-diff", args.file1]
+            if args.json_schema:
+                cmd_parts.extend(["--json-schema", args.json_schema])
+            elif args.spark_schema:
+                cmd_parts.extend(["--spark-schema", args.spark_schema])
+            elif args.sql_schema:
+                cmd_parts.extend(["--sql-schema", args.sql_schema])
+                if args.sql_table:
+                    cmd_parts.extend(["--sql-table", args.sql_table])
+            if args.all_records:
+                cmd_parts.append("--all-records")
+            if args.show_common:
+                cmd_parts.append("--show-common")
+            commands_used.append(" ".join(cmd_parts))
+
+            # Add common fields to report if not present
+            if "common_fields" not in report:
+                from .json_data_file_parser import merged_schema_from_samples
+                from .utils import flatten_paths
+
+                data_dict = coerce_root_to_field_dict(
+                    merged_schema_from_samples(s1, cfg)
+                )
+                ref_dict = coerce_root_to_field_dict(ref_schema)
+                paths1 = flatten_paths(data_dict)
+                paths2 = flatten_paths(ref_dict)
+                common_fields_list = sorted(set(paths1) & set(paths2))
+                report["common_fields"] = common_fields_list
+
+            # Analyze migration impact
+            migration_analysis = analyze_migration_impact(
+                report, args.file1, label, commands_used, full_diff_output
+            )
+
+            # Generate and save report
+            migration_report = generate_migration_report(
+                migration_analysis, args.output_format
+            )
+
+            # Auto-generate filename based on format
+            file_ext = {"markdown": ".md", "text": ".txt", "json": ".json"}[
+                args.output_format
+            ]
+            filename = generate_timestamp_filename("migration_analysis", file_ext)
+            output_path = write_output_file(migration_report, filename, "analysis")
+            print_output_success(output_path, "Migration analysis")
+
         return
 
     # ------------------------------------------------------------------
@@ -713,6 +792,8 @@ def main():
         if args.show_samples:
             print_samples(args.file1, s1_run, colors=cfg.colors())
             print_samples(args.file2, s2_run, colors=cfg.colors())
+
+        from .json_data_file_parser import merged_schema_from_samples
 
         sch1 = merged_schema_from_samples(s1_run, cfg)
         sch2 = merged_schema_from_samples(s2_run, cfg)

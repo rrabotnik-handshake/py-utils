@@ -45,6 +45,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .decorators import cache_expensive_operation, validate_and_time
+
 __all__ = ["schema_from_spark_schema_file"]
 
 # ---------- Type mapping (Spark -> internal) ----------
@@ -445,6 +447,8 @@ def _parse_struct_fields(
 # ---------- Main parser ----------
 
 
+@cache_expensive_operation
+@validate_and_time
 def schema_from_spark_schema_file(path: str) -> tuple[Any, set[str]]:
     """
     Parse a Spark schema text dump into (type_tree, required_paths).
