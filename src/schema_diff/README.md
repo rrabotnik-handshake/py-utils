@@ -14,12 +14,13 @@ pip install -e .
 
 # Install with optional features
 pip install -e ".[bigquery]"      # BigQuery DDL generation + live table access
+pip install -e ".[gcs]"           # Google Cloud Storage support
 pip install -e ".[validation]"    # Schema validation for generated schemas
 pip install -e ".[dev]"          # Development tools (pytest)
 
 # Install multiple features
-pip install -e ".[bigquery,validation]"  # BigQuery + validation
-pip install -e ".[bigquery,validation,dev]"  # Everything
+pip install -e ".[bigquery,gcs,validation]"  # BigQuery + GCS + validation
+pip install -e ".[bigquery,gcs,validation,dev]"  # Everything
 ```
 
 ### Basic Schema Comparison
@@ -86,6 +87,9 @@ schema-diff generate data.json --format spark --output
 
 # Mark specific fields as required
 schema-diff generate data.json --format json_schema --required-fields user_id email
+
+# All generated schemas have fields ordered alphabetically at all nesting levels
+schema-diff generate data.json --format bigquery_ddl  # Fields will be A-Z ordered
 ```
 
 ### BigQuery DDL Generation
@@ -116,6 +120,32 @@ schema-diff old_data.json new_data.json --output --output-format json
 schema-diff old_data.json new_data.json --output --output-format text
 ```
 
+### Google Cloud Storage (GCS) Support
+
+```bash
+# Compare GCS files directly (gs:// format)
+schema-diff gs://my-bucket/old-data.json gs://my-bucket/new-data.json
+
+# Compare GCS files using HTTPS URLs
+schema-diff https://storage.cloud.google.com/bucket/file1.json https://storage.googleapis.com/bucket/file2.json
+
+# Mixed comparisons (GCS + local)
+schema-diff gs://my-bucket/data.json local-schema.sql --right sql
+
+# Generate schema from GCS file
+schema-diff generate gs://my-bucket/production-data.json.gz --format bigquery_ddl --output
+
+# Compare GCS file with BigQuery live table
+schema-diff gs://my-bucket/data.json my-project:dataset.table --right bigquery
+
+# Get GCS file information
+schema-diff --gcs-info gs://my-bucket/data.json
+schema-diff --gcs-info https://storage.cloud.google.com/my-bucket/data.json
+
+# Force re-download (bypass cache)
+schema-diff gs://bucket/file1.json gs://bucket/file2.json --force-download
+```
+
 ---
 
 ## 📋 Supported Input Formats
@@ -126,6 +156,7 @@ schema-diff old_data.json new_data.json --output --output-format text
 - **NDJSON/JSONL:** `.ndjson`, `.jsonl` files with one JSON object per line
 - **Compressed:** All formats support `.gz` compression
 - **Large Files:** Streaming support for files of any size
+- **Google Cloud Storage:** `gs://bucket/path`, `https://storage.cloud.google.com/bucket/path`, `https://storage.googleapis.com/bucket/path`
 
 ### Schema Formats
 
@@ -195,6 +226,16 @@ pip install -e ".[bigquery]"
 **Use when:** Working with BigQuery tables, generating DDL, need colored SQL output
 **Dependencies:** `google-cloud-bigquery`, `pygments`
 
+### 🌐 Google Cloud Storage (GCS) Support
+
+```bash
+pip install -e ".[gcs]"
+```
+
+**Adds:** GCS file download, caching, metadata inspection, HTTPS URL support
+**Use when:** Working with files stored in Google Cloud Storage
+**Dependencies:** `google-cloud-storage`
+
 ### ✅ Schema Validation
 
 ```bash
@@ -219,8 +260,9 @@ pip install -e ".[dev]"
 
 If you see errors like:
 
-- `ModuleNotFoundError: No module named 'google.cloud'` → Install `[bigquery]`
+- `ModuleNotFoundError: No module named 'google.cloud'` → Install `[bigquery]` or `[gcs]`
 - `ImportError: cannot import name 'bigquery'` → Install `[bigquery]`
+- `Google Cloud Storage support requires 'google-cloud-storage'` → Install `[gcs]`
 - Schema validation warnings → Install `[validation]` for better validation
 
 ---
@@ -285,6 +327,11 @@ If you see errors like:
 #### Inference Options
 
 - `--infer-datetimes` - Treat ISO-like strings as timestamp/date/time on the DATA side
+
+#### Google Cloud Storage (GCS) Options
+
+- `--force-download` - Re-download GCS files even if they exist locally (default: use cached files)
+- `--gcs-info GCS_PATH` - Show metadata information about a GCS object and exit
 
 ### Subcommand: `generate`
 
@@ -437,12 +484,12 @@ The migration analysis feature generates comprehensive reports for schema migrat
 
 ### Report Sections
 
-- **📊 Summary Statistics** - Field counts, compatibility metrics
-- **🎯 Compatibility Assessment** - Overall migration complexity rating
-- **❌ Breaking Changes** - Issues requiring immediate attention
+- **📊 Migration Overview** - High-level summary with field counts and compatibility metrics
+- **🎯 Compatibility Summary** - Overall migration complexity rating with emoji-coded indicators
+- **❌ Critical Issues** - Breaking changes requiring immediate attention
 - **⚠️ Warnings** - Changes that may impact your system
-- **💡 Recommendations** - Actionable steps for migration
-- **📊 Complete Schema Comparison** - Full technical comparison details
+- **💡 Migration Recommendation** - Actionable steps and timeline guidance
+- **📊 Complete Schema Comparison** - Full technical comparison with collapsible sections, color-coded differences, and detailed field analysis
 
 ### Analysis Logic
 
@@ -545,6 +592,35 @@ gcloud auth application-default login
 # Or use service account key
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
+
+**Google Cloud Storage (GCS) Issues:**
+
+```bash
+# Install GCS support
+pip install -e ".[gcs]"
+
+# Set up authentication
+gcloud auth application-default login
+gcloud config set project YOUR_PROJECT_ID
+
+# Alternative: Use environment variables
+export GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+
+# Check current configuration
+gcloud config list
+gcloud auth list
+
+# Test GCS access
+schema-diff --gcs-info gs://your-bucket/test-file.json
+```
+
+**Common GCS Errors:**
+
+- `Project was not passed and could not be determined from the environment` → Set default project with `gcloud config set project YOUR_PROJECT_ID`
+- `Google Cloud Storage support requires 'google-cloud-storage'` → Install with `pip install -e ".[gcs]"`
+- `403 Forbidden` → Check bucket permissions and authentication
+- `404 Not Found` → Verify bucket name and file path
 
 **Missing Dependencies:**
 

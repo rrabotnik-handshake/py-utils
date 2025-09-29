@@ -84,6 +84,18 @@ repos:
         args: [--py39-plus]
 
   # ========================
+  # 🗄️ SQL LINTING & FORMATTING
+  # ========================
+
+  - repo: https://github.com/sqlfluff/sqlfluff
+    rev: 3.0.7
+    hooks:
+      - id: sqlfluff-lint
+        args: [--dialect=bigquery]
+      - id: sqlfluff-fix
+        args: [--dialect=bigquery]
+
+  # ========================
   # 🌳 TRUNK - COMPREHENSIVE FORMATTING & LINTING
   # ========================
   # Note: Trunk formatting is handled via native Git hooks (see trunk.yaml)
