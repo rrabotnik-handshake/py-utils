@@ -1,19 +1,24 @@
 # Pre-commit hooks for schema-diff project
 # See https://pre-commit.com for more information
+#
+# 🎯 STREAMLINED APPROACH:
+# - Pre-commit: Handles type checking, dead code detection, file hygiene, SQL
+# - Trunk: Handles Python linting/formatting, security, markdown, YAML
+# - No conflicts: Each tool has its specific domain
 
 repos:
   # ========================
-  # 🔥 MODERN PYTHON LINTING & FORMATTING
+  # 🔥 MODERN PYTHON LINTING & FORMATTING (DISABLED - HANDLED BY TRUNK)
   # ========================
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.15
-    hooks:
-      # Linting (replaces flake8, pycodestyle, etc.)
-      - id: ruff
-        args: [--fix, --exit-non-zero-on-fix]
-      # Formatting (replaces black, isort)
-      - id: ruff-format
+  # - repo: https://github.com/astral-sh/ruff-pre-commit
+  #   rev: v0.1.15
+  #   hooks:
+  #     # Linting (replaces flake8, pycodestyle, etc.)
+  #     - id: ruff
+  #       args: [--fix, --exit-non-zero-on-fix]
+  #     # Formatting (replaces black, isort)
+  #     - id: ruff-format
 
   # ========================
   # 🔍 TYPE CHECKING
@@ -28,7 +33,7 @@ repos:
         files: ^src/
 
   # ========================
-  # 🛡️ SECURITY SCANNING (DISABLED - FIX DEPENDENCY FIRST)
+  # 🛡️ SECURITY SCANNING (DISABLED - HANDLED BY TRUNK)
   # ========================
 
   # - repo: https://github.com/PyCQA/bandit
@@ -74,14 +79,14 @@ repos:
       - id: check-docstring-first
 
   # ========================
-  # 🔧 PYTHON UPGRADES
+  # 🔧 PYTHON UPGRADES (DISABLED - POTENTIAL CONFLICTS WITH TRUNK FORMATTERS)
   # ========================
 
-  - repo: https://github.com/asottile/pyupgrade
-    rev: v3.15.0
-    hooks:
-      - id: pyupgrade
-        args: [--py39-plus]
+  # - repo: https://github.com/asottile/pyupgrade
+  #   rev: v3.15.0
+  #   hooks:
+  #     - id: pyupgrade
+  #       args: [--py39-plus]
 
   # ========================
   # 🗄️ SQL LINTING & FORMATTING

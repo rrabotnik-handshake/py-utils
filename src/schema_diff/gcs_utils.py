@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import unquote, urlparse
 
 from .decorators import retry_gcs_operation
@@ -229,7 +229,7 @@ def cleanup_temp_files(paths: list[str]) -> None:
 
 
 @retry_gcs_operation
-def get_gcs_info(gcs_path: str) -> dict[str, any]:
+def get_gcs_info(gcs_path: str) -> dict[str, Any]:
     """
     Get metadata information about a GCS object.
 

@@ -123,10 +123,10 @@ def cache_results(
             return result
 
         # Add cache management methods
-        wrapper.clear_cache = lambda: _cache_manager.clear()
-        wrapper.cache_info = lambda: f"Cache dir: {_cache_manager.cache_dir}"
+        wrapper.clear_cache = lambda: _cache_manager.clear()  # type: ignore
+        wrapper.cache_info = lambda: f"Cache dir: {_cache_manager.cache_dir}"  # type: ignore
 
-        return wrapper
+        return wrapper  # type: ignore
 
     return decorator
 
@@ -170,7 +170,7 @@ def retry_on_failure(
             # All attempts failed, raise the last exception
             raise last_exception
 
-        return wrapper
+        return wrapper  # type: ignore
 
     return decorator
 
@@ -189,7 +189,7 @@ def timing_decorator(func: F) -> F:
             duration = end_time - start_time
             print(f"⏱️  {func.__name__} took {duration:.2f}s")
 
-    return wrapper
+    return wrapper  # type: ignore
 
 
 def validate_file_exists(func: F) -> F:
@@ -211,7 +211,7 @@ def validate_file_exists(func: F) -> F:
 
         return func(*args, **kwargs)
 
-    return wrapper
+    return wrapper  # type: ignore
 
 
 def log_calls(logger=None) -> Callable[[F], F]:
@@ -237,7 +237,7 @@ def log_calls(logger=None) -> Callable[[F], F]:
                     logger.error(f"{func.__name__} failed: {e}")
                 raise
 
-        return wrapper
+        return wrapper  # type: ignore
 
     return decorator
 

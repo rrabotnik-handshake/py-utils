@@ -76,7 +76,9 @@ class DataParser:
         elif record_n is not None:
             records = [nth_record(path, record_n)]
         elif all_records:
-            records = sample_records(path, None)  # All records
+            from .io_utils import all_records as all_records_fn
+
+            records = all_records_fn(path)  # All records
         else:
             records = sample_records(path, samples)
 
@@ -85,7 +87,7 @@ class DataParser:
         schema_tree = coerce_root_to_field_dict(schema_tree)
 
         # Data files don't have explicit required fields
-        required_paths = set()
+        required_paths: Set[str] = set()
 
         # Generate label
         record_count = len(records) if records else 0
