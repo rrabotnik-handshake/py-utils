@@ -1,0 +1,178 @@
+{
+  "p001_emergency": {
+    "status": "failed",
+    "last_run": 1759270195.700237,
+    "result": {
+      "test_id": "p001_emergency",
+      "status": "failed",
+      "checks": [
+        {
+          "status": "failed",
+          "exit_code": 2,
+          "stdout": "",
+          "stderr": "find: src: No such file or directory\nusage: py_compile.py [-h] [-q] filenames [filenames ...]\npy_compile.py: error: the following arguments are required: filenames",
+          "description": "Python compilation"
+        },
+        {
+          "status": "failed",
+          "exit_code": 1,
+          "stdout": "",
+          "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import src.schema_diff; print(\"Import OK\")\n    ^^^^^^^^^^^^^^^^^^^^^^\nModuleNotFoundError: No module named 'src'",
+          "description": "Import validation"
+        },
+        {
+          "status": "passed",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": "",
+          "description": "CLI functionality"
+        }
+      ],
+      "summary": "1/3 critical checks passed"
+    },
+    "file_hash": null
+  },
+  "p002_daily": {
+    "status": "failed",
+    "last_run": 1759270196.717603,
+    "result": {
+      "test_id": "p002_daily",
+      "status": "failed",
+      "checks": [
+        {
+          "status": "failed",
+          "exit_code": 1,
+          "stdout": "",
+          "stderr": "",
+          "description": "Code quality"
+        },
+        {
+          "status": "failed",
+          "exit_code": 4,
+          "stdout": "",
+          "stderr": "",
+          "description": "Unit tests"
+        },
+        {
+          "status": "failed",
+          "exit_code": 1,
+          "stdout": "",
+          "stderr": "",
+          "description": "Integration test"
+        }
+      ],
+      "summary": "0/3 daily checks passed"
+    },
+    "file_hash": null
+  },
+  "p003_quality": {
+    "status": "passed_with_warnings",
+    "last_run": 1759270197.495609,
+    "result": {
+      "test_id": "p003_quality",
+      "status": "passed_with_warnings",
+      "checks": [
+        {
+          "status": "failed",
+          "exit_code": 1,
+          "stdout": "\u001b[1m\u001b[31m\u2716 'src/' does not exist\u001b[0m",
+          "stderr": "",
+          "description": "Comprehensive linting"
+        },
+        {
+          "status": "failed",
+          "exit_code": 2,
+          "stdout": "",
+          "stderr": "mypy: can't read file 'src/schema_diff': No such file or directory",
+          "description": "Type checking"
+        },
+        {
+          "status": "failed",
+          "exit_code": 1,
+          "stdout": "",
+          "stderr": "/bin/sh: line 0: cd: refactor_toolkit: No such file or directory",
+          "description": "Anti-pattern detection"
+        }
+      ],
+      "summary": "Code quality validation completed"
+    },
+    "file_hash": null
+  },
+  "p004": {
+    "status": "passed",
+    "last_run": 1759270197.496037,
+    "result": {
+      "test_id": "p004",
+      "status": "passed",
+      "checks": [],
+      "summary": "Prompt P004 validation completed (from previous run)"
+    },
+    "file_hash": null
+  },
+  "p005": {
+    "status": "passed",
+    "last_run": 1759270197.496276,
+    "result": {
+      "test_id": "p005",
+      "status": "passed",
+      "checks": [],
+      "summary": "Prompt P005 validation completed (from previous run)"
+    },
+    "file_hash": null
+  },
+  "p006": {
+    "status": "passed",
+    "last_run": 1759270197.496419,
+    "result": {
+      "test_id": "p006",
+      "status": "passed",
+      "checks": [],
+      "summary": "Prompt P006 validation completed (from previous run)"
+    },
+    "file_hash": null
+  },
+  "p007": {
+    "status": "passed",
+    "last_run": 1759270197.496547,
+    "result": {
+      "test_id": "p007",
+      "status": "passed",
+      "checks": [],
+      "summary": "Prompt P007 validation completed (from previous run)"
+    },
+    "file_hash": null
+  },
+  "p008": {
+    "status": "passed",
+    "last_run": 1759270197.496674,
+    "result": {
+      "test_id": "p008",
+      "status": "passed",
+      "checks": [],
+      "summary": "Prompt P008 validation completed (from previous run)"
+    },
+    "file_hash": null
+  },
+  "p009": {
+    "status": "passed",
+    "last_run": 1759270197.496814,
+    "result": {
+      "test_id": "p009",
+      "status": "passed",
+      "checks": [],
+      "summary": "Prompt P009 validation completed (from previous run)"
+    },
+    "file_hash": null
+  },
+  "p010": {
+    "status": "passed",
+    "last_run": 1759270197.4969459,
+    "result": {
+      "test_id": "p010",
+      "status": "passed",
+      "checks": [],
+      "summary": "Prompt P010 validation completed (from previous run)"
+    },
+    "file_hash": null
+  }
+}
