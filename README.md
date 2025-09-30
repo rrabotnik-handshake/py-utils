@@ -28,16 +28,16 @@ pip install -e ".[bigquery,gcs,validation]"  # All features
 
 ```bash
 # Basic data comparison
-schema-diff file1.json file2.json
+schema-diff compare file1.json file2.json
 
 # Cross-format comparison
-schema-diff data.json schema.sql --right sql
-schema-diff data.ndjson spark_schema.txt --right spark
-schema-diff data.json my-project:dataset.table --right bigquery
+schema-diff compare data.json schema.sql --right sql
+schema-diff compare data.ndjson spark_schema.txt --right spark
+schema-diff compare data.json my-project:dataset.table --right bigquery
 
 # Advanced analysis
-schema-diff dataset1.json.gz dataset2.json.gz --all-records --migration-analysis report.md
-schema-diff data.json schema.json --right jsonschema --fields user_id email profile.name
+schema-diff compare dataset1.json.gz dataset2.json.gz --all-records --output
+schema-diff compare data.json schema.json --right jsonschema --fields user_id email profile.name
 ```
 
 ## 🏗️ Schema Generation
@@ -55,19 +55,19 @@ schema-diff generate data.json --format spark --output
 
 ```bash
 # Compare GCS files directly (gs:// format)
-schema-diff gs://my-bucket/old-data.json gs://my-bucket/new-data.json
+schema-diff compare gs://my-bucket/old-data.json gs://my-bucket/new-data.json
 
 # Compare GCS files using HTTPS URLs
-schema-diff https://storage.cloud.google.com/bucket/file1.json https://storage.googleapis.com/bucket/file2.json
+schema-diff compare https://storage.cloud.google.com/bucket/file1.json https://storage.googleapis.com/bucket/file2.json
 
 # Compare GCS file with local file
-schema-diff gs://my-bucket/data.json local-schema.sql --right sql
+schema-diff compare gs://my-bucket/data.json local-schema.sql --right sql
 
 # Generate schema from GCS file
 schema-diff generate gs://my-bucket/production-data.json.gz --format bigquery_ddl --output
 
 # Compare GCS file with BigQuery live table
-schema-diff gs://my-bucket/data.json my-project:dataset.table --right bigquery
+schema-diff compare gs://my-bucket/data.json my-project:dataset.table --right bigquery
 ```
 
 ### 🔧 GCS Features
@@ -111,13 +111,13 @@ gcloud config list
 
 ```bash
 # Get file information (gs:// format)
-schema-diff --gcs-info gs://my-bucket/data.json
+schema-diff config --gcs-info gs://my-bucket/data.json
 
 # Get file information (HTTPS format)
-schema-diff --gcs-info https://storage.cloud.google.com/my-bucket/data.json
+schema-diff config --gcs-info https://storage.cloud.google.com/my-bucket/data.json
 
 # Force re-download (bypass cache)
-schema-diff gs://bucket/file1.json gs://bucket/file2.json --force-download
+schema-diff compare gs://bucket/file1.json gs://bucket/file2.json --force-download
 
 # Generate schema with caching
 schema-diff generate gs://bucket/large-dataset.json.gz --format spark --all-records
@@ -127,17 +127,17 @@ schema-diff generate gs://bucket/large-dataset.json.gz --format spark --all-reco
 
 ```bash
 # Generate DDL for BigQuery tables
-schema-diff ddl my-project:dataset.table
-schema-diff ddl-batch my-project:dataset table1 table2 table3
-schema-diff ddl-dataset my-project:dataset --out-dir ./ddl
+schema-diff ddl table my-project:dataset.table
+schema-diff ddl batch my-project:dataset.table1 my-project:dataset.table2
+schema-diff ddl dataset my-project:dataset --output
 ```
 
 ## 📊 Migration Analysis
 
 ```bash
 # Generate comprehensive migration reports
-schema-diff old_schema.json new_schema.json --output
-schema-diff old_data.json new_data.json --output --output-format json
+schema-diff compare old_schema.json new_schema.json --output
+schema-diff compare old_data.json new_data.json --output
 ```
 
 ## 📚 Documentation

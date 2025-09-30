@@ -33,6 +33,17 @@ repos:
         files: ^src/
 
   # ========================
+  # 📚 DOCUMENTATION QUALITY
+  # ========================
+
+  - repo: https://github.com/PyCQA/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args: [--convention=google]
+        files: ^src/
+
+  # ========================
   # 🛡️ SECURITY SCANNING (DISABLED - HANDLED BY TRUNK)
   # ========================
 
