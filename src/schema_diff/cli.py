@@ -275,7 +275,10 @@ def cmd_compare(args) -> None:
         # Resolve GCS paths if needed
         from .gcs_utils import get_gcs_status, is_gcs_path, resolve_path
 
-        print(get_gcs_status())
+        # Only check GCS status if we're actually using GCS paths
+        gcs_paths_used = is_gcs_path(args.file1) or is_gcs_path(args.file2)
+        if gcs_paths_used:
+            print(get_gcs_status())
 
         if is_gcs_path(args.file1):
             args.file1 = resolve_path(args.file1, args.force_download)
@@ -550,9 +553,9 @@ def cmd_generate(args) -> None:
         # Resolve GCS path if needed
         from .gcs_utils import get_gcs_status, is_gcs_path, resolve_path
 
-        print(get_gcs_status())
-
+        # Only check GCS status if we're actually using a GCS path
         if is_gcs_path(args.data_file):
+            print(get_gcs_status())
             args.data_file = resolve_path(args.data_file, args.force_download)
 
         # Import schema generation
