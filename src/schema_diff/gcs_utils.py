@@ -10,7 +10,6 @@ Enhanced with retry decorators for robust GCS operations.
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import unquote, urlparse
@@ -18,7 +17,7 @@ from urllib.parse import unquote, urlparse
 from .decorators import retry_gcs_operation
 
 try:
-    from google.cloud import storage
+    from google.cloud import storage  # type: ignore
 
     _HAS_GCS = True
 except ImportError:
@@ -212,22 +211,6 @@ def resolve_path(path: str, force_download: bool = False) -> str:
         return path
 
 
-def cleanup_temp_files(paths: list[str]) -> None:
-    """
-    Clean up temporary downloaded files.
-
-    Args:
-        paths: List of file paths to potentially clean up
-    """
-    for path in paths:
-        if path and os.path.exists(path) and path.startswith(tempfile.gettempdir()):
-            try:
-                os.remove(path)
-                print(f"🗑️  Cleaned up temporary file: {path}")
-            except Exception as e:
-                print(f"⚠️  Could not clean up {path}: {e}")
-
-
 @retry_gcs_operation
 def get_gcs_info(gcs_path: str) -> dict[str, Any]:
     """
@@ -290,31 +273,6 @@ def get_gcs_info(gcs_path: str) -> dict[str, Any]:
 
 
 # Convenience functions for common operations
-
-
-def download_and_compare(
-    left_path: str, right_path: str, force_download: bool = False
-) -> tuple[str, str]:
-    """
-    Download GCS files if needed and return local paths for comparison.
-
-    Args:
-        left_path: First file (local or GCS)
-        right_path: Second file (local or GCS)
-        force_download: Re-download GCS files even if cached
-
-    Returns:
-        Tuple of (local_left_path, local_right_path)
-    """
-    local_left = resolve_path(left_path, force_download)
-    local_right = resolve_path(right_path, force_download)
-
-    return local_left, local_right
-
-
-def is_gcs_available() -> bool:
-    """Check if GCS functionality is available."""
-    return _HAS_GCS
 
 
 def get_gcs_status() -> str:

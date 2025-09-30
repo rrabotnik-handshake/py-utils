@@ -214,34 +214,6 @@ def validate_file_exists(func: F) -> F:
     return wrapper  # type: ignore
 
 
-def log_calls(logger=None) -> Callable[[F], F]:
-    """Decorator to log function calls."""
-
-    def decorator(func: F) -> F:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            if logger:
-                logger.info(
-                    f"Calling {func.__name__} with args={args}, kwargs={kwargs}"
-                )
-            else:
-                print(f"🔧 Calling {func.__name__}")
-
-            try:
-                result = func(*args, **kwargs)
-                if logger:
-                    logger.info(f"{func.__name__} completed successfully")
-                return result
-            except Exception as e:
-                if logger:
-                    logger.error(f"{func.__name__} failed: {e}")
-                raise
-
-        return wrapper  # type: ignore
-
-    return decorator
-
-
 # Convenience decorators for common use cases
 def cache_expensive_operation(func: F) -> F:
     """Cache results of expensive operations (like parsing large files)."""

@@ -68,7 +68,7 @@ def test_any_mode_matrix(tmp_path, write_file, run_cli):
             )
 
 
-def test_any_any_sql_multi_table_select(tmp_path):
+def test_any_any_sql_multi_table_select(tmp_path, run_cli):
     # Two tables in one SQL file – we must select explicitly
     sql = """\
 CREATE TABLE a (
@@ -91,23 +91,18 @@ CREATE TABLE b (
     js = tmp_path / "schema.json"
     js.write_text(json.dumps(schema), encoding="utf-8")
 
-    exe = [sys.executable, "-m", "schema_diff.cli"]
-
     # Compare against table a -> should match (no diffs)
-    res_ok = _run(
-        exe
-        + [
-            str(js),
-            str(sqlp),
-            "--left",
-            "jsonschema",
-            "--right",
-            "sql",
-            "--right-table",
-            "a",
-            "--no-color",
-        ]
-    )
+    res_ok = run_cli([
+        str(js),
+        str(sqlp),
+        "--left",
+        "jsonschema",
+        "--right",
+        "sql",
+        "--right-table",
+        "a",
+        "--no-color",
+    ])
     assert res_ok.returncode == 0, res_ok.stderr
     assert "Schema diff" in res_ok.stdout
     assert (
@@ -115,20 +110,17 @@ CREATE TABLE b (
     )
 
     # Compare against table b -> should mismatch (int vs str)
-    res_bad = _run(
-        exe
-        + [
-            str(js),
-            str(sqlp),
-            "--left",
-            "jsonschema",
-            "--right",
-            "sql",
-            "--right-table",
-            "b",
-            "--no-color",
-        ]
-    )
+    res_bad = run_cli([
+        str(js),
+        str(sqlp),
+        "--left",
+        "jsonschema",
+        "--right",
+        "sql",
+        "--right-table",
+        "b",
+        "--no-color",
+    ])
     assert res_bad.returncode == 0, res_bad.stderr
     assert "Schema diff" in res_bad.stdout
     assert "Type mismatches" in res_bad.stdout
@@ -136,7 +128,7 @@ CREATE TABLE b (
     assert ".id" in res_bad.stdout or " id" in res_bad.stdout
 
 
-def test_any_any_mismatch_data_vs_jsonschema(tmp_path, write_file):
+def test_any_any_mismatch_data_vs_jsonschema(tmp_path, write_file, run_cli):
     # Data has id as string, schema expects integer
     data = write_file("bad.ndjson", '{"id":"1"}\n', gz=False)
     schema = {
@@ -147,26 +139,22 @@ def test_any_any_mismatch_data_vs_jsonschema(tmp_path, write_file):
     js = tmp_path / "schema.json"
     js.write_text(json.dumps(schema), encoding="utf-8")
 
-    exe = [sys.executable, "-m", "schema_diff.cli"]
-    res = _run(
-        exe
-        + [
-            data,
-            str(js),
-            "--left",
-            "data",
-            "--right",
-            "jsonschema",
-            "--first-record",
-            "--no-color",
-        ]
-    )
+    res = run_cli([
+        data,
+        str(js),
+        "--left",
+        "data",
+        "--right",
+        "jsonschema",
+        "--first-record",
+        "--no-color",
+    ])
     assert res.returncode == 0, res.stderr
     assert "Type mismatches" in res.stdout
     # Presence section optional depending on your --no-presence default, so we just check mismatch exists.
 
 
-def test_any_any_data_vs_sql(tmp_path, write_file):
+def test_any_any_data_vs_sql(tmp_path, write_file, run_cli):
     # Data: id int, full_name str
     data = write_file("p.ndjson.gz", '{"id":1,"full_name":"A"}\n', gz=True)
     # SQL: matching columns
@@ -177,22 +165,18 @@ def test_any_any_data_vs_sql(tmp_path, write_file):
     sqlp = tmp_path / "schema.sql"
     sqlp.write_text(sql, encoding="utf-8")
 
-    exe = [sys.executable, "-m", "schema_diff.cli"]
-    res = _run(
-        exe
-        + [
-            data,
-            str(sqlp),
-            "--left",
-            "data",
-            "--right",
-            "sql",
-            "--right-table",
-            "p",
-            "--first-record",
-            "--no-color",
-        ]
-    )
+    res = run_cli([
+        data,
+        str(sqlp),
+        "--left",
+        "data",
+        "--right",
+        "sql",
+        "--right-table",
+        "p",
+        "--first-record",
+        "--no-color",
+    ])
     assert res.returncode == 0, res.stderr
     assert "Schema diff" in res.stdout
     assert "No differences" in res.stdout or "Type mismatches -- (0)" in res.stdout

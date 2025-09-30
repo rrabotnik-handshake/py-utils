@@ -56,23 +56,6 @@ KIND_AUTO = "auto"
 # ---- Small helpers --------------------------------------------------------
 
 
-def _ensure_tree_required(x) -> tuple[Any, set[str]]:
-    """
-    Accept a value that might be:
-      - a pure type tree (dict/list/str/...), or
-      - a (tree, required_iterable) tuple.
-    Always return (tree, required_set).
-    """
-    if isinstance(x, tuple) and len(x) == 2:
-        tree, req = x
-        try:
-            req = set(req)
-        except TypeError:
-            req = set()
-        return tree, req
-    return x, set()
-
-
 def _sniff_json_kind(path: str) -> str | None:
     """
     Peek into a .json/.json.gz (or similar) and try to distinguish:

@@ -27,47 +27,47 @@ pip install -e ".[bigquery,gcs,validation,dev]"  # Everything
 
 ```bash
 # Basic data vs data (sample 1000 records by default)
-schema-diff file1.ndjson.gz file2.json.gz
+schema-diff compare file1.ndjson.gz file2.json.gz
 
 # First record only
-schema-diff file1.json file2.json --first-record
+schema-diff compare file1.json file2.json --first-record
 
 # Show the sampled records
-schema-diff file1.json file2.json -k 5 --show-samples
+schema-diff compare file1.json file2.json -k 5 --show-samples
 
 # Process ALL records (comprehensive analysis)
-schema-diff file1.json file2.json --all-records
+schema-diff compare file1.json file2.json --all-records
 
 # Compare only specific fields
-schema-diff file1.json file2.json --fields headline full_name industry
+schema-diff compare file1.json file2.json --fields headline full_name industry
 
 # Combine all-records with field filtering
-schema-diff file1.json file2.json --all-records --fields headline member_id
+schema-diff compare file1.json file2.json --all-records --fields headline member_id
 ```
 
 ### Cross-Format Comparisons
 
 ```bash
 # Data vs JSON Schema
-schema-diff data.ndjson schema.json --right jsonschema --first-record
+schema-diff compare data.ndjson schema.json --right jsonschema --first-record
 
 # Data vs SQL (choose table)
-schema-diff data.json schema.sql --right sql --right-table my_table --first-record
+schema-diff compare data.json schema.sql --right sql --right-table my_table --first-record
 
 # JSON Schema vs SQL (multi-table file)
-schema-diff schema.json db.sql --left jsonschema --right sql --right-table users
+schema-diff compare schema.json db.sql --left jsonschema --right sql --right-table users
 
 # Spark schema vs data
-schema-diff data.json spark_schema.txt --left data --right spark
+schema-diff compare data.json spark_schema.txt --left data --right spark
 
 # Protobuf schema vs data
-schema-diff data.json demo.proto --right proto --right-message User
+schema-diff compare data.json demo.proto --right proto --right-message User
 
 # BigQuery live table vs data
-schema-diff data.json my-project:dataset.table --right bigquery
+schema-diff compare data.json my-project:dataset.table --right bigquery
 
 # Data vs BigQuery live table (auto-detected)
-schema-diff data.json handshake-production:coresignal.users
+schema-diff compare data.json handshake-production:coresignal.users
 ```
 
 ### Schema Generation
@@ -96,54 +96,52 @@ schema-diff generate data.json --format bigquery_ddl  # Fields will be A-Z order
 
 ```bash
 # Single table DDL
-schema-diff ddl my-project:dataset.table
+schema-diff ddl table my-project:dataset.table
 
 # Batch DDL generation
-schema-diff ddl-batch my-project:dataset table1 table2 table3
+schema-diff ddl batch my-project:dataset.table1 my-project:dataset.table2 my-project:dataset.table3
 
 # Entire dataset DDL
-schema-diff ddl-dataset my-project:dataset
+schema-diff ddl dataset my-project:dataset
 
 # Save DDL to files
-schema-diff ddl my-project:dataset.table --out table.sql
-schema-diff ddl-dataset my-project:dataset --out-dir ./ddl --combined-out all_tables.sql
+schema-diff ddl table my-project:dataset.table --output
+schema-diff ddl dataset my-project:dataset --output
 ```
 
 ### Migration Analysis
 
 ```bash
 # Generate migration analysis report (markdown by default)
-schema-diff old_data.json new_data.json --output
+schema-diff compare old_data.json new_data.json --output
 
-# Different output formats
-schema-diff old_data.json new_data.json --output --output-format json
-schema-diff old_data.json new_data.json --output --output-format text
+# Migration analysis is automatically generated when using --output
+schema-diff compare old_data.json new_data.json --output
 ```
 
 ### Google Cloud Storage (GCS) Support
 
 ```bash
 # Compare GCS files directly (gs:// format)
-schema-diff gs://my-bucket/old-data.json gs://my-bucket/new-data.json
+schema-diff compare gs://my-bucket/old-data.json gs://my-bucket/new-data.json
 
 # Compare GCS files using HTTPS URLs
-schema-diff https://storage.cloud.google.com/bucket/file1.json https://storage.googleapis.com/bucket/file2.json
+schema-diff compare https://storage.cloud.google.com/bucket/file1.json https://storage.googleapis.com/bucket/file2.json
 
 # Mixed comparisons (GCS + local)
-schema-diff gs://my-bucket/data.json local-schema.sql --right sql
+schema-diff compare gs://my-bucket/data.json local-schema.sql --right sql
 
 # Generate schema from GCS file
 schema-diff generate gs://my-bucket/production-data.json.gz --format bigquery_ddl --output
 
 # Compare GCS file with BigQuery live table
-schema-diff gs://my-bucket/data.json my-project:dataset.table --right bigquery
+schema-diff compare gs://my-bucket/data.json my-project:dataset.table --right bigquery
 
 # Get GCS file information
-schema-diff --gcs-info gs://my-bucket/data.json
-schema-diff --gcs-info https://storage.cloud.google.com/my-bucket/data.json
+schema-diff config --gcs-info gs://my-bucket/data.json
 
 # Force re-download (bypass cache)
-schema-diff gs://bucket/file1.json gs://bucket/file2.json --force-download
+schema-diff compare gs://bucket/file1.json gs://bucket/file2.json --force-download
 ```
 
 ---
@@ -271,10 +269,25 @@ If you see errors like:
 
 ### Main Command: `schema-diff`
 
+The `schema-diff` tool uses subcommands for different operations:
+
+- `compare` - Compare two schemas or data files (default)
+- `generate` - Generate schema from data file
+- `ddl` - Generate BigQuery DDL from live tables
+- `config` - Configuration management
+
+### Subcommand: `compare`
+
+Compare two schemas or data files.
+
+```bash
+schema-diff compare [OPTIONS] file1 file2
+```
+
 #### Positional Arguments
 
 - `file1` - Left input (data or schema)
-- `file2` - Right input (data or schema) [optional]
+- `file2` - Right input (data or schema)
 
 #### Record Selection
 
@@ -302,9 +315,7 @@ If you see errors like:
 #### Export Options
 
 - `--json-out PATH` - Write diff JSON to this path
-- `--dump-schemas PATH` - Write normalized left/right schemas to this path
 - `--output, -o` - Save comparison results and migration analysis to ./output directory
-- `--output-format {markdown,text,json}` - Format for migration analysis report (default: markdown)
 
 #### Schema Type Selection
 
@@ -331,7 +342,6 @@ If you see errors like:
 #### Google Cloud Storage (GCS) Options
 
 - `--force-download` - Re-download GCS files even if they exist locally (default: use cached files)
-- `--gcs-info GCS_PATH` - Show metadata information about a GCS object and exit
 
 ### Subcommand: `generate`
 
@@ -356,101 +366,104 @@ schema-diff generate [OPTIONS] data_file
 
 ### Subcommand: `ddl`
 
-Generate pretty, formatted DDL for a single BigQuery table.
+Generate BigQuery DDL from live tables.
 
 ```bash
-schema-diff ddl [OPTIONS] table_re
+schema-diff ddl {table,batch,dataset} [OPTIONS] ...
 ```
 
-#### Arguments
+#### DDL Subcommands
 
-- `table_re` - BigQuery table reference (project:dataset.table or dataset.table)
+##### `ddl table` - Single Table DDL
 
-#### Options
-
-- `--color {auto,always,never}` - Colorize SQL output (respects NO_COLOR)
-- `--no-constraints` - Skip primary key and foreign key constraints
-- `--out PATH` - Write DDL to file (uncolored)
-
-### Subcommand: `ddl-batch`
-
-Generate DDL for multiple tables in a dataset with optimized batch queries.
+Generate DDL for a single BigQuery table.
 
 ```bash
-schema-diff ddl-batch [OPTIONS] dataset_re tables [tables ...]
+schema-diff ddl table [OPTIONS] table_ref
 ```
 
-#### Arguments
+**Arguments:**
 
-- `dataset_re` - BigQuery dataset reference (project:dataset or dataset)
-- `tables` - Table names to generate DDL for
+- `table_ref` - BigQuery table reference (project:dataset.table)
 
-#### Options
+**Options:**
 
-- `--color {auto,always,never}` - Colorize SQL output
-- `--no-constraints` - Skip constraints
-- `--out-dir DIR` - Write each table's DDL to separate files in directory
-- `--combined-out PATH` - Write all DDLs to a single file
+- `--output` - Save DDL to ./output directory
 
-### Subcommand: `ddl-dataset`
+##### `ddl batch` - Multiple Tables DDL
+
+Generate DDL for multiple tables.
+
+```bash
+schema-diff ddl batch [OPTIONS] table_ref [table_ref ...]
+```
+
+**Arguments:**
+
+- `table_ref` - BigQuery table references (project:dataset.table)
+
+**Options:**
+
+- `--output` - Save DDL files to ./output directory
+
+##### `ddl dataset` - Dataset DDL
 
 Generate DDL for all tables in a BigQuery dataset.
 
 ```bash
-schema-diff ddl-dataset [OPTIONS] dataset_re
+schema-diff ddl dataset [OPTIONS] dataset_ref
 ```
 
-#### Arguments
+**Arguments:**
 
-- `dataset_re` - BigQuery dataset reference (project:dataset or dataset)
+- `dataset_ref` - BigQuery dataset reference (project:dataset)
 
-#### Options
+**Options:**
 
-- `--color {auto,always,never}` - Colorize SQL output
-- `--no-constraints` - Skip constraints
-- `--exclude [EXCLUDE ...]` - Table names to exclude
-- `--include [INCLUDE ...]` - Only include these table names
-- `--out-dir DIR` - Write each table's DDL to separate files in directory
-- `--combined-out PATH` - Write all DDLs to a single file
-- `--manifest PATH` - Write table list and metadata to JSON manifest file
+- `--output` - Save DDL files to ./output directory
 
-### Subcommand: `formats`
+### Subcommand: `config`
 
-Show all supported schema output formats with descriptions.
+Configuration management and GCS utilities.
 
 ```bash
-schema-diff formats
+schema-diff config {show,init} [OPTIONS] ...
 ```
 
-### Subcommand: `config-show`
+#### Config Subcommands
+
+##### `config show` - Display Configuration
 
 Display current configuration values from files and environment.
 
 ```bash
-schema-diff config-show [OPTIONS]
+schema-diff config show
 ```
 
-#### Options
-
-- `--config PATH` - Path to config file (default: auto-discover)
-
-### Subcommand: `config-init`
+##### `config init` - Create Configuration
 
 Create a new configuration file with default values.
 
 ```bash
-schema-diff config-init [OPTIONS] [config_path]
+schema-diff config init [OPTIONS] [config_path]
 ```
 
-#### Arguments
+**Arguments:**
 
 - `config_path` - Path for new config file (default: schema-diff.yml)
 
-#### Options
+**Options:**
 
-- `--project PROJECT` - Default BigQuery project
-- `--dataset DATASET` - Default BigQuery dataset
 - `--force` - Overwrite existing config file
+
+#### GCS Information
+
+Get metadata about Google Cloud Storage objects:
+
+```bash
+schema-diff config --gcs-info gs://bucket/file.json
+schema-diff config --gcs-info https://storage.cloud.google.com/bucket/file.json
+```
 
 ---
 
@@ -577,10 +590,10 @@ Configuration files are automatically discovered in:
 
 ```bash
 # Use sampling instead of --all-records
-schema-diff large1.json.gz large2.json.gz -k 5000
+schema-diff compare large1.json.gz large2.json.gz -k 5000
 
 # Process specific records only
-schema-diff large1.json.gz large2.json.gz --first-record
+schema-diff compare large1.json.gz large2.json.gz --first-record
 ```
 
 **BigQuery Authentication:**
@@ -612,7 +625,7 @@ gcloud config list
 gcloud auth list
 
 # Test GCS access
-schema-diff --gcs-info gs://your-bucket/test-file.json
+schema-diff config --gcs-info gs://your-bucket/test-file.json
 ```
 
 **Common GCS Errors:**
@@ -636,10 +649,10 @@ pip install -e ".[validation]"
 
 ```bash
 # Focus on specific fields
-schema-diff complex1.json complex2.json --fields user.profile.name user.settings
+schema-diff compare complex1.json complex2.json --fields user.profile.name user.settings
 
 # Show samples to understand structure
-schema-diff complex1.json complex2.json --show-samples -k 3
+schema-diff compare complex1.json complex2.json --show-samples -k 3
 ```
 
 ### Performance Tips

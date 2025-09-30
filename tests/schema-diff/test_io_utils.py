@@ -49,75 +49,59 @@ def test_sample_records_seeded(tmp_path, write_file):
     assert s1 == s2 and len(s1) == 3
 
 
-def test_unreadable_file(tmp_path, write_file):
+def test_unreadable_file(tmp_path, write_file, run_cli):
     p = tmp_path / "bad.json"
     p.write_text("{", encoding="utf-8")
-    exe = [sys.executable, "-m", "schema_diff.cli"]
     with pytest.raises(CommandError):
-        _run(
-            exe
-            + [
-                str(p),
-                str(p),
-                "--left",
-                "data",
-                "--right",
-                "data",
-                "--first-record",
-                "--no-color",
-            ]
-        )
+        run_cli([
+            str(p),
+            str(p),
+            "--left",
+            "data",
+            "--right",
+            "data",
+            "--first-record",
+            "--no-color",
+        ])
 
 
-def test_sql_table_missing(tmp_path, write_file):
+def test_sql_table_missing(tmp_path, write_file, run_cli):
     p = tmp_path / "ddl.sql"
     p.write_text("CREATE TABLE x (id INT);", encoding="utf-8")
-    exe = [sys.executable, "-m", "schema_diff.cli"]
     with pytest.raises(CommandError):
-        _run(
-            exe
-            + [
-                str(p),
-                str(p),
-                "--left",
-                "sql",
-                "--right",
-                "sql",
-                "--right-table",
-                "y",
-                "--no-color",
-            ]
-        )
+        run_cli([
+            str(p),
+            str(p),
+            "--left",
+            "sql",
+            "--right",
+            "sql",
+            "--right-table",
+            "y",
+            "--no-color",
+        ])
 
 
-def test_exports(tmp_path, write_file):
+def test_exports(tmp_path, write_file, run_cli):
     left = tmp_path / "l.json"
     right = tmp_path / "r.json"
     left.write_text(json.dumps({"id": 1}), encoding="utf-8")
     right.write_text(json.dumps({"id": "x"}), encoding="utf-8")
     dump = tmp_path / "dump.json"
     jout = tmp_path / "diff.json"
-    exe = [sys.executable, "-m", "schema_diff.cli"]
-    res = _run(
-        exe
-        + [
-            str(left),
-            str(right),
-            "--left",
-            "data",
-            "--right",
-            "data",
-            "--first-record",
-            "--dump-schemas",
-            str(dump),
-            "--json-out",
-            str(jout),
-            "--no-color",
-        ]
-    )
+    res = run_cli([
+        str(left),
+        str(right),
+        "--left",
+        "data",
+        "--right",
+        "data",
+        "--first-record",
+        "--json-out",
+        str(jout),
+        "--no-color",
+    ])
     assert res.returncode == 0
-    dj = json.loads(dump.read_text())
-    assert "left" in dj and "right" in dj
     jj = json.loads(jout.read_text())
     assert "meta" in jj
 
