@@ -6,6 +6,12 @@ Add this to your post-refactor validation when working with common design patter
 
 ### **🏭 Factory Pattern**
 
+**🔗 Related Resources:**
+
+- 🤖 **AI Prompt**: [Factory Pattern Validation](UNIVERSAL_VALIDATION_PROMPTS.md#factory-pattern-validation)
+- 📊 **Assessment Example**: [Pattern-Focused Assessment](ASSESSMENT_EXAMPLES.md#pattern-focused-assessment-examples)
+- 🐍 **Automated Check**: `python validate_patterns.py ./src --patterns factory`
+
 **What to Check:**
 
 - [ ] Factory methods return interface/abstract types, not concrete classes
@@ -32,6 +38,12 @@ grep -r "Factory.*interface\|abstract" src/  # Should exist
 - Missing factory interface (hard to mock/test)
 
 ### **🏗️ Builder Pattern**
+
+**🔗 Related Resources:**
+
+- 🤖 **AI Prompt**: [Builder Pattern Validation](UNIVERSAL_VALIDATION_PROMPTS.md#builder-pattern-validation)
+- 📊 **Assessment Example**: [Poorly Implemented Builder](ASSESSMENT_EXAMPLES.md#example-2-poorly-implemented-builder-pattern)
+- 🐍 **Automated Check**: `python validate_patterns.py ./src --patterns builder`
 
 **What to Check:**
 
@@ -68,6 +80,12 @@ builder2 = builder1.setB(2)  # Should not affect builder1
 ```
 
 ### **🎨 Decorator Pattern**
+
+**🔗 Related Resources:**
+
+- 🤖 **AI Prompt**: [Decorator Pattern Validation](UNIVERSAL_VALIDATION_PROMPTS.md#decorator-pattern-validation)
+- 📊 **Assessment Example**: [Pattern-Focused Assessment](ASSESSMENT_EXAMPLES.md#pattern-focused-assessment-examples)
+- 🐍 **Automated Check**: `python validate_patterns.py ./src --patterns decorator`
 
 **What to Check:**
 

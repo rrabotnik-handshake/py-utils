@@ -1,10 +1,35 @@
+---
+slug: universal_refactor_checklist
+version: 2.0.0
+time_bands: ["5-10m", "15-30m", "30-45m"]
+scenarios: ["daily", "major_refactor", "pre_production", "architecture_review"]
+inputs: ["tech_stack", "change_complexity", "risk_level", "time_available"]
+outputs: ["mini_report", "comprehensive_assessment", "production_readiness"]
+related:
+  [
+    "refactor_validation_cheatsheet",
+    "agent_navigation_guide",
+    "validate_full.sh",
+  ]
+auto_detectable: true
+---
+
 # 🔍 Universal Post-Refactor Sanity Checklist
 
 Use this checklist after any significant code refactor, architectural changes, or major modifications to ensure nothing is broken. Adapt the specific commands to your technology stack.
 
-## 🎯 Quick Validation (5-10 minutes)
+## INPUTS
 
-### 1. **Code Quality & Standards**
+- **Tech Stack**: Your project's technology (Python, JavaScript, Java, Go, Rust, etc.)
+- **Change Complexity**: Small fix, feature addition, major refactor, architecture change
+- **Risk Level**: Low (dev), Medium (staging), High (production)
+- **Time Available**: 5-10m (quick), 15-30m (standard), 30-45m (comprehensive)
+
+## COMMANDS
+
+### 🎯 Quick Validation (5-10 minutes)
+
+#### 1. **Code Quality & Standards**
 
 ```bash
 # Linting (adapt to your language)
@@ -215,7 +240,98 @@ time your-app performance-critical-operation
 - [ ] Encryption/decryption functional
 - [ ] Security headers present
 
-## 🎯 Success Criteria
+## STEPS
+
+1. **Code Quality (5-10 min)**: Linting, type checking, formatting
+2. **Unit Testing (10-15 min)**: Test execution, coverage analysis
+3. **Integration (10-15 min)**: Build verification, dependency checks
+4. **Pattern Validation (5-10 min)**: Design pattern compliance
+5. **Performance (10-20 min)**: Load testing, profiling (if applicable)
+6. **Security (5-10 min)**: Vulnerability scanning, compliance
+7. **Final Assessment (5 min)**: Structured report generation
+
+## ASSESSMENT_TEMPLATE
+
+**ALWAYS complete validation with a structured assessment:**
+
+### **Generate Validation Report**
+
+```bash
+# Document your validation results
+echo "## 📊 Validation Assessment Report" > validation_report.md
+echo "Date: $(date)" >> validation_report.md
+echo "Project: [YOUR_PROJECT]" >> validation_report.md
+echo "Changes: [WHAT_YOU_CHANGED]" >> validation_report.md
+```
+
+### **Assessment Template**
+
+```markdown
+## 📊 **Validation Assessment Report**
+
+**Date**: [Current Date]
+**Project**: [Project Name]
+**Changes**: [Description of changes made]
+**Validation Time**: [Total time spent]
+
+### **✅ Validation Results**
+
+| **Layer**    | **Status** | **Results**                                  | **Time** |
+| ------------ | ---------- | -------------------------------------------- | -------- |
+| Code Quality | ✅/❌/⚠️   | [Linting, type checking, formatting results] | [time]   |
+| Unit Tests   | ✅/❌/⚠️   | [Test pass/fail count, coverage]             | [time]   |
+| Integration  | ✅/❌/⚠️   | [Integration test results]                   | [time]   |
+| Patterns     | ✅/❌/⚠️   | [Pattern validation results]                 | [time]   |
+| Performance  | ✅/❌/⚠️   | [Performance test results]                   | [time]   |
+| Security     | ✅/❌/⚠️   | [Security scan results]                      | [time]   |
+
+### **🎯 Production Readiness**
+
+| **Criteria**    | **Status** | **Evidence**                      |
+| --------------- | ---------- | --------------------------------- |
+| Functionality   | ✅/❌/⚠️   | [All features work, tests pass]   |
+| Reliability     | ✅/❌/⚠️   | [Error handling, edge cases]      |
+| Performance     | ✅/❌/⚠️   | [Speed, memory, scalability]      |
+| Maintainability | ✅/❌/⚠️   | [Code quality, patterns, docs]    |
+| Security        | ✅/❌/⚠️   | [Vulnerability scans, compliance] |
+
+### **💡 Key Findings**
+
+**Strengths**:
+
+- [What worked well]
+- [Quality improvements]
+- [Successful validations]
+
+**Issues Found**:
+
+- [Problems discovered]
+- [Validation failures]
+- [Areas needing attention]
+
+**Risks Identified**:
+
+- [Potential concerns]
+- [Future maintenance issues]
+- [Performance bottlenecks]
+
+### **🚀 Final Recommendation**
+
+**Status**: ✅ PRODUCTION READY / ⚠️ NEEDS ATTENTION / ❌ NOT READY
+
+**Reasoning**: [Clear explanation of decision based on validation results]
+
+**Next Steps**:
+
+1. [Immediate actions needed]
+2. [Follow-up tasks]
+3. [Monitoring recommendations]
+
+**Confidence Level**: High / Medium / Low
+**Risk Level**: Low / Medium / High
+```
+
+## SUCCESS_CRITERIA
 
 **✅ Ready to Deploy When:**
 
@@ -227,6 +343,7 @@ time your-app performance-critical-operation
 - [ ] Documentation updated
 - [ ] Known critical workflows verified
 - [ ] Rollback plan prepared
+- [ ] **Final assessment shows "PRODUCTION READY"**
 
 **❌ Not Ready When:**
 
@@ -237,6 +354,7 @@ time your-app performance-critical-operation
 - [ ] Security vulnerabilities
 - [ ] Missing documentation
 - [ ] Incomplete rollback plan
+- [ ] **Final assessment shows "NOT READY"**
 
 ## 🚀 Technology-Specific Quick Commands
 

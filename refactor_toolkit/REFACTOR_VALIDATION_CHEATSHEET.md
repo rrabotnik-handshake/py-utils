@@ -1,8 +1,26 @@
+---
+slug: refactor_validation_cheatsheet
+version: 2.0.0
+time_bands: ["30s", "5-10m"]
+scenarios: ["emergency", "daily", "hotfix", "pr_validation"]
+inputs: ["tech_stack", "urgency_level"]
+outputs: ["pass_fail_status", "mini_report"]
+related: ["validate_quick.sh", "quick_validation_prompts"]
+auto_detectable: true
+---
+
 # ⚡ Refactor Validation Cheat Sheet
 
 Quick reference for post-refactor validation. Adapt commands to your tech stack.
 
-## 🚀 5-Minute Quick Check
+## INPUTS
+
+- **Tech Stack**: Python, JavaScript, Java, Go, Rust, Generic
+- **Urgency Level**: Emergency (30s), Daily (5-10m)
+
+## COMMANDS
+
+### 🚀 5-Minute Quick Check
 
 ```bash
 # 1. Code Quality (MULTI-LAYER!)
@@ -57,13 +75,24 @@ time [your-app] [performance-critical-operation]
 - [ ] **Observer**: All observers notified on state change
 - [ ] **Strategy**: Strategies interchangeable at runtime
 
-## ✅ Success Criteria
+## SUCCESS_CRITERIA
 
 - All tests pass
 - No linting errors
 - Critical workflows work
 - Performance acceptable
 - External integrations functional
+- **Final assessment completed**
+
+## ASSESSMENT_TEMPLATE
+
+```
+## Mini Validation Report
+**Status**: ✅ Ready / ⚠️ Needs attention / ❌ Not ready
+**Checks**: [X/Y passed]
+**Issues**: [brief list]
+**Next**: [key actions]
+```
 
 ## 🤖 AI Assistant Prompt (Quick Version)
 

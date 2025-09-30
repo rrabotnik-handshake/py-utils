@@ -32,6 +32,7 @@ Full validation for [TECH] after [CHANGE_TYPE]:
 - Unit + integration tests
 - Performance check
 - Pattern validation
+- Final assessment report
 Step-by-step checklist?
 ```
 
@@ -348,3 +349,5 @@ End with: Production Readiness (if deploying)
 ---
 
 **Pro Tip**: Start with the shortest relevant prompt, then ask follow-up questions to dive deeper into specific areas that need attention!
+
+**Remember**: Always request a final assessment report, even for quick validations. This ensures consistent evaluation and documentation of validation results.

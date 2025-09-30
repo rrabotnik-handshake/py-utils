@@ -1,0 +1,235 @@
+# Declarative Validation Flows
+# Machine-readable validation workflows for different scenarios
+
+flows:
+  # Quick Python Validation (5-10 minutes)
+  quick_python_validation:
+    description: "Fast validation for Python projects"
+    time_band: "5-10m"
+    tech_stack: "python"
+    steps:
+      - name: lint_and_types
+        cmd: "ruff check . && mypy . && trunk check ."
+        expect_regex: ".*(0 errors|Success|✓).*"
+        timeout_s: 120
+        on_fail_tip: "Run mypy with --show-error-codes; fix highest-severity first."
+      - name: unit_tests
+        cmd: "pytest -q --maxfail=3 --tb=short"
+        expect_regex: "== .* passed.*"
+        timeout_s: 300
+        on_fail_tip: "Run pytest -v to see detailed test failures."
+      - name: import_check
+        cmd: 'python -c ''import sys; sys.path.insert(0, "."); import src'''
+        expect_regex: "^$"
+        timeout_s: 30
+        on_fail_tip: "Check for import errors and circular dependencies."
+
+  # Quick JavaScript Validation (5-10 minutes)
+  quick_javascript_validation:
+    description: "Fast validation for JavaScript/Node.js projects"
+    time_band: "5-10m"
+    tech_stack: "javascript"
+    steps:
+      - name: lint_and_types
+        cmd: "npx eslint . && npx tsc --noEmit"
+        expect_regex: ".*(0 problems|✓).*"
+        timeout_s: 120
+        on_fail_tip: "Run eslint --fix for auto-fixable issues."
+      - name: unit_tests
+        cmd: "npm test"
+        expect_regex: ".*(All tests passed|✓).*"
+        timeout_s: 300
+        on_fail_tip: "Run npm test -- --verbose for detailed output."
+      - name: build_check
+        cmd: "npm run build"
+        expect_regex: ".*(Build successful|✓).*"
+        timeout_s: 180
+        on_fail_tip: "Check for TypeScript compilation errors."
+
+  # Comprehensive Python Validation (30-45 minutes)
+  comprehensive_python_validation:
+    description: "Full validation for Python projects"
+    time_band: "30-45m"
+    tech_stack: "python"
+    steps:
+      - name: code_quality
+        cmd: "ruff check . && mypy . && black --check . && isort --check-only ."
+        expect_regex: ".*(0 errors|Success|would reformat 0 files).*"
+        timeout_s: 180
+        on_fail_tip: "Run black . && isort . to fix formatting issues."
+      - name: comprehensive_tests
+        cmd: "pytest -v --cov=. --cov-report=term-missing --cov-fail-under=80"
+        expect_regex: ".*(TOTAL.*80%).*"
+        timeout_s: 600
+        on_fail_tip: "Increase test coverage or adjust threshold."
+      - name: security_scan
+        cmd: "bandit -r . -ll"
+        expect_regex: ".*(No issues identified|0 issues).*"
+        timeout_s: 120
+        on_fail_tip: "Review security issues and add # nosec comments if false positives."
+      - name: complexity_check
+        cmd: "radon cc . -a -nb"
+        expect_regex: ".*(Average complexity: [A-C]).*"
+        timeout_s: 60
+        on_fail_tip: "Refactor functions with high complexity (D, E, F grades)."
+      - name: dependency_check
+        cmd: "pip check"
+        expect_regex: "No broken requirements found"
+        timeout_s: 30
+        on_fail_tip: "Resolve dependency conflicts in requirements.txt."
+
+  # Pattern Validation (15-30 minutes)
+  pattern_validation:
+    description: "Design pattern validation"
+    time_band: "15-30m"
+    tech_stack: "any"
+    steps:
+      - name: automated_pattern_check
+        cmd: "python validate_patterns.py . --auto-detect --verbose"
+        expect_regex: ".*(✓|No issues found).*"
+        timeout_s: 300
+        on_fail_tip: "Review pattern implementation issues in the report."
+      - name: complexity_analysis
+        cmd: "radon cc . -a -nb --min B"
+        expect_regex: ".*(Average complexity: [A-B]).*"
+        timeout_s: 120
+        on_fail_tip: "Simplify complex functions to improve maintainability."
+      - name: dead_code_check
+        cmd: "vulture . --min-confidence 80"
+        expect_regex: "^$"
+        timeout_s: 60
+        on_fail_tip: "Remove unused code or add # pragma: no cover comments."
+
+  # Go Validation (5-10 minutes)
+  quick_go_validation:
+    description: "Fast validation for Go projects"
+    time_band: "5-10m"
+    tech_stack: "go"
+    steps:
+      - name: format_and_vet
+        cmd: "gofmt -l . | wc -l | grep '^0$' && go vet ./..."
+        expect_regex: "^$"
+        timeout_s: 60
+        on_fail_tip: "Run gofmt -w . to fix formatting issues."
+      - name: unit_tests
+        cmd: "go test ./... -short"
+        expect_regex: ".*(PASS|ok).*"
+        timeout_s: 300
+        on_fail_tip: "Run go test -v ./... for detailed test output."
+      - name: build_check
+        cmd: "go build ./..."
+        expect_regex: "^$"
+        timeout_s: 120
+        on_fail_tip: "Fix compilation errors before proceeding."
+
+  # Rust Validation (5-10 minutes)
+  quick_rust_validation:
+    description: "Fast validation for Rust projects"
+    time_band: "5-10m"
+    tech_stack: "rust"
+    steps:
+      - name: format_and_lint
+        cmd: "cargo fmt -- --check && cargo clippy -- -D warnings"
+        expect_regex: "^$"
+        timeout_s: 120
+        on_fail_tip: "Run cargo fmt && cargo clippy --fix for auto-fixes."
+      - name: unit_tests
+        cmd: "cargo test"
+        expect_regex: ".*(test result: ok).*"
+        timeout_s: 300
+        on_fail_tip: "Run cargo test -- --nocapture for detailed output."
+      - name: build_check
+        cmd: "cargo build"
+        expect_regex: ".*(Finished|✓).*"
+        timeout_s: 180
+        on_fail_tip: "Fix compilation errors and warnings."
+
+  # Java Validation (5-10 minutes)
+  quick_java_validation:
+    description: "Fast validation for Java projects"
+    time_band: "5-10m"
+    tech_stack: "java"
+    steps:
+      - name: compile_and_style
+        cmd: "mvn compile -q && mvn checkstyle:check -q"
+        expect_regex: ".*(BUILD SUCCESS).*"
+        timeout_s: 180
+        on_fail_tip: "Fix compilation errors and style violations."
+      - name: unit_tests
+        cmd: "mvn test -q"
+        expect_regex: ".*(BUILD SUCCESS).*"
+        timeout_s: 300
+        on_fail_tip: "Run mvn test for detailed test results."
+      - name: package_check
+        cmd: "mvn package -DskipTests -q"
+        expect_regex: ".*(BUILD SUCCESS).*"
+        timeout_s: 120
+        on_fail_tip: "Fix packaging issues in pom.xml."
+
+  # Generic/Multi-language Validation (5-10 minutes)
+  generic_validation:
+    description: "Basic validation for any project"
+    time_band: "5-10m"
+    tech_stack: "generic"
+    steps:
+      - name: git_status_check
+        cmd: "git status --porcelain | wc -l | grep '^0$'"
+        expect_regex: "^$"
+        timeout_s: 10
+        on_fail_tip: "Commit or stash uncommitted changes."
+      - name: file_permissions
+        cmd: "find . -name '*.sh' -executable | wc -l"
+        expect_regex: "[1-9]"
+        timeout_s: 30
+        on_fail_tip: "Ensure shell scripts are executable."
+      - name: todo_check
+        cmd: "grep -r 'TODO\\|FIXME\\|XXX' . --exclude-dir=.git | wc -l"
+        expect_regex: "^[0-5]$"
+        timeout_s: 30
+        on_fail_tip: "Address TODO/FIXME comments before deployment."
+
+# Conditional flows based on context
+conditional_flows:
+  # Choose flow based on detected technology
+  auto_detect_flow:
+    conditions:
+      - if_exists: "package.json"
+        then_use: "quick_javascript_validation"
+      - if_exists: "requirements.txt"
+        then_use: "quick_python_validation"
+      - if_exists: "pyproject.toml"
+        then_use: "quick_python_validation"
+      - if_exists: "go.mod"
+        then_use: "quick_go_validation"
+      - if_exists: "Cargo.toml"
+        then_use: "quick_rust_validation"
+      - if_exists: "pom.xml"
+        then_use: "quick_java_validation"
+      - default: "generic_validation"
+
+  # Choose flow based on time available
+  time_based_flow:
+    conditions:
+      - if_time: "<10m"
+        then_use: "quick_{tech}_validation"
+      - if_time: "30-45m"
+        then_use: "comprehensive_{tech}_validation"
+      - if_patterns: true
+        then_use: "pattern_validation"
+
+# Success criteria for each flow
+success_criteria:
+  quick_validation:
+    min_steps_passed: 2
+    critical_steps: ["lint_and_types", "unit_tests"]
+    max_failures: 1
+
+  comprehensive_validation:
+    min_steps_passed: 4
+    critical_steps: ["code_quality", "comprehensive_tests", "security_scan"]
+    max_failures: 1
+
+  pattern_validation:
+    min_steps_passed: 2
+    critical_steps: ["automated_pattern_check"]
+    max_failures: 0

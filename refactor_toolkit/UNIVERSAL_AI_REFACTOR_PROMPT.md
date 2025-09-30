@@ -52,6 +52,12 @@ I've just completed a [REFACTOR_TYPE] in my [TECHNOLOGY_STACK] [PROJECT_TYPE] pr
    - Verify backward compatibility (if applicable)
    - Validate security measures are intact
 
+5. **Final Assessment Generation (REQUIRED)**
+   - Generate structured validation report
+   - Provide clear go/no-go recommendation
+   - Include risk assessment and next steps
+   - Document validation results for future reference
+
 **Focus Areas Based on Refactor Type:**
 
 [Choose relevant sections:]
@@ -98,6 +104,12 @@ I've just completed a [REFACTOR_TYPE] in my [TECHNOLOGY_STACK] [PROJECT_TYPE] pr
 - Security scans clean
 
 Please provide specific commands to run for my tech stack and help me identify any issues that need fixing. Focus especially on integration points where components connect, as these are where refactor bugs commonly hide.
+
+**IMPORTANT: Always conclude with a structured final assessment report including:**
+- Validation results summary
+- Production readiness evaluation
+- Clear go/no-go recommendation
+- Risk assessment and next steps
 ```
 
 ---
