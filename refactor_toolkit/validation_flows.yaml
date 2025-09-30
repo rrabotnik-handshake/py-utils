@@ -1,34 +1,127 @@
-# Declarative Validation Flows
-# Machine-readable validation workflows for different scenarios
+# Enhanced Declarative Validation Flows
+# Machine-readable validation workflows with anti-pattern integration
+# References validation_schema.yaml and ANTI_PATTERN_CATALOG.md
 
+version: 2.1.0
+last_updated: 2024-09-30
+
+# Global configuration
+global:
+  timeout_default: 300
+  retry_attempts: 2
+  exit_on_critical: true
+  schema_reference: validation_schema.yaml
+  anti_pattern_catalog: ANTI_PATTERN_CATALOG.md
+
+# Enhanced pattern matching with multiple regex variants
+# yamllint disable rule:quoted-strings
+pattern_matching:
+  success_patterns:
+    python_lint:
+      primary: ".*(0 errors|Success|✓).*"
+      variants: ["^$", ".*All done.*", ".*would reformat 0 files.*"]
+      signals: [exit_code_0, not_contains:error]
+    python_tests:
+      primary: "== .* passed.*"
+      variants:
+        [
+          ".* passed, .* warnings.*",
+          ".*100% passed.*",
+          ".*test session starts.*",
+        ]
+      signals: [exit_code_0, contains:passed, not_contains:FAILED]
+    javascript_lint:
+      primary: ".*(0 problems|✓).*"
+      variants: ["^$", ".*No problems found.*"]
+      signals: [exit_code_0, not_contains:error]
+    build_success:
+      primary: ".*(Build successful|✓).*"
+      variants:
+        [".*Finished.*", ".*BUILD SUCCESS.*", ".*compiled successfully.*"]
+      signals: [exit_code_0, not_contains:error, not_contains:failed]
+# yamllint enable rule:quoted-strings
+
+# Anti-pattern detection integration
+# yamllint disable rule:quoted-strings
+anti_pattern_checks:
+  god_object:
+    id: AP-GOD-001
+    cmd: "find . -name '*.py' -exec wc -l {} + | awk '$1 > 500 {print $2}'"
+    expect_empty: true
+    severity: critical
+    remediation: "Break large classes into smaller, focused classes"
+
+  spaghetti_code:
+    id: AP-SPA-001
+    cmd: "radon cc . -a -nb --min D"
+    expect_empty: true
+    severity: high
+    remediation: "Extract nested logic into separate functions"
+
+  circular_dependencies:
+    id: AP-CIR-001
+    cmd: "python -m py_compile $(find . -name '*.py') 2>&1 | grep -i 'circular\\|recursive'"
+    expect_empty: true
+    severity: critical
+    remediation: "Extract common dependencies to separate module"
+
+  magic_numbers:
+    id: AP-MAG-001
+    cmd: "grep -r '\\b[0-9]\\{2,\\}\\b' --include='*.py' --include='*.js' . | grep -v test | wc -l"
+    expect_threshold: 10
+    severity: medium
+    remediation: "Replace magic numbers with named constants"
+# yamllint enable rule:quoted-strings
+
+# yamllint disable rule:quoted-strings
 flows:
   # Quick Python Validation (5-10 minutes)
   quick_python_validation:
-    description: "Fast validation for Python projects"
-    time_band: "5-10m"
-    tech_stack: "python"
+    description: "Fast validation for Python projects with anti-pattern detection"
+    time_band: 5-10m
+    tech_stack: python
+    layers: [code_quality, unit_tests, integration, anti_patterns]
     steps:
       - name: lint_and_types
+        layer: code_quality
         cmd: "ruff check . && mypy . && trunk check ."
-        expect_regex: ".*(0 errors|Success|✓).*"
+        expect_patterns: [python_lint]
+        expect_signals: [exit_code_0, not_contains:error]
         timeout_s: 120
         on_fail_tip: "Run mypy with --show-error-codes; fix highest-severity first."
+
       - name: unit_tests
+        layer: unit_tests
         cmd: "pytest -q --maxfail=3 --tb=short"
-        expect_regex: "== .* passed.*"
+        expect_patterns: [python_tests]
+        expect_signals: [exit_code_0, contains:passed, not_contains:FAILED]
         timeout_s: 300
         on_fail_tip: "Run pytest -v to see detailed test failures."
+
       - name: import_check
+        layer: integration
         cmd: 'python -c ''import sys; sys.path.insert(0, "."); import src'''
-        expect_regex: "^$"
+        expect_patterns: [build_success]
+        expect_signals: [exit_code_0]
         timeout_s: 30
         on_fail_tip: "Check for import errors and circular dependencies."
+
+      - name: anti_pattern_scan
+        layer: anti_patterns
+        # yamllint disable-line rule:quoted-strings
+        cmd: "python validate_patterns.py . --auto-detect --include-anti-patterns"
+        expect_patterns: [build_success]
+        expect_signals: [exit_code_0, not_contains:CRITICAL, not_contains:HIGH]
+        timeout_s: 60
+        # yamllint disable-line rule:quoted-strings
+        on_fail_tip: "Review anti-pattern violations and apply suggested remediations."
+        anti_pattern_checks: [god_object, spaghetti_code, circular_dependencies]
 
   # Quick JavaScript Validation (5-10 minutes)
   quick_javascript_validation:
     description: "Fast validation for JavaScript/Node.js projects"
-    time_band: "5-10m"
-    tech_stack: "javascript"
+    time_band: 5-10m
+    tech_stack: javascript
     steps:
       - name: lint_and_types
         cmd: "npx eslint . && npx tsc --noEmit"
@@ -49,8 +142,8 @@ flows:
   # Comprehensive Python Validation (30-45 minutes)
   comprehensive_python_validation:
     description: "Full validation for Python projects"
-    time_band: "30-45m"
-    tech_stack: "python"
+    time_band: 30-45m
+    tech_stack: python
     steps:
       - name: code_quality
         cmd: "ruff check . && mypy . && black --check . && isort --check-only ."
@@ -81,8 +174,8 @@ flows:
   # Pattern Validation (15-30 minutes)
   pattern_validation:
     description: "Design pattern validation"
-    time_band: "15-30m"
-    tech_stack: "any"
+    time_band: 15-30m
+    tech_stack: any
     steps:
       - name: automated_pattern_check
         cmd: "python validate_patterns.py . --auto-detect --verbose"
@@ -103,8 +196,8 @@ flows:
   # Go Validation (5-10 minutes)
   quick_go_validation:
     description: "Fast validation for Go projects"
-    time_band: "5-10m"
-    tech_stack: "go"
+    time_band: 5-10m
+    tech_stack: go
     steps:
       - name: format_and_vet
         cmd: "gofmt -l . | wc -l | grep '^0$' && go vet ./..."
@@ -125,8 +218,8 @@ flows:
   # Rust Validation (5-10 minutes)
   quick_rust_validation:
     description: "Fast validation for Rust projects"
-    time_band: "5-10m"
-    tech_stack: "rust"
+    time_band: 5-10m
+    tech_stack: rust
     steps:
       - name: format_and_lint
         cmd: "cargo fmt -- --check && cargo clippy -- -D warnings"
@@ -147,8 +240,8 @@ flows:
   # Java Validation (5-10 minutes)
   quick_java_validation:
     description: "Fast validation for Java projects"
-    time_band: "5-10m"
-    tech_stack: "java"
+    time_band: 5-10m
+    tech_stack: java
     steps:
       - name: compile_and_style
         cmd: "mvn compile -q && mvn checkstyle:check -q"
@@ -169,8 +262,8 @@ flows:
   # Generic/Multi-language Validation (5-10 minutes)
   generic_validation:
     description: "Basic validation for any project"
-    time_band: "5-10m"
-    tech_stack: "generic"
+    time_band: 5-10m
+    tech_stack: generic
     steps:
       - name: git_status_check
         cmd: "git status --porcelain | wc -l | grep '^0$'"
@@ -194,18 +287,18 @@ conditional_flows:
   auto_detect_flow:
     conditions:
       - if_exists: "package.json"
-        then_use: "quick_javascript_validation"
+        then_use: quick_javascript_validation
       - if_exists: "requirements.txt"
-        then_use: "quick_python_validation"
+        then_use: quick_python_validation
       - if_exists: "pyproject.toml"
-        then_use: "quick_python_validation"
+        then_use: quick_python_validation
       - if_exists: "go.mod"
-        then_use: "quick_go_validation"
+        then_use: quick_go_validation
       - if_exists: "Cargo.toml"
-        then_use: "quick_rust_validation"
+        then_use: quick_rust_validation
       - if_exists: "pom.xml"
-        then_use: "quick_java_validation"
-      - default: "generic_validation"
+        then_use: quick_java_validation
+      - default: generic_validation
 
   # Choose flow based on time available
   time_based_flow:
@@ -215,21 +308,22 @@ conditional_flows:
       - if_time: "30-45m"
         then_use: "comprehensive_{tech}_validation"
       - if_patterns: true
-        then_use: "pattern_validation"
+        then_use: pattern_validation
 
 # Success criteria for each flow
 success_criteria:
   quick_validation:
     min_steps_passed: 2
-    critical_steps: ["lint_and_types", "unit_tests"]
+    critical_steps: [lint_and_types, unit_tests]
     max_failures: 1
 
   comprehensive_validation:
     min_steps_passed: 4
-    critical_steps: ["code_quality", "comprehensive_tests", "security_scan"]
+    critical_steps: [code_quality, comprehensive_tests, security_scan]
     max_failures: 1
 
   pattern_validation:
     min_steps_passed: 2
-    critical_steps: ["automated_pattern_check"]
+    critical_steps: [automated_pattern_check]
     max_failures: 0
+# yamllint enable rule:quoted-strings

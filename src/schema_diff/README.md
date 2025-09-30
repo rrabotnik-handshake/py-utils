@@ -195,7 +195,7 @@ schema-diff compare gs://bucket/file1.json gs://bucket/file2.json --force-downlo
 
 - **General mode:** Different file types or any schema sources detected
 - **Classic data-to-data:** Both files detected as data with same type
-- **Legacy modes:** Explicit `--json-schema`, `--spark-schema`, `--sql-schema` arguments
+- **Alternative modes:** Explicit `--json-schema`, `--spark-schema`, `--sql-schema` arguments
 
 No `--left`/`--right` arguments needed for most comparisons!
 
@@ -328,7 +328,7 @@ schema-diff compare [OPTIONS] file1 file2
 - `--left-message LEFT_MESSAGE` - Protobuf message to use for file1
 - `--right-message RIGHT_MESSAGE` - Protobuf message to use for file2
 
-#### Legacy Options (Deprecated)
+#### Alternative Options
 
 - `--json-schema JSON_SCHEMA.json` - Compare DATA file1 vs a JSON Schema file
 - `--spark-schema SPARK_SCHEMA.txt` - Compare DATA file1 vs a Spark-style schema text

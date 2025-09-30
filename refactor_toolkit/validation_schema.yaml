@@ -1,0 +1,372 @@
+# Central Validation Schema
+# Single source of truth for all validation concepts, layers, and patterns
+# Referenced by scripts, flows, cheat sheets, and checklists
+
+schema_version: 2.0.0
+last_updated: 2024-09-30
+
+# Core validation layers - referenced by all tools
+# yamllint disable rule:quoted-strings
+validation_layers:
+  code_quality:
+    id: L001
+    name: Code Quality
+    description: Linting, type checking, formatting, style compliance
+    time_estimate: 2-5m
+    priority: critical
+    commands:
+      python:
+        - cmd: "ruff check ."
+          expect_signals: [exit_code_0, "contains:0 errors", not_contains:error]
+          expect_regex: [".*(0 errors|Success|✓).*", "^$"]
+        - cmd: "mypy ."
+          expect_signals: [exit_code_0, contains:Success, not_contains:error]
+          expect_regex: [".*Success.*", ".*Found 0 errors.*"]
+        - cmd: "black --check ."
+          expect_signals: [exit_code_0, "not_contains:would reformat"]
+          expect_regex: [".*would reformat 0 files.*", "^$"]
+      javascript:
+        - cmd: "npx eslint ."
+          expect_signals: [exit_code_0, "contains:0 problems"]
+          expect_regex: [".*(0 problems|✓).*", "^$"]
+        - cmd: "npx tsc --noEmit"
+          expect_signals: [exit_code_0, not_contains:error]
+          expect_regex: ["^$"]
+      go:
+        - cmd: "gofmt -l . | wc -l | grep '^0$'"
+          expect_signals: [exit_code_0]
+          expect_regex: ["^$"]
+        - cmd: "go vet ./..."
+          expect_signals: [exit_code_0]
+          expect_regex: ["^$"]
+      rust:
+        - cmd: "cargo fmt -- --check"
+          expect_signals: [exit_code_0]
+          expect_regex: ["^$"]
+        - cmd: "cargo clippy -- -D warnings"
+          expect_signals: [exit_code_0]
+          expect_regex: ["^$"]
+      java:
+        - cmd: "mvn checkstyle:check -q"
+          expect_signals: [exit_code_0, "contains:BUILD SUCCESS"]
+          expect_regex: [".*(BUILD SUCCESS).*"]
+      generic:
+        - cmd: "find . -name '*.sh' -exec shellcheck {} +"
+          expect_signals: [exit_code_0]
+          expect_regex: ["^$"]
+
+  unit_tests:
+    id: L002
+    name: Unit Tests
+    description: Test execution, coverage analysis, test quality
+    time_estimate: 5-15m
+    priority: critical
+    commands:
+      python:
+        - cmd: "pytest -v"
+          expect_signals: [exit_code_0, contains:passed, not_contains:FAILED]
+          expect_regex: ["== .* passed.*", ".* passed, .* warnings.*"]
+        - cmd: "pytest --cov=. --cov-report=term-missing --cov-fail-under=80"
+          expect_signals: [exit_code_0, "contains:80%"]
+          expect_regex: [".*(TOTAL.*[8-9][0-9]%).*", ".*(TOTAL.*100%).*"]
+      javascript:
+        - cmd: "npm test"
+          expect_signals: [exit_code_0, contains:passed]
+          expect_regex: [".*(All tests passed|✓).*", ".*Tests:.*passed.*"]
+        - cmd: "npm run test:coverage"
+          expect_signals: [exit_code_0, contains:coverage]
+          expect_regex: [".*coverage.*[8-9][0-9]%.*"]
+      go:
+        - cmd: "go test ./..."
+          expect_signals: [exit_code_0, contains:PASS]
+          expect_regex: [".*(PASS|ok).*"]
+      rust:
+        - cmd: "cargo test"
+          expect_signals: [exit_code_0, "contains:test result: ok"]
+          expect_regex: [".*(test result: ok).*"]
+      java:
+        - cmd: "mvn test -q"
+          expect_signals: [exit_code_0, "contains:BUILD SUCCESS"]
+          expect_regex: [".*(BUILD SUCCESS).*"]
+
+  integration:
+    id: L003
+    name: Integration
+    description: Build verification, dependency checks, import validation
+    time_estimate: 3-10m
+    priority: high
+    commands:
+      python:
+        - cmd: 'python -c ''import sys; sys.path.insert(0, "."); import src'''
+          expect_signals: [exit_code_0]
+          expect_regex: ["^$"]
+        - cmd: "pip check"
+          expect_signals: [exit_code_0, "contains:No broken requirements"]
+          expect_regex: ["No broken requirements found"]
+      javascript:
+        - cmd: "npm run build"
+          expect_signals: [exit_code_0, not_contains:error]
+          expect_regex: [".*(Build successful|✓).*", "^$"]
+        - cmd: "npm audit --audit-level=high"
+          expect_signals: [exit_code_0, not_contains:vulnerabilities]
+          expect_regex: [".*found 0 vulnerabilities.*"]
+      go:
+        - cmd: "go build ./..."
+          expect_signals: [exit_code_0]
+          expect_regex: ["^$"]
+      rust:
+        - cmd: "cargo build"
+          expect_signals: [exit_code_0, contains:Finished]
+          expect_regex: [".*(Finished|✓).*"]
+      java:
+        - cmd: "mvn compile -q"
+          expect_signals: [exit_code_0, "contains:BUILD SUCCESS"]
+          expect_regex: [".*(BUILD SUCCESS).*"]
+
+  patterns:
+    id: L004
+    name: Design Patterns
+    description: Pattern compliance, anti-pattern detection, architecture validation
+    time_estimate: 5-20m
+    priority: medium
+    commands:
+      all:
+        - cmd: "python validate_patterns.py . --auto-detect --verbose"
+          expect_signals:
+            [exit_code_0, not_contains:CRITICAL, not_contains:HIGH]
+          expect_regex: [".*(✓|No issues found).*", ".*0 critical.*0 high.*"]
+
+  performance:
+    id: L005
+    name: Performance
+    description: Load testing, profiling, performance regression detection
+    time_estimate: 10-30m
+    priority: medium
+    commands:
+      python:
+        - cmd: "radon cc . -a -nb --min B"
+          expect_signals:
+            [
+              exit_code_0,
+              "contains:Average complexity: A",
+              "contains:Average complexity: B",
+            ]
+          expect_regex: [".*(Average complexity: [A-B]).*"]
+      all:
+        - cmd: "grep -r 'TODO.*performance\\|FIXME.*performance' . || true"
+          expect_signals: [exit_code_0]
+          expect_regex: ["^$"]
+
+  security:
+    id: L006
+    name: Security
+    description: Vulnerability scanning, security compliance, secret detection
+    time_estimate: 2-10m
+    priority: high
+    commands:
+      python:
+        - cmd: "bandit -r . -ll"
+          expect_signals: [exit_code_0, "contains:No issues identified"]
+          expect_regex: [".*(No issues identified|0 issues).*"]
+        - cmd: "safety check"
+          expect_signals: [exit_code_0, not_contains:vulnerability]
+          expect_regex:
+            [".*All good.*", ".*No known security vulnerabilities.*"]
+      javascript:
+        - cmd: "npm audit --audit-level=moderate"
+          expect_signals: [exit_code_0, not_contains:vulnerabilities]
+          expect_regex: [".*found 0 vulnerabilities.*"]
+      all:
+        - cmd: "grep -r 'password\\|secret\\|key\\|token' . --include='*.py' --include='*.js' --include='*.java' || true"
+          expect_signals: [exit_code_0]
+          expect_regex: ["^$"]
+# yamllint enable rule:quoted-strings
+
+# Time-based validation profiles
+time_profiles:
+  emergency:
+    duration: 30s-1m
+    layers: [code_quality]
+    depth: surface
+    exit_on_first_failure: true
+
+  quick:
+    duration: 5-10m
+    layers: [code_quality, unit_tests, integration]
+    depth: standard
+    exit_on_first_failure: false
+
+  standard:
+    duration: 15-30m
+    layers: [code_quality, unit_tests, integration, patterns]
+    depth: thorough
+    exit_on_first_failure: false
+
+  comprehensive:
+    duration: 30-45m
+    layers:
+      [code_quality, unit_tests, integration, patterns, performance, security]
+    depth: exhaustive
+    exit_on_first_failure: false
+
+# Anti-pattern definitions with detection and remediation
+anti_patterns:
+  god_object:
+    id: AP-GOD-001
+    name: God Object
+    severity: critical
+    detection:
+      # yamllint disable rule:quoted-strings
+      automated: true
+      signals: ["class_lines>500", "methods>20", "dependencies>15"]
+      commands:
+        - cmd: "find . -name '*.py' -exec wc -l {} + | awk '$1 > 500'"
+          expect_signals: [exit_code_1] # Should find nothing
+    remediation:
+      immediate: "Break large classes into smaller, focused classes"
+      strategy: "Apply Single Responsibility Principle"
+      resources: ["DESIGN_PATTERN_VALIDATION.md#god-object"]
+
+  spaghetti_code:
+    id: AP-SPA-001
+    name: Spaghetti Code
+    severity: high
+    detection:
+      automated: true
+      signals: ["complexity>10", "nesting>4", "function_lines>50"]
+      commands:
+        - cmd: "radon cc . -a -nb --min D"
+          expect_signals: [exit_code_1] # Should find nothing
+    remediation:
+      immediate: "Extract nested logic into separate functions"
+      strategy: "Use early returns and guard clauses"
+      resources: ["ANTI_PATTERN_CATALOG.md#spaghetti-code"]
+
+  circular_dependencies:
+    id: AP-CIR-001
+    name: Circular Dependencies
+    severity: critical
+    detection:
+      automated: true
+      signals: [import_cycle_detected]
+      commands:
+        - cmd: "python -m py_compile $(find . -name '*.py')"
+          expect_signals: [exit_code_0]
+    remediation:
+      immediate: "Extract common dependencies to separate module"
+      strategy: "Use dependency injection or inversion of control"
+      resources: ["ANTI_PATTERN_CATALOG.md#circular-dependencies"]
+
+# Output format mappings for RESPONSE_BLUEPRINTS
+output_mappings:
+  mini_assessment:
+    status:
+      source: overall_result
+      mapping:
+        "all_passed": "✅ Ready"
+        "some_failed": "⚠️ Needs attention"
+        "critical_failed": "❌ Not ready"
+    # yamllint enable rule:quoted-strings
+
+    checks_passed:
+      source: passed_count
+      # yamllint disable rule:quoted-strings
+      type: integer
+    total_checks:
+      source: total_count
+      type: integer
+    issues_summary:
+      source: failure_summary
+      type: string
+      required_if: "status != '✅ Ready'"
+    next_actions:
+      source: recommended_actions
+      type: string
+      required_if: "status != '✅ Ready'"
+
+  comprehensive_assessment:
+    metadata:
+      date:
+        source: timestamp
+        format: iso8601
+      project_name:
+        source: project_dir
+        transform: basename
+      validation_time:
+        source: total_duration
+        format: duration_string
+    validation_results:
+      source: layer_results
+      type: array
+      fields:
+        layer_name: layer_id
+        status: "result_status"
+        results_summary: "summary"
+        time_taken: "duration"
+    final_recommendation:
+      status:
+        source: overall_assessment
+        mapping:
+          "production_ready": "✅ PRODUCTION READY"
+          "needs_attention": "⚠️ NEEDS ATTENTION"
+          "not_ready": "❌ NOT READY"
+
+# Success criteria definitions
+success_criteria:
+  emergency:
+    minimum_layers_passed: 1
+    critical_layers: [code_quality]
+    max_failures: 0
+
+  quick:
+    minimum_layers_passed: 2
+    # yamllint enable rule:quoted-strings
+
+    critical_layers: [code_quality, unit_tests]
+    max_failures: 1
+
+  standard:
+    minimum_layers_passed: 3
+    critical_layers: [code_quality, unit_tests, integration]
+    max_failures: 1
+
+  comprehensive:
+    minimum_layers_passed: 4
+    critical_layers: [code_quality, unit_tests, integration, security]
+    max_failures: 2
+
+# Technology detection patterns
+tech_detection:
+  python:
+    files: [requirements.txt, pyproject.toml, setup.py, Pipfile]
+    # yamllint disable-line rule:quoted-strings
+    extensions: [".py"]
+
+  javascript:
+    files: [package.json, yarn.lock, package-lock.json]
+    # yamllint disable-line rule:quoted-strings
+    extensions: [".js", ".ts", ".jsx", ".tsx"]
+
+  go:
+    # yamllint disable rule:quoted-strings
+    files: [go.mod, go.sum]
+    extensions: [".go"]
+
+  rust:
+    files: [Cargo.toml, Cargo.lock]
+    extensions: [".rs"]
+
+  java:
+    files: [pom.xml, build.gradle, build.gradle.kts]
+    extensions: [".java"]
+
+# Machine-readable exit codes
+exit_codes:
+  success: 0
+  warnings_only: 1
+  failures_found: 2
+  critical_failures: 3
+  system_error: 4
+  invalid_usage: 5
+# yamllint enable rule:quoted-strings
+

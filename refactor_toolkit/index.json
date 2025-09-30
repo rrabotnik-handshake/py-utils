@@ -6,62 +6,116 @@
   },
   "routes": [
     {
-      "when": { "time": "<1m", "scenario": "emergency" },
-      "go_to": "refactor_validation_cheatsheet#emergency-commands",
+      "when": {
+        "time": "<1m",
+        "scenario": "emergency"
+      },
+      "go_to": "consolidated_prompt_library#p001-critical-hotfix-validation",
+      "prompt_id": "P001",
       "description": "Hotfix validation, critical bugs"
     },
     {
-      "when": { "time": "5-10m", "scenario": "daily" },
-      "go_to": "refactor_validation_cheatsheet#quick-commands",
+      "when": {
+        "time": "5-10m",
+        "scenario": "daily"
+      },
+      "go_to": "consolidated_prompt_library#p002-standard-daily-validation",
+      "prompt_id": "P002",
       "description": "Daily development, code changes, PR validation"
     },
     {
-      "when": { "time": "5-10m", "automated": true },
-      "go_to": "validate_quick.sh",
-      "description": "Automated quick validation script"
+      "when": {
+        "time": "10m",
+        "scenario": "code_quality"
+      },
+      "go_to": "consolidated_prompt_library#p003-code-quality-focus",
+      "prompt_id": "P003",
+      "description": "Code quality focus, linting, formatting"
     },
     {
-      "when": { "time": "15-30m", "scenario": "patterns" },
-      "go_to": "design_pattern_validation#pattern-checks",
+      "when": {
+        "time": "15-30m",
+        "scenario": "patterns"
+      },
+      "go_to": "consolidated_prompt_library#p004-pattern-compliance-validation",
+      "prompt_id": "P004",
       "description": "Pattern implementation, architecture review"
     },
     {
-      "when": { "time": "30-45m", "scenario": "major_refactor" },
-      "go_to": "universal_refactor_checklist#comprehensive-workflow",
+      "when": {
+        "time": "30-45m",
+        "scenario": "major_refactor"
+      },
+      "go_to": "consolidated_prompt_library#p005-pre-production-validation",
+      "prompt_id": "P005",
       "description": "Major refactors, production releases"
     },
     {
-      "when": { "time": "30-45m", "automated": true },
+      "when": {
+        "time": "30-60m",
+        "scenario": "performance"
+      },
+      "go_to": "consolidated_prompt_library#p006-performance--security-deep-dive",
+      "prompt_id": "P006",
+      "description": "Performance analysis, security scanning"
+    },
+    {
+      "when": {
+        "scenario": "migration"
+      },
+      "go_to": "consolidated_prompt_library#p007-migration-impact-analysis",
+      "prompt_id": "P007",
+      "description": "Schema/data migration validation"
+    },
+    {
+      "when": {
+        "time": "30-45m",
+        "automated": true
+      },
       "go_to": "validate_full.sh",
       "description": "Automated comprehensive validation script"
     },
     {
-      "when": { "ai_assistance": true, "time": "<5m" },
+      "when": {
+        "ai_assistance": true,
+        "time": "<5m"
+      },
       "go_to": "quick_validation_prompts#30-second-prompts",
       "description": "Fast AI-assisted validation"
     },
     {
-      "when": { "ai_assistance": true, "time": "15-45m" },
+      "when": {
+        "ai_assistance": true,
+        "time": "15-45m"
+      },
       "go_to": "universal_ai_refactor_prompt#comprehensive-validation",
       "description": "AI-guided comprehensive validation"
     },
     {
-      "when": { "role": "ai_agent" },
+      "when": {
+        "role": "ai_agent"
+      },
       "go_to": "agent_navigation_guide#decision-tree",
       "description": "Complete AI agent guidance system"
     },
     {
-      "when": { "need": "examples" },
+      "when": {
+        "need": "examples"
+      },
       "go_to": "assessment_examples#templates",
       "description": "Filled-out validation report examples"
     },
     {
-      "when": { "need": "ci_cd" },
+      "when": {
+        "need": "ci_cd"
+      },
       "go_to": "ci_cd_integration#platform-configs",
       "description": "GitHub Actions, GitLab CI, Azure DevOps, Jenkins"
     },
     {
-      "when": { "need": "anti_patterns" },
+      "when": {
+        "need": "anti_patterns"
+      },
       "go_to": "anti_pattern_catalog#detection-automation",
       "description": "God Object, Spaghetti Code, Circular Dependencies"
     }

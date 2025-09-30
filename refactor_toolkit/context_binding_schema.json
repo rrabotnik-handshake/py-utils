@@ -1,0 +1,410 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Context Binding Schema",
+  "description": "Maps script outputs to RESPONSE_BLUEPRINTS.md template variables",
+  "version": "2.0.0",
+  "last_updated": "2024-09-30",
+  "output_formats": {
+    "json": {
+      "description": "Structured JSON output from validation scripts",
+      "content_type": "application/json",
+      "parser": "json"
+    },
+    "machine": {
+      "description": "Key-value pairs for machine parsing",
+      "content_type": "text/plain",
+      "parser": "key_value",
+      "delimiter": ":"
+    },
+    "human": {
+      "description": "Human-readable console output",
+      "content_type": "text/plain",
+      "parser": "regex_extraction"
+    }
+  },
+  "template_mappings": {
+    "mini_assessment": {
+      "template_file": "RESPONSE_BLUEPRINTS.md",
+      "section": "Mini Validation Report",
+      "variables": {
+        "status": {
+          "sources": {
+            "json": "$.final_recommendation.status",
+            "machine": "VALIDATION_RESULT",
+            "human": {
+              "regex": "(\u2705 PRODUCTION READY|\u26a0\ufe0f NEEDS ATTENTION|\u274c NOT READY)",
+              "fallback": "\u26a0\ufe0f UNKNOWN"
+            }
+          },
+          "transformations": {
+            "PASS": "\u2705 Ready",
+            "FAIL": "\u274c Not ready",
+            "all_passed": "\u2705 Ready",
+            "some_failed": "\u26a0\ufe0f Needs attention",
+            "critical_failed": "\u274c Not ready"
+          }
+        },
+        "checks_passed": {
+          "sources": {
+            "json": "$.summary.passed_checks",
+            "machine": "PASSED_CHECKS",
+            "human": {
+              "regex": "Passed: (\\d+)",
+              "type": "integer"
+            }
+          }
+        },
+        "total_checks": {
+          "sources": {
+            "json": "$.summary.total_checks",
+            "machine": "TOTAL_CHECKS",
+            "human": {
+              "regex": "Total checks: (\\d+)",
+              "type": "integer"
+            }
+          }
+        },
+        "issues_summary": {
+          "sources": {
+            "json": "$.final_recommendation.next_actions",
+            "machine": "LAYER:.*:FAIL",
+            "human": {
+              "regex": "Failed checks:\\n(.+?)\\n\\n",
+              "multiline": true
+            }
+          },
+          "required_if": "status != '\u2705 Ready'"
+        },
+        "next_actions": {
+          "sources": {
+            "json": "$.final_recommendation.next_actions",
+            "machine": "VALIDATION_RESULT:FAIL",
+            "human": {
+              "regex": "Next Steps:\\n(.+?)$",
+              "multiline": true
+            }
+          },
+          "default": "All checks passed - ready for deployment",
+          "required_if": "status != '\u2705 Ready'"
+        },
+        "project_name": {
+          "sources": {
+            "json": "$.metadata.project_name",
+            "machine": "PROJECT",
+            "human": {
+              "regex": "Project: (.+)",
+              "fallback": "{{current_directory}}"
+            }
+          }
+        },
+        "validation_time": {
+          "sources": {
+            "json": "$.metadata.validation_time",
+            "machine": "DURATION",
+            "human": {
+              "regex": "Duration: (.+)",
+              "fallback": "unknown"
+            }
+          }
+        }
+      }
+    },
+    "comprehensive_assessment": {
+      "template_file": "RESPONSE_BLUEPRINTS.md",
+      "section": "Comprehensive Assessment",
+      "variables": {
+        "metadata": {
+          "date": {
+            "sources": {
+              "json": "$.metadata.timestamp",
+              "machine": "TIMESTAMP",
+              "human": "{{current_timestamp}}"
+            },
+            "format": "iso8601"
+          },
+          "project_name": {
+            "sources": {
+              "json": "$.metadata.project_name",
+              "machine": "PROJECT",
+              "human": "{{current_directory}}"
+            },
+            "transform": "basename"
+          },
+          "validation_time": {
+            "sources": {
+              "json": "$.metadata.validation_time",
+              "machine": "DURATION",
+              "human": {
+                "regex": "Duration: (.+)"
+              }
+            },
+            "format": "duration_string"
+          },
+          "tech_stack": {
+            "sources": {
+              "json": "$.metadata.tech_stack",
+              "machine": "TECH_STACK",
+              "human": {
+                "regex": "Technology: (.+)"
+              }
+            }
+          }
+        },
+        "validation_results": {
+          "sources": {
+            "json": "$.layer_results",
+            "machine": "LAYER:(.+):(.+)",
+            "human": {
+              "regex": "\ud83d\udcdd (.+?)\\n(.+?)(?=\ud83d\udcdd|\ud83d\udcca|$)",
+              "multiline": true
+            }
+          },
+          "type": "array",
+          "fields": {
+            "layer_name": {
+              "json_path": "$.layer_name",
+              "machine_group": 1,
+              "human_group": 1
+            },
+            "status": {
+              "json_path": "$.results[*].status",
+              "machine_group": 2,
+              "human_regex": "(PASS|FAIL|\u2705|\u274c)"
+            },
+            "results_summary": {
+              "json_path": "$.results",
+              "machine_group": 2,
+              "human_group": 2
+            },
+            "time_taken": {
+              "json_path": "$.results[*].duration",
+              "machine_regex": ":(\\d+):",
+              "human_regex": "\\((\\d+)s\\)"
+            }
+          }
+        },
+        "final_recommendation": {
+          "status": {
+            "sources": {
+              "json": "$.final_recommendation.status",
+              "machine": "VALIDATION_RESULT",
+              "human": {
+                "regex": "(\u2705 PRODUCTION READY|\u26a0\ufe0f NEEDS ATTENTION|\u274c NOT READY)"
+              }
+            },
+            "mapping": {
+              "PASS": "\u2705 PRODUCTION READY",
+              "FAIL": "\u274c NOT READY",
+              "all_passed": "\u2705 PRODUCTION READY",
+              "some_failed": "\u26a0\ufe0f NEEDS ATTENTION",
+              "critical_failed": "\u274c NOT READY"
+            }
+          },
+          "summary": {
+            "sources": {
+              "json": "$.final_recommendation.next_actions",
+              "machine": "VALIDATION_RESULT:(.+)",
+              "human": {
+                "regex": "\ud83d\udcca Validation Summary\\n[=]+\\n(.+?)(?=\\n\\n|$)",
+                "multiline": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "pattern_assessment": {
+      "template_file": "RESPONSE_BLUEPRINTS.md",
+      "section": "Pattern Assessment",
+      "variables": {
+        "patterns_checked": {
+          "sources": {
+            "json": "$.pattern_results.total_patterns",
+            "machine": "PATTERN_CHECKS",
+            "human": {
+              "regex": "Patterns checked: (\\d+)"
+            }
+          }
+        },
+        "violations_found": {
+          "sources": {
+            "json": "$.pattern_results.violations",
+            "machine": "PATTERN_VIOLATIONS",
+            "human": {
+              "regex": "Violations: (\\d+)"
+            }
+          }
+        },
+        "anti_patterns_detected": {
+          "sources": {
+            "json": "$.anti_pattern_results.detected",
+            "machine": "ANTI_PATTERNS",
+            "human": {
+              "regex": "Anti-patterns detected: (.+)"
+            }
+          },
+          "type": "array"
+        },
+        "recommendations": {
+          "sources": {
+            "json": "$.pattern_results.recommendations",
+            "machine": "PATTERN_RECOMMENDATIONS",
+            "human": {
+              "regex": "Recommendations:\\n(.+?)(?=\\n\\n|$)",
+              "multiline": true
+            }
+          },
+          "type": "array"
+        }
+      }
+    },
+    "pr_comment": {
+      "template_file": "RESPONSE_BLUEPRINTS.md",
+      "section": "PR Comment",
+      "variables": {
+        "validation_status": {
+          "sources": {
+            "json": "$.summary.overall_result",
+            "machine": "VALIDATION_RESULT",
+            "human": {
+              "regex": "(\u2705|\u26a0\ufe0f|\u274c)"
+            }
+          }
+        },
+        "critical_issues": {
+          "sources": {
+            "json": "$.layer_results[?(@.results[*].status == 'FAIL')]",
+            "machine": "LAYER:.*:FAIL",
+            "human": {
+              "regex": "\u274c (.+)",
+              "multiline": true
+            }
+          },
+          "type": "array"
+        },
+        "warnings": {
+          "sources": {
+            "json": "$.warnings",
+            "machine": "WARNING:",
+            "human": {
+              "regex": "\u26a0\ufe0f (.+)",
+              "multiline": true
+            }
+          },
+          "type": "array"
+        },
+        "score": {
+          "sources": {
+            "json": "$.summary.passed_checks / $.summary.total_checks * 100",
+            "machine": "SCORE",
+            "human": {
+              "regex": "\\((\\d+)%\\)"
+            }
+          },
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "transformation_functions": {
+    "basename": {
+      "description": "Extract basename from file path",
+      "implementation": "path.basename(value)"
+    },
+    "iso8601": {
+      "description": "Format timestamp as ISO8601",
+      "implementation": "new Date(value).toISOString()"
+    },
+    "duration_string": {
+      "description": "Format duration in human-readable format",
+      "implementation": "formatDuration(value)"
+    },
+    "current_timestamp": {
+      "description": "Generate current timestamp",
+      "implementation": "new Date().toISOString()"
+    },
+    "current_directory": {
+      "description": "Get current directory name",
+      "implementation": "path.basename(process.cwd())"
+    }
+  },
+  "validation_rules": {
+    "required_fields": {
+      "mini_assessment": ["status", "checks_passed", "total_checks"],
+      "comprehensive_assessment": [
+        "metadata",
+        "validation_results",
+        "final_recommendation"
+      ],
+      "pattern_assessment": ["patterns_checked", "violations_found"],
+      "pr_comment": ["validation_status", "score"]
+    },
+    "conditional_fields": {
+      "issues_summary": "status != '\u2705 Ready'",
+      "next_actions": "status != '\u2705 Ready'",
+      "critical_issues": "validation_status != '\u2705'",
+      "warnings": "validation_status == '\u26a0\ufe0f'"
+    },
+    "data_types": {
+      "checks_passed": "integer",
+      "total_checks": "integer",
+      "score": "integer",
+      "validation_results": "array",
+      "anti_patterns_detected": "array",
+      "recommendations": "array",
+      "critical_issues": "array",
+      "warnings": "array"
+    }
+  },
+  "error_handling": {
+    "missing_source": {
+      "action": "use_fallback",
+      "log_level": "warning"
+    },
+    "invalid_format": {
+      "action": "use_default",
+      "log_level": "error"
+    },
+    "transformation_error": {
+      "action": "use_raw_value",
+      "log_level": "error"
+    }
+  },
+  "examples": {
+    "json_input": {
+      "metadata": {
+        "timestamp": "2024-09-30T14:00:00Z",
+        "project_name": "my-project",
+        "validation_time": "45s",
+        "tech_stack": "python"
+      },
+      "summary": {
+        "total_checks": 8,
+        "passed_checks": 6,
+        "failed_checks": 2,
+        "overall_result": "some_failed"
+      },
+      "final_recommendation": {
+        "status": "\u26a0\ufe0f NEEDS ATTENTION",
+        "next_actions": "Review failed checks and address issues"
+      }
+    },
+    "machine_input": [
+      "VALIDATION_RESULT:FAIL",
+      "TOTAL_CHECKS:8",
+      "PASSED_CHECKS:6",
+      "FAILED_CHECKS:2",
+      "PROJECT:my-project",
+      "TIMESTAMP:2024-09-30T14:00:00Z"
+    ],
+    "expected_output": {
+      "status": "\u26a0\ufe0f Needs attention",
+      "checks_passed": 6,
+      "total_checks": 8,
+      "project_name": "my-project",
+      "validation_time": "45s",
+      "issues_summary": "Review failed checks and address issues",
+      "next_actions": "Review failed checks and address issues"
+    }
+  }
+}

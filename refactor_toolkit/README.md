@@ -127,8 +127,14 @@ This toolkit helps you systematically validate code changes to ensure:
 **Complete guide for AI assistants using this toolkit**
 
 - **Use for**: AI agents providing validation guidance to users
-- **Includes**: Decision trees, response templates, assessment templates
-- **Coverage**: Navigation logic, customization guidelines, best practices
+
+#### **🚀 [CONSOLIDATED_PROMPT_LIBRARY.md](CONSOLIDATED_PROMPT_LIBRARY.md)**
+
+**Single source of truth for all validation prompts**
+
+- **Use for**: Quick prompt selection based on time and validation focus
+- **Features**: 10 categorized prompts (P001-P010) with usage examples
+- **Integration**: References validation_schema.yaml and context_binding_schema.json
 
 ### **📊 Examples & References**
 
