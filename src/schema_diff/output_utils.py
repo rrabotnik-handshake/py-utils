@@ -4,9 +4,8 @@ Shared utilities for consistent file output across schema-diff tools.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 
 def ensure_output_dir(subdir: Optional[str] = None) -> Path:
