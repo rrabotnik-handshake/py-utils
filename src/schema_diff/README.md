@@ -275,6 +275,7 @@ The `schema-diff` tool uses subcommands for different operations:
 - `generate` - Generate schema from data file
 - `ddl` - Generate BigQuery DDL from live tables
 - `config` - Configuration management
+- `analyze` - Advanced schema analysis and insights
 
 ### Subcommand: `compare`
 
@@ -289,43 +290,43 @@ schema-diff compare [OPTIONS] file1 file2
 - `file1` - Left input (data or schema)
 - `file2` - Right input (data or schema)
 
-#### Record Selection
+#### Record Selection & Sampling
 
 - `--first-record` - Compare only the first record from each DATA file
-- `--record N` - Compare the N-th record from each DATA file (1-based)
-- `--record1 N` - N-th record for file1 (overrides --record)
-- `--record2 N` - N-th record for file2 (overrides --record)
-- `--both-modes` - Run two comparisons: chosen record(s) AND random sampled records
-
-#### Sampling
-
-- `-k, --samples N` - Records to sample per DATA file (default: 1000)
+- `--sample-size SAMPLE_SIZE` - Number of records to sample (default: 1000)
+- `-k, --samples N` - Alias for --sample-size
 - `--all-records` - Process ALL records instead of sampling (may be memory intensive)
+- `--record RECORD` - Process specific record number
 - `--seed SEED` - Random seed for reproducible sampling
 - `--show-samples` - Print the chosen/sampled records
+- `--both-modes` - Run two comparisons: chosen record(s) AND random sampled records
 
 #### Output Control
 
 - `--no-color` - Disable ANSI colors
-- `--force-color` - Force ANSI colors even if stdout is not a TTY
-- `--no-presence` - Suppress 'Missing / optional (presence)' section
 - `--show-common` - Print the sorted list of fields that appear in both sides
-- `--fields FIELD [FIELD ...]` - Compare only specific fields
+- `--fields [FIELDS ...]` - Compare only specific fields (space-separated list)
 
 #### Export Options
 
-- `--json-out PATH` - Write diff JSON to this path
-- `--output, -o` - Save comparison results and migration analysis to ./output directory
+- `--json-out JSON_OUT` - Write diff JSON to this path
+- `--output` - Save comparison results and migration analysis to ./output directory
+
+#### GCS Options
+
+- `--force-download` - Force re-download of GCS files even if they exist locally
+- `--gcs-info` - Show GCS file information and exit
 
 #### Schema Type Selection
 
-- `--left {auto,data,jsonschema,spark,sql,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Kind of file1
-- `--right {auto,data,jsonschema,spark,sql,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Kind of file2
-- `--left-table LEFT_TABLE` - Table to select for file1 when using SQL
-- `--right-table RIGHT_TABLE` - Table to select for file2 when using SQL
-- `--left-model LEFT_MODEL` - Model name for file1 when using dbt
-- `--right-model RIGHT_MODEL` - Model name for file2 when using dbt
-- `--left-message LEFT_MESSAGE` - Protobuf message to use for file1
+- `--left {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model}` - Left file type (auto-detected if not specified)
+- `--right {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model}` - Right file type (auto-detected if not specified)
+
+#### Schema-Specific Options
+
+- `--table TABLE` - BigQuery table name (for BigQuery live table comparisons)
+- `--right-table RIGHT_TABLE` - Table name for right-side SQL schema (alias for --table)
+- `--model MODEL` - dbt model name (for dbt manifest/yml comparisons)
 - `--right-message RIGHT_MESSAGE` - Protobuf message to use for file2
 
 #### Direct Schema Options
@@ -353,16 +354,16 @@ schema-diff generate [OPTIONS] data_file
 
 #### Options
 
-- `--format, -f {json_schema,sql_ddl,bigquery_ddl,spark,bigquery_json,openapi}` - Output schema format
-- `--output, -o` - Save schema to ./output directory with auto-generated filename
-- `--table-name, -t TABLE_NAME` - Table name for SQL DDL formats
-- `--samples, -k SAMPLES` - Number of records to sample (default: adaptive)
+- `--format {json_schema,sql_ddl,bigquery_ddl,spark,bigquery_json,openapi}` - Output schema format (default: json_schema)
+- `--output` - Save schema to ./output/schemas/ directory with auto-generated filename
+- `--table-name TABLE_NAME` - Table name for SQL DDL formats (default: generated_table)
+- `--sample-size SAMPLE_SIZE` - Number of records to sample (default: 1000)
 - `--all-records` - Process all records for comprehensive schema
-- `--first-record` - Use only the first record
 - `--required-fields [REQUIRED_FIELDS ...]` - Field paths that should be marked as required/NOT NULL
-- `--show-samples` - Show the data samples being analyzed
 - `--validate` - Validate generated schema syntax (default: enabled)
 - `--no-validate` - Skip schema validation
+- `--force-download` - Force re-download of GCS files even if they exist locally
+- `--gcs-info` - Show GCS file information and exit
 
 ### Subcommand: `ddl`
 
@@ -463,6 +464,62 @@ Get metadata about Google Cloud Storage objects:
 ```bash
 schema-diff config --gcs-info gs://bucket/file.json
 schema-diff config --gcs-info https://storage.cloud.google.com/bucket/file.json
+```
+
+### Subcommand: `analyze`
+
+Perform advanced schema analysis including complexity metrics, pattern detection, and improvement suggestions.
+
+```bash
+schema-diff analyze [OPTIONS] schema_file
+```
+
+#### Positional Arguments
+
+- `schema_file` - Schema or data file to analyze
+
+#### Analysis Types
+
+- `--complexity` - Show complexity analysis (nesting depth, type distribution, field counts)
+- `--patterns` - Show pattern analysis (repeated structures, semantic patterns, naming conventions)
+- `--suggestions` - Show improvement suggestions (optimization recommendations, best practices)
+- `--report` - Generate comprehensive analysis report
+- `--all` - Show all analysis types (equivalent to --complexity --patterns --suggestions --report)
+
+#### Schema Type Options
+
+- `--type {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model}` - Schema type (auto-detected if not specified)
+- `--table TABLE` - BigQuery table name (for SQL schemas)
+- `--model MODEL` - dbt model name (for dbt schemas)
+- `--message MESSAGE` - Protobuf message name (for protobuf schemas)
+
+#### Data Processing Options
+
+- `--sample-size SAMPLE_SIZE` - Number of records to sample for data files (default: 1000)
+- `--all-records` - Process all records (no sampling limit)
+
+#### Output Options
+
+- `--format {text,json,markdown}` - Output format (default: text)
+- `--output` - Save analysis to output directory
+
+#### Examples
+
+```bash
+# Basic complexity analysis
+schema-diff analyze user_schema.json --complexity
+
+# Comprehensive analysis with all metrics
+schema-diff analyze data.json --type data --all --output
+
+# Pattern analysis for Spark schema
+schema-diff analyze spark_schema.txt --type spark --patterns
+
+# Generate markdown report
+schema-diff analyze schema.json --report --format markdown --output
+
+# Analyze BigQuery table schema
+schema-diff analyze my_table.sql --type sql --table users --suggestions
 ```
 
 ---

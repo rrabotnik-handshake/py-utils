@@ -2,14 +2,16 @@
 
 **Compare schemas across JSON/NDJSON data, JSON Schema, Spark schemas, SQL DDL, dbt models, BigQuery live tables, and Protobuf definitions.**
 
-A powerful tool for schema comparison, migration analysis, and DDL generation with support for:
+A powerful tool for schema comparison, migration analysis, DDL generation, and advanced schema analytics with support for:
 
 - ✅ **Cross-format comparison** - Compare any schema format against any other
 - ✅ **Large file support** - Streaming processing with intelligent sampling
 - ✅ **BigQuery integration** - Live table access and DDL generation
 - ✅ **Migration analysis** - Comprehensive reports for schema changes
-- ✅ **Schema generation** - Create schemas from data in multiple formats
+- ✅ **Schema generation** - Create schemas from data in multiple formats (JSON Schema, SQL DDL, BigQuery DDL, Spark, OpenAPI)
+- ✅ **Advanced analytics** - Schema complexity analysis, pattern detection, and improvement suggestions
 - ✅ **Intelligent detection** - Auto-detect file types and comparison modes
+- ✅ **Google Cloud Storage** - Native support for GCS files with caching
 
 ## 🚀 Quick Start
 
@@ -35,18 +37,27 @@ schema-diff compare data.json schema.sql --right sql
 schema-diff compare data.ndjson spark_schema.txt --right spark
 schema-diff compare data.json my-project:dataset.table --right bigquery
 
-# Advanced analysis
+# Advanced analysis with migration reports
 schema-diff compare dataset1.json.gz dataset2.json.gz --all-records --output
 schema-diff compare data.json schema.json --right jsonschema --fields user_id email profile.name
+
+# Field filtering and sampling
+schema-diff compare large_file1.json.gz large_file2.json.gz --sample-size 5000 --fields user_id profile
 ```
 
 ## 🏗️ Schema Generation
 
 ```bash
-# Generate schemas from data
+# Generate schemas from data (6 formats supported)
 schema-diff generate data.json --format json_schema
 schema-diff generate data.json --format bigquery_ddl --table-name users
 schema-diff generate data.json --format spark --output
+schema-diff generate data.json --format sql_ddl --table-name products
+schema-diff generate data.json --format openapi --required-fields id name
+schema-diff generate data.json --format bigquery_json --validate
+
+# Advanced generation options
+schema-diff generate large_dataset.json.gz --all-records --format bigquery_ddl --output
 ```
 
 ## ☁️ Google Cloud Storage (GCS) Support
@@ -132,6 +143,22 @@ schema-diff ddl batch my-project:dataset.table1 my-project:dataset.table2
 schema-diff ddl dataset my-project:dataset --output
 ```
 
+## 📊 Advanced Schema Analysis
+
+```bash
+# Comprehensive schema analysis
+schema-diff analyze schema.json --all --output
+
+# Specific analysis types
+schema-diff analyze data.json --type data --complexity --patterns
+schema-diff analyze spark_schema.txt --type spark --suggestions
+schema-diff analyze my-project:dataset.table --type sql --report
+
+# Multiple output formats
+schema-diff analyze schema.json --all --format markdown --output
+schema-diff analyze data.json --complexity --format json
+```
+
 ## 📊 Migration Analysis
 
 ```bash
@@ -153,8 +180,9 @@ schema-diff compare old_data.json new_data.json --output
 ### Supported Formats
 
 - **Data:** JSON, NDJSON, JSONL (with .gz compression)
-- **Schemas:** JSON Schema, Spark, SQL DDL, BigQuery DDL, dbt, Protobuf
+- **Schemas:** JSON Schema, Spark, SQL DDL, BigQuery DDL, dbt (manifest/yml/model), Protobuf
 - **Live Sources:** BigQuery tables, dbt manifests
+- **Generation:** JSON Schema, SQL DDL, BigQuery DDL, Spark, BigQuery JSON, OpenAPI 3.0
 
 ### Analysis Capabilities
 
@@ -163,19 +191,35 @@ schema-diff compare old_data.json new_data.json --output
 - **Nested Structures:** Deep analysis of objects and arrays
 - **Path Tracking:** Field location changes and restructuring
 - **Presence Analysis:** Nullable vs required field detection
+- **Schema Analytics:** Complexity analysis, pattern detection, improvement suggestions
+- **Field Filtering:** Compare only specific fields across schemas
 
 ### Output Options
 
-- **Human-readable Reports:** Clean, organized diff output
+- **Human-readable Reports:** Clean, organized diff output with color coding
 - **JSON Export:** Machine-readable comparison results
-- **Migration Analysis:** Comprehensive change impact reports
-- **Schema Dumps:** Normalized schema representations
+- **Migration Analysis:** Comprehensive change impact reports with markdown formatting
+- **Schema Generation:** Multiple output formats (JSON Schema, SQL DDL, BigQuery DDL, Spark, OpenAPI)
+- **Advanced Analytics:** Schema complexity metrics, pattern analysis, improvement suggestions
+- **File Output:** Organized output directory structure with timestamps
 
 ## 🔧 Optional Dependencies
 
-- **`[bigquery]`** - Live BigQuery table access, DDL generation, SQL highlighting
-- **`[gcs]`** - Google Cloud Storage file download and caching support
-- **`[validation]`** - Schema validation for generated outputs
-- **`[dev]`** - Testing framework for contributors
+- **`[bigquery]`** - Live BigQuery table access, DDL generation, SQL highlighting (`google-cloud-bigquery`, `pygments`)
+- **`[gcs]`** - Google Cloud Storage file download and caching support (`google-cloud-storage`)
+- **`[validation]`** - Schema validation for generated outputs (`sqlparse`, `jsonschema`)
+- **`[dev]`** - Testing framework and development tools (`pytest`, `pydocstyle`)
+
+**Additional (experimental):**
+
+- **`[modern-cli]`** - Enhanced CLI with `typer` and `rich` (future feature)
+- **`[models]`** - Pydantic-based schema models (future feature)
 
 Install only what you need to keep the tool lightweight and fast!
+
+```bash
+# Common combinations
+pip install -e ".[bigquery,gcs]"          # Cloud features
+pip install -e ".[validation,dev]"        # Quality assurance
+pip install -e ".[bigquery,gcs,validation]"  # Production ready
+```
