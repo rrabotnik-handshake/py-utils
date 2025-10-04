@@ -43,6 +43,8 @@ from .decorators import cache_expensive_operation, validate_and_time
 from .io_utils import open_text
 from .utils import strip_quotes_ident
 
+__all__ = ["schema_from_sql_schema_file", "schema_from_sql_schema_file_unified"]
+
 # --- Regexes ---------------------------------------------------------------
 
 # Accepts: CREATE TABLE `proj.ds.table` (...), proj.schema.table, schema.table, or table (with/without IF NOT EXISTS)
@@ -735,3 +737,18 @@ def schema_from_sql_schema_file(
     # Default: pick the first table by name (stable for tests)
     first = sorted(tables.keys())[0]
     return tables[first], required_by_table.get(first, set())
+
+
+def schema_from_sql_schema_file_unified(path: str, table: str | None = None):
+    """
+    Parse SQL schema file and return unified Schema object.
+
+    Returns
+    -------
+    Schema
+        Unified schema representation using Pydantic models
+    """
+    from .models import from_legacy_tree
+
+    tree, required = schema_from_sql_schema_file(path, table)
+    return from_legacy_tree(tree, required, source_type="sql")

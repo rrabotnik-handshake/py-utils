@@ -47,7 +47,7 @@ from typing import Any
 
 from .decorators import cache_expensive_operation, validate_and_time
 
-__all__ = ["schema_from_spark_schema_file"]
+__all__ = ["schema_from_spark_schema_file", "schema_from_spark_schema_file_unified"]
 
 # ---------- Type mapping (Spark -> internal) ----------
 _SPARK_TO_INTERNAL = {
@@ -493,3 +493,18 @@ def schema_from_spark_schema_file(path: str) -> tuple[Any, set[str]]:
         return "object", set()
 
     return tree, required
+
+
+def schema_from_spark_schema_file_unified(path: str):
+    """
+    Parse a Spark schema file and return unified Schema object.
+
+    Returns
+    -------
+    Schema
+        Unified schema representation using Pydantic models
+    """
+    from .models import from_legacy_tree
+
+    tree, required = schema_from_spark_schema_file(path)
+    return from_legacy_tree(tree, required, source_type="spark")

@@ -30,7 +30,6 @@ from typing import Any
 
 from deepdiff import DeepDiff
 
-from .json_data_file_parser import merged_schema_from_samples
 from .normalize import walk_normalize
 from .report import (
     build_report_struct,
@@ -43,129 +42,6 @@ from .utils import (
     compute_path_changes,
     inject_presence_for_diff,
 )
-
-
-# ----------------------------------------------------------------------
-# Data → reference (presence-aware) comparison
-# ----------------------------------------------------------------------
-def compare_data_to_ref(
-    file1: str,
-    ref_label: str,
-    ref_schema: Any,
-    *,
-    cfg,
-    s1_records,
-    dump_schemas: str | None = None,
-    json_out: str | None = None,
-    title_suffix: str = "",
-    required_paths: set[str] | None = None,
-    show_common: bool = False,
-    ref_source_type: str | None = None,
-) -> None:
-    """
-    Compare a DATA sample (from `file1`) to a reference schema with source-aware presence handling.
-
-    Parameters
-    ----------
-    file1 : str
-        Path to the data file being compared
-    ref_label : str
-        Display name for the reference schema
-    ref_schema : Any
-        The reference schema type tree
-    cfg : Config
-        Configuration object for normalization and output
-    s1_records : List[Any]
-        Sample records from file1 for schema inference
-    dump_schemas : str | None
-        If provided, save the normalized schemas to this file
-    json_out : str | None
-        If provided, save the diff report as JSON to this file
-    title_suffix : str
-        Optional suffix for the comparison title
-    required_paths : Optional[Set[str]]
-        Set of paths that are required in the reference schema
-    show_common : bool
-        If True, display fields present in both schemas with matching types
-    ref_source_type : Optional[str]
-        Reference source type ('spark', 'sql', 'jsonschema', etc.) for proper presence terminology
-
-    Notes
-    -----
-    - Infers schema from s1_records and compares to ref_schema
-    - Applies presence injection to reference schema if it's a schema source
-    - Uses source type information for clear presence terminology in output
-    """
-    # Coerce list-of-fields roots into dicts so diffs are per-path, not list indices
-    ref_schema = coerce_root_to_field_dict(ref_schema)
-
-    # Apply presence to reference to align with data-side unions that include 'missing'
-    ref_for_diff = inject_presence_for_diff(ref_schema, required_paths)
-    sch2n = walk_normalize(ref_for_diff)
-
-    sch1 = merged_schema_from_samples(s1_records, cfg)
-    sch1n = walk_normalize(sch1)
-
-    sch1n = coerce_root_to_field_dict(sch1n)
-    sch2n = coerce_root_to_field_dict(sch2n)
-
-    if show_common:
-        print_common_fields(file1, ref_label, sch1n, sch2n, cfg.colors())
-
-    diff = DeepDiff(sch1n, sch2n, ignore_order=True)
-
-    if not diff:
-        RED, GRN, YEL, CYN, RST = cfg.colors()
-        print(
-            f"\n{CYN}=== Schema diff (types only, {file1} → {ref_label}{title_suffix}) ==={RST}\nNo differences."
-        )
-        if dump_schemas:
-            with open(dump_schemas, "w", encoding="utf-8") as fh:
-                json.dump(
-                    {"file1": sch1n, "ref": sch2n}, fh, ensure_ascii=False, indent=2
-                )
-        if json_out:
-            with open(json_out, "w", encoding="utf-8") as fh:
-                json.dump(
-                    {
-                        "meta": {
-                            "direction": f"{file1} -> {ref_label}",
-                            "mode": title_suffix.strip("; ").strip(),
-                        },
-                        "note": "No differences",
-                    },
-                    fh,
-                    ensure_ascii=False,
-                    indent=2,
-                )
-        return
-
-    report = build_report_struct(
-        diff, file1, ref_label, include_presence=cfg.show_presence
-    )
-    report["meta"]["mode"] = title_suffix.strip("; ").strip()
-
-    print_report_text(
-        report,
-        file1,
-        ref_label,
-        colors=cfg.colors(),
-        show_presence=cfg.show_presence,
-        title_suffix=title_suffix,
-        left_source_type="data",
-        right_source_type=ref_source_type or "data",
-    )
-
-    # Field moved/nested differently?
-    path_changes = compute_path_changes(sch1n, sch2n)
-    print_path_changes(file1, ref_label, path_changes, colors=cfg.colors())
-
-    if dump_schemas:
-        with open(dump_schemas, "w", encoding="utf-8") as fh:
-            json.dump({"file1": sch1n, "ref": sch2n}, fh, ensure_ascii=False, indent=2)
-    if json_out:
-        with open(json_out, "w", encoding="utf-8") as fh:
-            json.dump(report, fh, ensure_ascii=False, indent=2)
 
 
 # ----------------------------------------------------------------------
@@ -227,6 +103,7 @@ def compare_trees(
         "sql",
         "spark",
         "jsonschema",
+        "json_schema",  # Support both variants
         "protobuf",
         "dbt-manifest",
         "dbt-yml",
@@ -319,3 +196,192 @@ def compare_trees(
             json.dump(report, fh, ensure_ascii=False, indent=2)
 
     return report
+
+
+# =============================================================================
+# Unified Schema Comparison Functions
+# =============================================================================
+
+
+def compare_schemas_unified(
+    left_schema,
+    right_schema,
+    *,
+    cfg,
+    dump_schemas: str | None = None,
+    json_out: str | None = None,
+    title_suffix: str = "",
+    show_common: bool = False,
+    left_label: str | None = None,
+    right_label: str | None = None,
+) -> dict | None:
+    """
+    Compare two Schema objects (unified format) and return comparison results.
+
+    Parameters
+    ----------
+    left_schema : Schema or tuple
+        Either a unified Schema object or legacy (tree, required_paths) tuple
+    right_schema : Schema or tuple
+        Either a unified Schema object or legacy (tree, required_paths) tuple
+    cfg : Config
+        Configuration object
+    dump_schemas : str, optional
+        Path to dump schemas for debugging
+    json_out : str, optional
+        Path to save JSON output
+    title_suffix : str
+        Suffix for comparison title
+    show_common : bool
+        Whether to show common fields
+
+    Returns
+    -------
+    dict or None
+        Comparison report structure
+    """
+    from .models import Schema, to_legacy_tree
+
+    # Convert unified schemas to legacy format for existing comparison logic
+    if isinstance(left_schema, Schema):
+        left_tree, left_required = to_legacy_tree(left_schema)
+        left_source_type = left_schema.source_type or "data"
+        left_display_label = left_label or left_source_type
+    else:
+        # Assume legacy tuple format
+        left_tree, left_required = left_schema
+        left_source_type = "data"
+        left_display_label = left_label or "left"
+
+    if isinstance(right_schema, Schema):
+        right_tree, right_required = to_legacy_tree(right_schema)
+        right_source_type = right_schema.source_type or "data"
+        right_display_label = right_label or right_source_type
+    else:
+        # Assume legacy tuple format
+        right_tree, right_required = right_schema
+        right_source_type = "data"
+        right_display_label = right_label or "right"
+
+    # Use existing comparison logic
+    return compare_trees(
+        left_label=left_display_label,
+        right_label=right_display_label,
+        left_tree=left_tree,
+        left_required=left_required,
+        right_tree=right_tree,
+        right_required=right_required,
+        cfg=cfg,
+        dump_schemas=dump_schemas,
+        json_out=json_out,
+        title_suffix=title_suffix,
+        show_common=show_common,
+        left_source_type=left_source_type,
+        right_source_type=right_source_type,
+    )
+
+
+def analyze_schema_evolution(old_schema, new_schema) -> dict:
+    """
+    Analyze schema evolution between two Schema objects.
+
+    Returns detailed analysis of changes, additions, removals, and migrations.
+    """
+    from .models import FieldConstraint, Schema
+
+    if not isinstance(old_schema, Schema) or not isinstance(new_schema, Schema):
+        raise ValueError("Both schemas must be unified Schema objects")
+
+    # Build field maps for analysis
+    old_fields = {f.path: f for f in old_schema.fields}
+    new_fields = {f.path: f for f in new_schema.fields}
+
+    old_paths = set(old_fields.keys())
+    new_paths = set(new_fields.keys())
+
+    # Analyze changes
+    analysis = {
+        "added_fields": sorted(new_paths - old_paths),
+        "removed_fields": sorted(old_paths - new_paths),
+        "common_fields": sorted(old_paths & new_paths),
+        "type_changes": [],
+        "constraint_changes": [],
+        "breaking_changes": [],
+        "safe_changes": [],
+    }
+
+    # Analyze common fields for changes
+    for path in analysis["common_fields"]:
+        old_field = old_fields[path]
+        new_field = new_fields[path]
+
+        # Type changes
+        if str(old_field.type) != str(new_field.type):
+            change = {
+                "field": path,
+                "old_type": str(old_field.type),
+                "new_type": str(new_field.type),
+            }
+            analysis["type_changes"].append(change)
+
+            # Determine if breaking
+            if _is_breaking_type_change(str(old_field.type), str(new_field.type)):
+                analysis["breaking_changes"].append(f"Type change: {path}")
+            else:
+                analysis["safe_changes"].append(f"Type change: {path}")
+
+        # Constraint changes
+        old_constraints = old_field.constraints
+        new_constraints = new_field.constraints
+
+        if old_constraints != new_constraints:
+            change = {
+                "field": path,
+                "old_constraints": [c.value for c in old_constraints],
+                "new_constraints": [c.value for c in new_constraints],
+            }
+            analysis["constraint_changes"].append(change)
+
+            # Adding REQUIRED constraint is breaking
+            if (
+                FieldConstraint.REQUIRED in new_constraints
+                and FieldConstraint.REQUIRED not in old_constraints
+            ):
+                analysis["breaking_changes"].append(f"Field became required: {path}")
+            elif (
+                FieldConstraint.REQUIRED in old_constraints
+                and FieldConstraint.REQUIRED not in new_constraints
+            ):
+                analysis["safe_changes"].append(f"Field became optional: {path}")
+
+    # Removed fields are always breaking
+    for field in analysis["removed_fields"]:
+        analysis["breaking_changes"].append(f"Field removed: {field}")
+
+    # Added fields are usually safe (unless required)
+    for field in analysis["added_fields"]:
+        new_field = new_fields[field]
+        if FieldConstraint.REQUIRED in new_field.constraints:
+            analysis["breaking_changes"].append(f"Required field added: {field}")
+        else:
+            analysis["safe_changes"].append(f"Optional field added: {field}")
+
+    return analysis
+
+
+def _is_breaking_type_change(old_type: str, new_type: str) -> bool:
+    """Determine if a type change is breaking (not backward compatible)."""
+    # Simple heuristics - can be expanded
+    safe_widening = {
+        "int": ["float", "str"],
+        "float": ["str"],
+        "bool": ["str"],
+        "date": ["str", "timestamp"],
+        "time": ["str", "timestamp"],
+    }
+
+    # Extract base types (ignore array/union complexity for now)
+    old_base = old_type.replace("[", "").replace("]", "").split("|")[0]
+    new_base = new_type.replace("[", "").replace("]", "").split("|")[0]
+
+    return new_base not in safe_widening.get(old_base, [old_base])

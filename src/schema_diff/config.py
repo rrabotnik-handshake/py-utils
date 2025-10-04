@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Config:
     infer_datetimes: bool = False
-    color_enabled: bool = False
+    color_enabled: bool = True  # Enable colors by default
     show_presence: bool = True
 
     # derived ANSI codes (empty strings if color disabled)

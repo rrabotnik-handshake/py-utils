@@ -51,46 +51,6 @@ def write_output_file(
     return output_path
 
 
-def write_json_output(
-    data: Dict[str, Any], filename: str, subdir: Optional[str] = None
-) -> Path:
-    """
-    Write JSON data to a file in the output directory.
-
-    Args:
-        data: Data to write as JSON
-        filename: Name of the file (should end with .json)
-        subdir: Optional subdirectory within ./output
-
-    Returns:
-        Path to the written file
-    """
-    output_dir = ensure_output_dir(subdir)
-    output_path = output_dir / filename
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-    return output_path
-
-
-def generate_timestamp_filename(base_name: str, extension: str = ".txt") -> str:
-    """
-    Generate a filename with timestamp to avoid conflicts.
-
-    Args:
-        base_name: Base name for the file
-        extension: File extension (with dot)
-
-    Returns:
-        Filename with timestamp
-    """
-    from datetime import datetime
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{base_name}_{timestamp}{extension}"
-
-
 def print_output_success(output_path: Path, description: str = "File") -> None:
     """
     Print a standardized success message for file output.

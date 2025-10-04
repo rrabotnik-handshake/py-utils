@@ -20,6 +20,22 @@ from typing import Any
 from google.cloud import bigquery
 from google.cloud.bigquery.schema import SchemaField
 
+
+def get_default_project() -> str:
+    """Get the default BigQuery project from environment or client."""
+    # Try environment variable first
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if project:
+        return project
+
+    # Try to get from BigQuery client
+    try:
+        client = bigquery.Client()
+        return client.project
+    except Exception as e:
+        raise ValueError("Unable to determine default BigQuery project") from e
+
+
 # =========================
 # Pretty printing + coloring
 # =========================
@@ -145,14 +161,6 @@ def colorize_sql(sql: str, mode: str = "auto") -> str:
             pass
 
     return _fallback_color_sql(sql)
-
-
-def print_pretty_colored_ddl(ddl: str, color_mode: str = "auto") -> str:
-    """Return pretty SQL and also print a colored version to the terminal."""
-    pretty = pretty_print_ddl(ddl)
-    colored = colorize_sql(pretty, mode=color_mode)
-    print(colored)
-    return pretty  # return uncolored, pretty text for optional file write
 
 
 # =========================

@@ -26,6 +26,15 @@ import yaml
 
 from .io_utils import open_text
 
+__all__ = [
+    "schema_from_dbt_manifest",
+    "schema_from_dbt_schema_yml",
+    "schema_from_dbt_model",
+    "schema_from_dbt_manifest_unified",
+    "schema_from_dbt_schema_yml_unified",
+    "schema_from_dbt_model_unified",
+]
+
 # Adapter-agnostic normalization of dbt/emitted data types to internal labels.
 # Arrays are represented as [elem_type]; normalizer can later collapse ["any"] -> "array".
 TYPE_MAP_DBT: dict[str, str] = {
@@ -336,3 +345,48 @@ def schema_from_dbt_model(
                 schema[field_name] = "any"
 
     return schema, required
+
+
+def schema_from_dbt_manifest_unified(path: str, model: str | None = None):
+    """
+    Parse dbt manifest and return unified Schema object.
+
+    Returns
+    -------
+    Schema
+        Unified schema representation using Pydantic models
+    """
+    from .models import from_legacy_tree
+
+    tree, required = schema_from_dbt_manifest(path, model)
+    return from_legacy_tree(tree, required, source_type="dbt-manifest")
+
+
+def schema_from_dbt_schema_yml_unified(path: str, model: str | None = None):
+    """
+    Parse dbt schema.yml and return unified Schema object.
+
+    Returns
+    -------
+    Schema
+        Unified schema representation using Pydantic models
+    """
+    from .models import from_legacy_tree
+
+    tree, required = schema_from_dbt_schema_yml(path, model)
+    return from_legacy_tree(tree, required, source_type="dbt-yml")
+
+
+def schema_from_dbt_model_unified(path: str):
+    """
+    Parse dbt model and return unified Schema object.
+
+    Returns
+    -------
+    Schema
+        Unified schema representation using Pydantic models
+    """
+    from .models import from_legacy_tree
+
+    tree, required = schema_from_dbt_model(path)
+    return from_legacy_tree(tree, required, source_type="dbt-model")

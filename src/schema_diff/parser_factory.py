@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Protocol, Set, Tuple, Type
 
+from .constants import DEFAULT_SAMPLE_SIZE
 from .dbt_schema_parser import (
     schema_from_dbt_manifest,
     schema_from_dbt_model,
@@ -17,10 +18,13 @@ from .dbt_schema_parser import (
 from .io_utils import nth_record, sample_records, sniff_ndjson
 from .json_data_file_parser import merged_schema_from_samples
 from .json_schema_parser import schema_from_json_schema_file
+from .logging_config import get_logger
 from .protobuf_schema_parser import schema_from_protobuf_file
 from .spark_schema_parser import schema_from_spark_schema_file
 from .sql_schema_parser import schema_from_sql_schema_file
 from .utils import coerce_root_to_field_dict
+
+logger = get_logger(__name__)
 
 
 class ParseResult:
@@ -58,7 +62,7 @@ class DataParser:
         self,
         path: str,
         cfg=None,
-        samples: int = 1000,
+        samples: int = DEFAULT_SAMPLE_SIZE,
         all_records: bool = False,
         first_record: bool = False,
         record_n: Optional[int] = None,
@@ -72,9 +76,11 @@ class DataParser:
 
         # Determine sampling strategy
         if first_record:
-            records = [nth_record(path, 0)]
+            records = nth_record(
+                path, 1
+            )  # nth_record uses 1-based indexing and returns a list
         elif record_n is not None:
-            records = [nth_record(path, record_n)]
+            records = nth_record(path, record_n)  # nth_record already returns a list
         elif all_records:
             from .io_utils import all_records as all_records_fn
 
@@ -323,6 +329,7 @@ class ParserFactory:
         if kind == "auto" or kind is None:
             parser, detected_kind = cls.auto_detect_parser(path)
             if kind is None:
+                logger.info("Auto-detected format for %s: %s", path, detected_kind)
                 print(f"🔍 Auto-detected format: {detected_kind}")
         else:
             parser = cls.create_parser(kind)

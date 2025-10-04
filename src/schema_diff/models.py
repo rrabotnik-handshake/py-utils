@@ -56,7 +56,7 @@ class ScalarSchemaType(SchemaType):
     constraints: Set[FieldConstraint] = Field(default_factory=set)
 
     def __str__(self) -> str:
-        return self.type.value
+        return self.type if isinstance(self.type, str) else self.type.value
 
 
 class ArraySchemaType(SchemaType):
@@ -190,7 +190,11 @@ class Schema(BaseModel):
 # Convenience functions for creating schema types
 def scalar_type(type_name: str, **kwargs) -> ScalarSchemaType:
     """Create a scalar type."""
-    scalar_enum = ScalarType(type_name)
+    try:
+        scalar_enum = ScalarType(type_name)
+    except ValueError:
+        # Unknown type, default to ANY
+        scalar_enum = ScalarType.ANY
     return ScalarSchemaType(type=scalar_enum, **kwargs)
 
 
@@ -283,6 +287,62 @@ def _legacy_to_schema_type(
         return scalar_type("any")
 
 
+def to_legacy_tree(schema: Schema) -> tuple[Dict[str, Any], Set[str]]:
+    """Convert unified Schema back to legacy (tree, required_paths) format."""
+    tree: Dict[str, Any] = {}
+    required_paths: Set[str] = set()
+
+    for field in schema.fields:
+        _add_field_to_legacy_tree(field, tree, required_paths)
+
+    return tree, required_paths
+
+
+def _add_field_to_legacy_tree(
+    field: SchemaField, tree: Dict[str, Any], required_paths: Set[str]
+) -> None:
+    """Add a field to the legacy tree structure."""
+    # Handle nested paths (e.g., "user.profile.name")
+    path_parts = field.path.split(".")
+    current = tree
+
+    # Navigate/create nested structure
+    for part in path_parts[:-1]:
+        if part not in current:
+            current[part] = {}
+        current = current[part]
+
+    # Set the final field
+    final_key = path_parts[-1]
+    current[final_key] = _schema_type_to_legacy(field.type)
+
+    # Track required paths
+    if FieldConstraint.REQUIRED in field.constraints:
+        required_paths.add(field.path)
+
+
+def _schema_type_to_legacy(schema_type: SchemaType) -> Any:
+    """Convert SchemaType back to legacy format."""
+    if isinstance(schema_type, ScalarSchemaType):
+        return (
+            schema_type.type
+            if isinstance(schema_type.type, str)
+            else schema_type.type.value
+        )
+    elif isinstance(schema_type, ArraySchemaType):
+        return [_schema_type_to_legacy(schema_type.element_type)]
+    elif isinstance(schema_type, ObjectSchemaType):
+        return {k: _schema_type_to_legacy(v) for k, v in schema_type.fields.items()}
+    elif isinstance(schema_type, UnionSchemaType):
+        type_names = [
+            _schema_type_to_legacy(t) if hasattr(t, "type") else str(t)
+            for t in schema_type.types
+        ]
+        return f"union({'|'.join(sorted(type_names))})"
+    else:
+        return "any"
+
+
 # Export the main classes and functions
 __all__ = [
     "ScalarType",
@@ -299,4 +359,5 @@ __all__ = [
     "object_type",
     "union_type",
     "from_legacy_tree",
+    "to_legacy_tree",
 ]

@@ -27,7 +27,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-__all__ = ["list_protobuf_messages", "schema_from_protobuf_file"]
+__all__ = [
+    "list_protobuf_messages",
+    "schema_from_protobuf_file",
+    "schema_from_protobuf_file_unified",
+]
 
 # Scalar + well-known type mappings to internal labels
 _SCALARS = {
@@ -483,3 +487,18 @@ def schema_from_protobuf_file(
     required = _collect_required_paths_proto(chosen_fqn, msgs, package, children)
 
     return tree, required, chosen_fqn
+
+
+def schema_from_protobuf_file_unified(path: str, message: str | None = None):
+    """
+    Parse a Protobuf file and return unified Schema object.
+
+    Returns
+    -------
+    Schema
+        Unified schema representation using Pydantic models
+    """
+    from .models import from_legacy_tree
+
+    tree, required, chosen_fqn = schema_from_protobuf_file(path, message)
+    return from_legacy_tree(tree, required, source_type=f"protobuf:{chosen_fqn}")

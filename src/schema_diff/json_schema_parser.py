@@ -24,7 +24,11 @@ from .io_utils import open_text
 from .json_data_file_parser import merge_schema
 from .utils import union_str  # single source of truth for union string building
 
-__all__ = ["load_json_schema", "schema_from_json_schema_file"]
+__all__ = [
+    "load_json_schema",
+    "schema_from_json_schema_file",
+    "schema_from_json_schema_file_unified",
+]
 
 # -------- Mapping of JSON Schema scalar types to internal scalars ----------
 TYPE_MAP: dict[str, str] = {
@@ -234,3 +238,18 @@ def schema_from_json_schema_file(path: str) -> tuple[Any, set[str]]:
     tree = _schema_from_js(js, _optional=False)  # pure types
     required = _collect_required_paths_json(js)  # presence set
     return tree, required
+
+
+def schema_from_json_schema_file_unified(path: str):
+    """
+    Parse a JSON Schema file and return unified Schema object.
+
+    Returns
+    -------
+    Schema
+        Unified schema representation using Pydantic models
+    """
+    from .models import from_legacy_tree
+
+    tree, required = schema_from_json_schema_file(path)
+    return from_legacy_tree(tree, required, source_type="json_schema")

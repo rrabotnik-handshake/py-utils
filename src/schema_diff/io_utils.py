@@ -9,13 +9,50 @@ from typing import Any
 
 import ijson
 
-# Constants
-MAX_RECORD_SAFETY_LIMIT = 1_000_000  # Safety limit for --all-records
+# Import constants
+from .logging_config import get_logger
+
+logger = get_logger(__name__)
+
+# Global context for GCS download behavior
+_force_download_context = False
+
+
+def set_force_download_context(force_download: bool) -> None:
+    """Set the global force download context for GCS operations."""
+    global _force_download_context
+    _force_download_context = force_download
+
+
+def resolve_file_path(path: str, force_download: bool | None = None) -> str:
+    """
+    Resolve a file path, downloading from GCS if necessary.
+
+    Args:
+        path: Local file path or GCS URI
+        force_download: If True, re-download GCS files even if cached.
+                       If None, uses global context.
+
+    Returns:
+        Local file path (either original or downloaded)
+    """
+    from .gcs_utils import download_gcs_file, is_gcs_path
+
+    if is_gcs_path(path):
+        # Use provided force_download or fall back to global context
+        force = (
+            force_download if force_download is not None else _force_download_context
+        )
+        return download_gcs_file(path, force=force)
+    else:
+        return path
 
 
 __all__ = [
     "CommandError",
     "_run",
+    "set_force_download_context",
+    "resolve_file_path",
     "open_text",
     "open_binary",
     "sniff_ndjson",
@@ -79,11 +116,14 @@ def _run(args, cwd=None, env=None, check_untrusted=True):
 def open_text(path: str) -> io.TextIOWrapper:
     """
     Open a path as text, auto-detecting gzip via magic bytes.
+    Supports GCS paths by downloading them first.
 
     - Uses UTF-8 with BOM support (`utf-8-sig`)
-    - Raises UnicodeDecodeError on invalid sequences (`errors='strict'`)
+    - Raises UnicodeDecodeError on invalid sequences (`errors='strict')
     """
-    f = open(path, "rb")
+    # Resolve GCS paths to local files
+    resolved_path = resolve_file_path(path)
+    f = open(resolved_path, "rb")
     magic = f.read(2)
     f.seek(0)
     if magic == b"\x1f\x8b":
@@ -99,9 +139,12 @@ def open_text(path: str) -> io.TextIOWrapper:
 def open_binary(path: str):
     """
     Open a path as *binary*, auto-detecting gzip via magic bytes.
+    Supports GCS paths by downloading them first.
     Useful for `ijson`, which prefers bytes streams.
     """
-    f = open(path, "rb")
+    # Resolve GCS paths to local files
+    resolved_path = resolve_file_path(path)
+    f = open(resolved_path, "rb")
     head = f.read(2)
     f.seek(0)
     if head == b"\x1f\x8b":  # gzip magic

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 from urllib.parse import unquote, urlparse
 
 from .decorators import retry_gcs_operation
@@ -189,87 +189,6 @@ def download_gcs_file(
             ) from e
         else:
             raise Exception(f"Failed to download {gcs_path}: {str(e)}") from e
-
-
-def resolve_path(path: str, force_download: bool = False) -> str:
-    """
-    Resolve a path that might be local or GCS.
-
-    If it's a GCS path, download it to local storage.
-    If it's a local path, return as-is.
-
-    Args:
-        path: Local file path or GCS URI
-        force_download: If True, re-download GCS files even if cached
-
-    Returns:
-        Local file path (either original or downloaded)
-    """
-    if is_gcs_path(path):
-        return download_gcs_file(path, force=force_download)
-    else:
-        return path
-
-
-@retry_gcs_operation
-def get_gcs_info(gcs_path: str) -> dict[str, Any]:
-    """
-    Get metadata information about a GCS object.
-
-    Args:
-        gcs_path: GCS URI
-
-    Returns:
-        Dictionary with object metadata
-
-    Raises:
-        ImportError: If google-cloud-storage is not installed
-    """
-    if not _HAS_GCS:
-        raise ImportError(
-            "Google Cloud Storage support requires 'google-cloud-storage'. "
-            "Install with: pip install google-cloud-storage"
-        )
-
-    bucket_name, object_path = parse_gcs_path(gcs_path)
-
-    try:
-        client = storage.Client()
-        bucket = client.bucket(bucket_name)
-        blob = bucket.blob(object_path)
-
-        # Reload to get fresh metadata
-        blob.reload()
-
-        return {
-            "name": blob.name,
-            "bucket": bucket_name,
-            "size": blob.size,
-            "updated": blob.updated,
-            "content_type": blob.content_type,
-            "md5_hash": blob.md5_hash,
-            "etag": blob.etag,
-        }
-
-    except Exception as e:
-        error_msg = str(e).lower()
-        if "project" in error_msg and "environment" in error_msg:
-            raise Exception(
-                f"Failed to get info for {gcs_path}: {str(e)}\n"
-                "💡 Fix: Set up GCS authentication:\n"
-                "   gcloud config set project YOUR_PROJECT_ID\n"
-                "   gcloud auth application-default login\n"
-                "   OR export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json"
-            ) from e
-        elif "credentials" in error_msg or "authentication" in error_msg:
-            raise Exception(
-                f"Failed to get info for {gcs_path}: {str(e)}\n"
-                "💡 Fix: Authenticate with GCS:\n"
-                "   gcloud auth application-default login\n"
-                "   OR export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json"
-            ) from e
-        else:
-            raise Exception(f"Failed to get info for {gcs_path}: {str(e)}") from e
 
 
 # Convenience functions for common operations

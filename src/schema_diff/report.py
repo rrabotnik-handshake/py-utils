@@ -384,14 +384,16 @@ def print_report_text(
     for p in only2:
         print(f"  {GRN}{fmt_dot_path(p)}{RST}")
 
-    if show_presence and "presence_issues" in report:
-        pres = report["presence_issues"]
+    # Always show presence section if enabled, even if empty
+    if show_presence:
+        pres = report.get("presence_issues", [])
 
         # Determine which sides are schema sources for proper terminology
         SCHEMA_SOURCES = {
             "sql",
             "spark",
             "jsonschema",
+            "json_schema",  # Support both variants
             "protobuf",
             "dbt-manifest",
             "dbt-yml",
@@ -400,28 +402,43 @@ def print_report_text(
         left_is_schema = left_source_type in SCHEMA_SOURCES
         right_is_schema = right_source_type in SCHEMA_SOURCES
 
-        # Filter out items where both sides are identical after formatting
-        actual_presence_issues = []
-        for e in pres:
-            left_formatted = fmt_presence_type(
-                e["file1"], is_schema_source=left_is_schema
-            )
-            right_formatted = fmt_presence_type(
-                e["file2"], is_schema_source=right_is_schema
-            )
-
-            # Only include if there's an actual difference after formatting
-            if left_formatted != right_formatted:
-                actual_presence_issues.append((e, left_formatted, right_formatted))
-
-        print(
-            f"\n{YEL}-- Missing Data / NULL-ABILITY -- ({len(actual_presence_issues)}){RST}"
+        # Skip presence issues for data-to-schema comparisons to reduce noise
+        # Data files don't have meaningful nullability constraints, so presence differences
+        # between data (always "present") and schema (nullable/required) are not useful
+        is_data_to_schema = (left_source_type == "data" and right_is_schema) or (
+            right_source_type == "data" and left_is_schema
         )
 
-        for e, left_formatted, right_formatted in actual_presence_issues:
+        if is_data_to_schema:
+            # For data-to-schema comparisons, suppress presence issues as they're mostly noise
+            actual_presence_issues = []
+            print(f"\n{YEL}-- Missing Data / NULL-ABILITY -- (0){RST}")
             print(
-                f"  {CYN}{fmt_dot_path(e['path'])}{RST}: {left_formatted} → {right_formatted}"
+                f"  {CYN}Skipped for data-to-schema comparison{RST} (data files don't have explicit nullability)"
             )
+        else:
+            # Filter out items where both sides are identical after formatting
+            actual_presence_issues = []
+            for e in pres:
+                left_formatted = fmt_presence_type(
+                    e["file1"], is_schema_source=left_is_schema
+                )
+                right_formatted = fmt_presence_type(
+                    e["file2"], is_schema_source=right_is_schema
+                )
+
+                # Only include if there's an actual difference after formatting
+                if left_formatted != right_formatted:
+                    actual_presence_issues.append((e, left_formatted, right_formatted))
+
+            print(
+                f"\n{YEL}-- Missing Data / NULL-ABILITY -- ({len(actual_presence_issues)}){RST}"
+            )
+
+            for e, left_formatted, right_formatted in actual_presence_issues:
+                print(
+                    f"  {CYN}{fmt_dot_path(e['path'])}{RST}: {left_formatted} → {right_formatted}"
+                )
 
     mism = report["schema_mismatches"]
     print(f"\n{YEL}-- Type mismatches -- ({len(mism)}){RST}")
@@ -430,40 +447,6 @@ def print_report_text(
             f"  {CYN}{fmt_dot_path(e['path'])}{RST}: "
             f"{RED}{e['file1']}{RST} → {GRN}{e['file2']}{RST}"
         )
-
-
-def print_samples(
-    tag: str,
-    recs,
-    *,
-    colors: tuple[str, str, str, str, str] = ("", "", "", "", ""),
-    max_chars: int = 2000,
-) -> None:
-    """
-    Pretty-print sampled records, with optional truncation to keep output tidy.
-
-    Parameters
-    ----------
-    tag : str
-        Label printed in the section header and sample labels.
-    recs : Iterable[Any]
-        The sequence of objects to print as JSON.
-    colors : tuple[str, str, str, str, str]
-        (RED, GRN, YEL, CYN, RST) color codes; pass empty strings to disable.
-    max_chars : int
-        If > 0, each sample’s JSON is truncated to this length and “…” appended.
-        If 0 or negative, full JSON is printed.
-    """
-    RED, GRN, YEL, CYN, RST = colors
-    print(f"\n{CYN}=== Samples: {tag} ({len(recs)}) ==={RST}")
-    for i, r in enumerate(recs, 1):
-        js = json.dumps(r, ensure_ascii=False, indent=2)
-        js_to_show = (
-            js[:max_chars] + "..."
-            if (max_chars and max_chars > 0 and len(js) > max_chars)
-            else js
-        )
-        print(f"{YEL}-- {tag} sample {i}{RST}\n{js_to_show}")
 
 
 def print_common_fields(
