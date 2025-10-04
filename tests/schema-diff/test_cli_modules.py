@@ -5,7 +5,7 @@ import pytest
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, Mock, MagicMock
+from unittest.mock import patch, Mock
 
 from schema_diff.cli import main as cli_main, cmd_config, _parse_table_ref, _parse_dataset_ref
 
@@ -73,8 +73,10 @@ class TestTableRefParsing:
 
     def test_parse_dataset_ref_invalid(self):
         """Test parsing invalid dataset references."""
-        with pytest.raises(ValueError, match="Invalid dataset reference format"):
-            _parse_dataset_ref("invalid-format")
+        with patch("schema_diff.bigquery_ddl.get_default_project") as mock_get_project:
+            mock_get_project.side_effect = ValueError("No project available")
+            with pytest.raises(ValueError, match="No project specified and unable to determine default project"):
+                _parse_dataset_ref("invalid-format")
 
 
 class TestConfigCommands:
