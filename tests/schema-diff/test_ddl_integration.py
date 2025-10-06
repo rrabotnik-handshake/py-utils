@@ -19,15 +19,15 @@ class TestDDLIntegration:
     def test_ddl_table_command_console_output(self, mock_client, mock_generate, mock_print, mock_write):
         """Test DDL table command with console output."""
         mock_generate.return_value = "CREATE OR REPLACE TABLE `test-project.test_dataset.test_table` (\n  id INT64\n);"
-        
+
         mock_args = Mock()
         mock_args.ddl_command = "table"
         mock_args.table_ref = "test-project:test_dataset.test_table"
         mock_args.output = False
-        
+
         with patch("builtins.print") as mock_console_print:
             cmd_ddl(mock_args)
-            
+
         mock_generate.assert_called_once_with(mock_client.return_value, "test-project", "test_dataset", "test_table")
         # Should print status message and DDL content
         assert mock_console_print.call_count == 2
@@ -41,14 +41,14 @@ class TestDDLIntegration:
         """Test DDL table command with file output."""
         mock_generate.return_value = "CREATE OR REPLACE TABLE `test-project.test_dataset.test_table` (\n  id INT64\n);"
         mock_write.return_value = "/path/to/output/file.sql"
-        
+
         mock_args = Mock()
         mock_args.ddl_command = "table"
         mock_args.table_ref = "test-project:test_dataset.test_table"
         mock_args.output = True
-        
+
         cmd_ddl(mock_args)
-        
+
         mock_generate.assert_called_once_with(mock_client.return_value, "test-project", "test_dataset", "test_table")
         mock_write.assert_called_once()
         mock_print.assert_called_once()
@@ -63,15 +63,15 @@ class TestDDLIntegration:
             "CREATE OR REPLACE TABLE `test-project.test_dataset.table1` (\n  id INT64\n);",
             "CREATE OR REPLACE TABLE `test-project.test_dataset.table2` (\n  name STRING\n);"
         ]
-        
+
         mock_args = Mock()
         mock_args.ddl_command = "batch"
         mock_args.table_refs = ["test-project:test_dataset.table1", "test-project:test_dataset.table2"]
         mock_args.output = False
-        
+
         with patch("builtins.print") as mock_console_print:
             cmd_ddl(mock_args)
-        
+
         assert mock_generate.call_count == 2
         assert mock_console_print.call_count >= 2  # At least one call per table
 
@@ -85,15 +85,15 @@ class TestDDLIntegration:
             "test-project:test_dataset.table1": "CREATE OR REPLACE TABLE `test-project.test_dataset.table1` (\n  id INT64\n);",
             "test-project:test_dataset.table2": "CREATE OR REPLACE TABLE `test-project.test_dataset.table2` (\n  name STRING\n);"
         }
-        
+
         mock_args = Mock()
         mock_args.ddl_command = "dataset"
         mock_args.dataset_ref = "test-project:test_dataset"
         mock_args.output = False
-        
+
         with patch("builtins.print") as mock_console_print:
             cmd_ddl(mock_args)
-        
+
         mock_generate.assert_called_once_with(mock_client.return_value, "test-project", "test_dataset")
         assert mock_console_print.call_count >= 2  # At least one call per table
 
@@ -101,11 +101,11 @@ class TestDDLIntegration:
     def test_ddl_bigquery_client_error(self, mock_client):
         """Test DDL command with BigQuery client initialization error."""
         mock_client.side_effect = Exception("Authentication failed")
-        
+
         mock_args = Mock()
         mock_args.ddl_command = "table"
         mock_args.table_ref = "test-project:test_dataset.test_table"
-        
+
         with pytest.raises(SystemExit):
             cmd_ddl(mock_args)
 
@@ -113,7 +113,7 @@ class TestDDLIntegration:
         """Test DDL command with invalid subcommand."""
         mock_args = Mock()
         mock_args.ddl_command = None
-        
+
         with pytest.raises(SystemExit):
             cmd_ddl(mock_args)
 
@@ -125,15 +125,15 @@ class TestDDLErrorScenarios:
     def test_ddl_invalid_table_reference(self, mock_client):
         """Test DDL generation with invalid table reference format."""
         from schema_diff.cli.ddl import _parse_table_ref
-        
+
         invalid_refs = [
-            "project:dataset:table:extra",  # Too many colons  
+            "project:dataset:table:extra",  # Too many colons
             "project:dataset",  # Missing table (no dot)
             "",  # Empty string
             ":",  # Just colon
             "project:dataset:table.extra",  # Too many dots after colon
         ]
-        
+
         for invalid_ref in invalid_refs:
             try:
                 _parse_table_ref(invalid_ref)
@@ -146,13 +146,13 @@ class TestDDLErrorScenarios:
         """Test DDL generation when table doesn't exist."""
         from schema_diff.bigquery_ddl import generate_table_ddl
         from google.api_core.exceptions import NotFound
-        
+
         # Mock table not found
         mock_client = Mock()
         mock_table = Mock()
         mock_client.get_table.side_effect = NotFound("Table not found")
         mock_client_class.return_value = mock_client
-        
+
         try:
             generate_table_ddl(mock_client, "test-project", "test_dataset", "nonexistent_table")
             assert False, "Expected table not found error"
@@ -164,12 +164,12 @@ class TestDDLErrorScenarios:
         """Test DDL generation with insufficient permissions."""
         from schema_diff.bigquery_ddl import generate_table_ddl
         from google.api_core.exceptions import Forbidden
-        
+
         # Mock permission denied
         mock_client = Mock()
         mock_client.get_table.side_effect = Forbidden("Permission denied")
         mock_client_class.return_value = mock_client
-        
+
         try:
             generate_table_ddl(mock_client, "test-project", "restricted_dataset", "table")
             assert False, "Expected permission denied error"
@@ -181,12 +181,12 @@ class TestDDLErrorScenarios:
         """Test DDL generation when dataset doesn't exist."""
         from schema_diff.bigquery_ddl import generate_dataset_ddl
         from google.api_core.exceptions import NotFound
-        
+
         # Mock dataset not found
         mock_client = Mock()
         mock_client.list_tables.side_effect = NotFound("Dataset not found")
         mock_client_class.return_value = mock_client
-        
+
         try:
             generate_dataset_ddl(mock_client, "test-project", "nonexistent_dataset")
             assert False, "Expected dataset not found error"
@@ -198,12 +198,12 @@ class TestDDLErrorScenarios:
         """Test DDL generation with network timeout."""
         from schema_diff.bigquery_ddl import generate_table_ddl
         from google.api_core.exceptions import ServiceUnavailable
-        
+
         # Mock network timeout
         mock_client = Mock()
         mock_client.get_table.side_effect = ServiceUnavailable("Service unavailable")
         mock_client_class.return_value = mock_client
-        
+
         try:
             generate_table_ddl(mock_client, "test-project", "test_dataset", "test_table")
             assert False, "Expected service unavailable error"
@@ -213,12 +213,12 @@ class TestDDLErrorScenarios:
     def test_ddl_invalid_dataset_reference(self):
         """Test DDL generation with invalid dataset reference format."""
         from schema_diff.cli.ddl import _parse_dataset_ref
-        
+
         invalid_refs = [
             "project:dataset:extra",  # Too many colons
             "project.dataset",  # Wrong separator (should be colon)
         ]
-        
+
         for invalid_ref in invalid_refs:
             try:
                 _parse_dataset_ref(invalid_ref)
@@ -310,7 +310,7 @@ class TestDDLCommandLineIntegration:
         # This will fail at BigQuery client initialization, which is expected
         # We're testing that the CLI parsing works correctly
         from schema_diff.io_utils import CommandError
-        
+
         try:
             result = run_cli(["ddl", "table", "test-project:test_dataset.test_table"])
             # If it doesn't raise, check the result

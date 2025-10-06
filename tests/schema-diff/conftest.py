@@ -29,7 +29,7 @@ def write_file(tmp_path):
 def run_cli():
     def _run_cli(args: list[str]):
         exe = [sys.executable, "-m", "schema_diff.cli"]
-        
+
         # Auto-detect if we need to prepend "compare" subcommand
         # If first arg is not a known subcommand, assume it's a comparison
         known_subcommands = {"compare", "generate", "ddl", "config"}
@@ -37,7 +37,7 @@ def run_cli():
             # Check if first arg looks like a file path or starts with --
             if args[0].startswith("--") or "/" in args[0] or "." in args[0]:
                 args = ["compare"] + args
-        
+
         return _run(exe + args)
 
     return _run_cli

@@ -8,8 +8,6 @@ or the new unified Schema object format.
 """
 from __future__ import annotations
 
-from typing import Any, Union
-
 from .models import Schema
 
 
@@ -63,37 +61,37 @@ def _load_unified_schema(
     if schema_type == "json_schema":
         from .json_schema_parser import schema_from_json_schema_file_unified
 
-        return schema_from_json_schema_file_unified(file_path)
+        return schema_from_json_schema_file_unified(file_path)  # type: ignore[no-any-return]
 
     elif schema_type == "spark":
         from .spark_schema_parser import schema_from_spark_schema_file_unified
 
-        return schema_from_spark_schema_file_unified(file_path)
+        return schema_from_spark_schema_file_unified(file_path)  # type: ignore[no-any-return]
 
     elif schema_type == "sql":
         from .sql_schema_parser import schema_from_sql_schema_file_unified
 
-        return schema_from_sql_schema_file_unified(file_path, table=table)
+        return schema_from_sql_schema_file_unified(file_path, table=table)  # type: ignore[no-any-return]
 
     elif schema_type == "protobuf":
         from .protobuf_schema_parser import schema_from_protobuf_file_unified
 
-        return schema_from_protobuf_file_unified(file_path, message=message)
+        return schema_from_protobuf_file_unified(file_path, message=message)  # type: ignore[no-any-return]
 
     elif schema_type == "dbt-manifest":
         from .dbt_schema_parser import schema_from_dbt_manifest_unified
 
-        return schema_from_dbt_manifest_unified(file_path, model=model)
+        return schema_from_dbt_manifest_unified(file_path, model=model)  # type: ignore[no-any-return]
 
     elif schema_type == "dbt-yml":
         from .dbt_schema_parser import schema_from_dbt_schema_yml_unified
 
-        return schema_from_dbt_schema_yml_unified(file_path, model=model)
+        return schema_from_dbt_schema_yml_unified(file_path, model=model)  # type: ignore[no-any-return]
 
     elif schema_type == "dbt-model":
         from .dbt_schema_parser import schema_from_dbt_model_unified
 
-        return schema_from_dbt_model_unified(file_path)
+        return schema_from_dbt_model_unified(file_path)  # type: ignore[no-any-return]
 
     else:
         raise ValueError(f"Unsupported schema type for unified loading: {schema_type}")

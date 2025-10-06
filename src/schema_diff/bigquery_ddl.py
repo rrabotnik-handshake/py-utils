@@ -31,7 +31,7 @@ def get_default_project() -> str:
     # Try to get from BigQuery client
     try:
         client = bigquery.Client()
-        return client.project
+        return str(client.project)
     except Exception as e:
         raise ValueError("Unable to determine default BigQuery project") from e
 
@@ -158,7 +158,8 @@ def colorize_sql(sql: str, mode: str = "auto") -> str:
             result = highlight(sql, SqlLexer(), Terminal256Formatter())
             return str(result)
         except Exception:
-            pass
+            # Fallback to non-highlighted SQL if pygments fails
+            return _fallback_color_sql(sql)
 
     return _fallback_color_sql(sql)
 

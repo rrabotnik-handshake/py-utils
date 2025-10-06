@@ -300,7 +300,7 @@ def analyze_schema_evolution(old_schema, new_schema) -> dict:
     new_paths = set(new_fields.keys())
 
     # Analyze changes
-    analysis = {
+    analysis: dict[str, Any] = {
         "added_fields": sorted(new_paths - old_paths),
         "removed_fields": sorted(old_paths - new_paths),
         "common_fields": sorted(old_paths & new_paths),

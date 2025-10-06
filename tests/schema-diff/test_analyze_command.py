@@ -30,12 +30,12 @@ class TestAnalyzeCommand:
                 }
             }
             data_file.write_text(json.dumps(data))
-            
+
             result = run_cli([
                 "analyze", str(data_file),
                 "--type", "data"
             ])
-            
+
             assert result.returncode == 0
             assert "Schema Analysis" in result.stdout or "Analysis" in result.stdout
 
@@ -69,32 +69,32 @@ class TestAnalyzeCommand:
                 ]
             }
             data_file.write_text(json.dumps(data))
-            
+
             result = run_cli([
                 "analyze", str(data_file),
                 "--type", "data",
                 "--complexity"
             ])
-            
+
             assert result.returncode == 0
-            
+
             # Verify complexity analysis output contains expected metrics
             output = result.stdout.lower()
-            
+
             # Should contain complexity-related terms
             assert any(word in output for word in ["complexity", "depth", "nesting", "fields", "types"])
-            
+
             # Should analyze the nested structure (depth should be at least 3)
             # user.profile.personal is 3 levels deep
             if "depth" in output or "nesting" in output:
                 # Look for depth/nesting level indicators
                 assert any(str(i) in result.stdout for i in [3, 4, 5])  # Should detect deep nesting
-            
+
             # Should count field types
             if "types" in output or "type" in output:
                 # Should detect multiple types: string, boolean, array, object
                 assert any(word in output for word in ["string", "object", "array", "boolean"])
-            
+
             # Should provide some quantitative metrics
             assert any(char.isdigit() for char in result.stdout)  # Should contain numbers
 
@@ -114,41 +114,41 @@ class TestAnalyzeCommand:
                 }
             }
             data_file.write_text(json.dumps(data))
-            
+
             result = run_cli([
                 "analyze", str(data_file),
                 "--type", "data",
                 "--patterns"
             ])
-            
+
             assert result.returncode == 0
-            
+
             # Verify pattern analysis output
             output = result.stdout.lower()
-            
+
             # Should contain pattern-related terms
             assert any(word in output for word in ["pattern", "semantic", "field"])
-            
+
             # Should detect ID field patterns (user_id, profile_id)
             if "id" in output or "identifier" in output:
                 # Should recognize ID fields
                 assert any(field in result.stdout for field in ["user_id", "profile_id"])
-            
+
             # Should detect timestamp patterns (created_at, updated_at)
             if "timestamp" in output or "date" in output or "time" in output:
                 # Should recognize timestamp fields
                 assert any(field in result.stdout for field in ["created_at", "updated_at"])
-            
+
             # Should detect email patterns
             if "email" in output:
                 # Should recognize email field
                 assert "email" in result.stdout
-            
+
             # Should detect boolean patterns
             if "boolean" in output or "bool" in output:
                 # Should recognize boolean fields
                 assert any(field in result.stdout for field in ["email_notifications", "theme"])
-            
+
             # Should provide meaningful pattern analysis
             # The output should contain field names and pattern types
             assert len(result.stdout) > 50  # Should have substantial output
@@ -175,13 +175,13 @@ class TestAnalyzeCommand:
                 }
             }
             data_file.write_text(json.dumps(data))
-            
+
             result = run_cli([
                 "analyze", str(data_file),
                 "--type", "data",
                 "--suggestions"
             ])
-            
+
             assert result.returncode == 0
             # Should include suggestions
             assert any(word in result.stdout.lower() for word in ["suggestion", "improve", "consider"])
@@ -210,13 +210,13 @@ class TestAnalyzeCommand:
                 ]
             }
             data_file.write_text(json.dumps(data))
-            
+
             result = run_cli([
                 "analyze", str(data_file),
                 "--type", "data",
                 "--report"
             ])
-            
+
             assert result.returncode == 0
             # Should include comprehensive analysis
             assert len(result.stdout) > 100  # Should be substantial output
@@ -236,13 +236,13 @@ class TestAnalyzeCommand:
                 }
             }
             data_file.write_text(json.dumps(data))
-            
+
             result = run_cli([
                 "analyze", str(data_file),
                 "--type", "data",
                 "--all"
             ])
-            
+
             assert result.returncode == 0
             # Should include all types of analysis
             assert len(result.stdout) > 200  # Should be comprehensive
@@ -269,12 +269,12 @@ class TestAnalyzeCommand:
                 "required": ["id", "name"]
             }
             schema_file.write_text(json.dumps(schema))
-            
+
             result = run_cli([
                 "analyze", str(schema_file),
                 "--type", "json_schema",
             ])
-            
+
             assert result.returncode == 0
 
     def test_analyze_spark_schema_file(self, run_cli):
@@ -289,12 +289,12 @@ class TestAnalyzeCommand:
  |    |-- bio: string (nullable = true)
  |    |-- age: integer (nullable = true)"""
             spark_file.write_text(spark_schema)
-            
+
             result = run_cli([
                 "analyze", str(spark_file),
                 "--type", "spark",
             ])
-            
+
             assert result.returncode == 0
 
     def test_analyze_with_output_file(self, run_cli):
@@ -303,15 +303,15 @@ class TestAnalyzeCommand:
             data_file = Path(temp_dir) / "data.json"
             data = {"id": 1, "name": "Test", "active": True}
             data_file.write_text(json.dumps(data))
-            
+
             result = run_cli([
                 "analyze", str(data_file),
                 "--type", "data",
                 "--output"
             ])
-            
+
             assert result.returncode == 0
-            
+
             # Check that analysis file was created
             output_dir = Path("output")
             if output_dir.exists():
@@ -324,55 +324,55 @@ class TestAnalyzeCommand:
             data_file = Path(temp_dir) / "data.json"
             data = {"field1": "value1", "field2": 42, "field3": True}
             data_file.write_text(json.dumps(data))
-            
+
             formats = ["text", "json", "markdown"]
-            
+
             for format_type in formats:
                 result = run_cli([
                     "analyze", str(data_file),
                     "--format", format_type,
                 ])
-                
+
                 assert result.returncode == 0
 
     def test_analyze_with_sampling_options(self, run_cli):
         """Test analysis with different sampling options."""
         with tempfile.TemporaryDirectory() as temp_dir:
             data_file = Path(temp_dir) / "large_data.json"
-            
+
             # Create NDJSON with multiple records
             records = [
                 {"id": i, "name": f"User {i}", "score": i * 10}
                 for i in range(50)
             ]
             data_file.write_text('\n'.join(json.dumps(record) for record in records))
-            
+
             # Test with specific sample size
             result = run_cli([
                 "analyze", str(data_file),
                 "--type", "data",
                 "--sample-size", "10"
             ])
-            
+
             assert result.returncode == 0
 
     def test_analyze_all_records(self, run_cli):
         """Test analysis with --all-records flag."""
         with tempfile.TemporaryDirectory() as temp_dir:
             data_file = Path(temp_dir) / "all_records_data.json"
-            
+
             records = [
                 {"id": i, "value": f"item_{i}"}
                 for i in range(20)
             ]
             data_file.write_text('\n'.join(json.dumps(record) for record in records))
-            
+
             result = run_cli([
                 "analyze", str(data_file),
                 "--type", "data",
                 "--all-records"
             ])
-            
+
             assert result.returncode == 0
 
     def test_analyze_auto_type_detection(self, run_cli):
@@ -381,13 +381,13 @@ class TestAnalyzeCommand:
             # JSON data file
             json_file = Path(temp_dir) / "data.json"
             json_file.write_text('{"name": "test", "value": 42}')
-            
+
             # Should auto-detect as data
             result = run_cli([
                 "analyze", str(json_file),
                 "--type", "data"
             ])
-            
+
             assert result.returncode == 0
 
     def test_analyze_invalid_file(self, run_cli):
@@ -395,7 +395,7 @@ class TestAnalyzeCommand:
         result = run_cli([
             "analyze", "nonexistent_file.json"
         ])
-        
+
         # Should handle error gracefully with error message
         assert result.returncode == 0  # Command handles error gracefully
         assert "Error" in result.stdout or "error" in result.stdout
@@ -405,12 +405,12 @@ class TestAnalyzeCommand:
         with tempfile.TemporaryDirectory() as temp_dir:
             empty_file = Path(temp_dir) / "empty.json"
             empty_file.write_text("")
-            
+
             result = run_cli([
                 "analyze", str(empty_file),
                 "--type", "data"
             ])
-            
+
             # Should handle empty file gracefully
             # May return error or handle gracefully depending on implementation
 
@@ -419,11 +419,11 @@ class TestAnalyzeCommand:
         with tempfile.TemporaryDirectory() as temp_dir:
             bad_file = Path(temp_dir) / "malformed.json"
             bad_file.write_text('{"invalid": json}')
-            
+
             result = run_cli([
                 "analyze", str(bad_file),
                 "--type", "data"
             ])
-            
+
             # Should handle malformed JSON gracefully
             # May return error or handle gracefully depending on implementation

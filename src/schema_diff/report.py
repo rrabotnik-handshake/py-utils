@@ -22,7 +22,7 @@ Key features
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict, Tuple
 
 from .normalize import _has_any, is_presence_issue
 from .utils import clean_deepdiff_path, fmt_dot_path
@@ -408,16 +408,16 @@ def print_report_text(
             right_source_type == "data" and left_is_schema
         )
 
+        actual_presence_issues: list[Tuple[Dict[str, Any], str, str]] = []
+
         if is_data_to_schema:
             # For data-to-schema comparisons, suppress presence issues as they're mostly noise
-            actual_presence_issues = []
             print(f"\n{YEL}-- Missing Data / NULL-ABILITY -- (0){RST}")
             print(
                 f"  {CYN}Skipped for data-to-schema comparison{RST} (data files don't have explicit nullability)"
             )
         else:
             # Filter out items where both sides are identical after formatting
-            actual_presence_issues = []
             for e in pres:
                 left_formatted = fmt_presence_type(
                     e["file1"], is_schema_source=left_is_schema

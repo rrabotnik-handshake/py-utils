@@ -11,7 +11,7 @@ import logging
 import logging.handlers
 import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from .constants import (
     DEFAULT_LOG_FORMAT,
@@ -49,7 +49,7 @@ class SchemaDiffLogger:
     """Centralized logger configuration for schema-diff."""
 
     _configured = False
-    _loggers = {}
+    _loggers: dict[str, Any] = {}
 
     @classmethod
     def setup_logging(
@@ -98,7 +98,7 @@ class SchemaDiffLogger:
             console_handler.setLevel(level)
 
             if colored_output and sys.stderr.isatty():
-                console_formatter = ColoredFormatter(format_string)
+                console_formatter: logging.Formatter = ColoredFormatter(format_string)
             else:
                 console_formatter = logging.Formatter(format_string)
 
@@ -161,7 +161,7 @@ class SchemaDiffLogger:
             logger = logging.getLogger(logger_name)
             cls._loggers[logger_name] = logger
 
-        return cls._loggers[logger_name]
+        return cls._loggers[logger_name]  # type: ignore[no-any-return]
 
     @classmethod
     def set_level(cls, level: Union[str, int]) -> None:
@@ -215,7 +215,7 @@ class SchemaDiffLogger:
             backupCount=LOG_FILE_BACKUP_COUNT,
             encoding="utf-8",
         )
-        file_handler.setLevel(level)
+        file_handler.setLevel(level or logging.INFO)
         file_handler.setFormatter(logging.Formatter(format_string))
 
         root_logger.addHandler(file_handler)

@@ -6,6 +6,8 @@ Provides advanced schema analysis capabilities.
 """
 from __future__ import annotations
 
+from typing import Any
+
 
 def add_analyze_subcommand(subparsers):
     """Add the analyze subcommand to the CLI."""
@@ -96,7 +98,7 @@ def add_analyze_subcommand(subparsers):
     )
 
 
-def cmd_analyze(args) -> None:
+def cmd_analyze(args) -> int:
     """Execute the analyze command."""
     try:
         import json
@@ -170,7 +172,7 @@ def cmd_analyze(args) -> None:
             show_complexity = True
             show_patterns = True
 
-        results = {}
+        results: dict[str, Any] = {}
 
         # Perform requested analysis
         if show_complexity:

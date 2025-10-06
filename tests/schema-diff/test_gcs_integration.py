@@ -99,22 +99,22 @@ class TestGCSFileOperations:
         mock_client = MagicMock()
         mock_bucket = MagicMock()
         mock_blob = MagicMock()
-        
+
         mock_storage.Client.return_value = mock_client
         mock_client.bucket.return_value = mock_bucket
         mock_bucket.blob.return_value = mock_blob
 
         with tempfile.TemporaryDirectory() as temp_dir:
             local_path = os.path.join(temp_dir, "test_file.json")
-            
+
             # Mock successful download
             def mock_download(path):
                 Path(path).write_text('{"test": "data"}')
-            
+
             mock_blob.download_to_filename.side_effect = mock_download
 
             result = download_gcs_file("gs://test-bucket/data.json", local_path)
-            
+
             assert result == local_path
             assert os.path.exists(local_path)
             mock_blob.download_to_filename.assert_called_once_with(local_path)
@@ -124,10 +124,10 @@ class TestGCSFileOperations:
         """Test GCS file caching behavior."""
         with tempfile.TemporaryDirectory() as temp_dir:
             local_path = os.path.join(temp_dir, "cached_file.json")
-            
+
             # Create existing file
             Path(local_path).write_text('{"cached": "data"}')
-            
+
             # Should return cached file without downloading
             result = download_gcs_file("gs://test/data.json", local_path, force=False)
             assert result == local_path
@@ -161,7 +161,7 @@ class TestGCSIntegrationWithIO:
         mock_download.return_value = "/tmp/downloaded_file.json"
 
         result = resolve_file_path("gs://bucket/file.json")
-        
+
         assert result == "/tmp/downloaded_file.json"
         mock_download.assert_called_once_with("gs://bucket/file.json", force=False)
 
@@ -173,7 +173,7 @@ class TestGCSIntegrationWithIO:
         mock_download.return_value = "/tmp/downloaded_file.json"
 
         result = resolve_file_path("gs://bucket/file.json", force_download=True)
-        
+
         assert result == "/tmp/downloaded_file.json"
         mock_download.assert_called_once_with("gs://bucket/file.json", force=True)
 
@@ -181,21 +181,21 @@ class TestGCSIntegrationWithIO:
         """Test global force download context."""
         # Test default context
         set_force_download_context(False)
-        
+
         with patch('schema_diff.gcs_utils.download_gcs_file') as mock_download, \
              patch('schema_diff.gcs_utils.is_gcs_path', return_value=True):
             mock_download.return_value = "/tmp/file.json"
-            
+
             resolve_file_path("gs://bucket/file.json")
             mock_download.assert_called_once_with("gs://bucket/file.json", force=False)
 
         # Test force context
         set_force_download_context(True)
-        
+
         with patch('schema_diff.gcs_utils.download_gcs_file') as mock_download, \
              patch('schema_diff.gcs_utils.is_gcs_path', return_value=True):
             mock_download.return_value = "/tmp/file.json"
-            
+
             resolve_file_path("gs://bucket/file.json")
             mock_download.assert_called_once_with("gs://bucket/file.json", force=True)
 
@@ -212,7 +212,7 @@ class TestGCSCLIIntegration:
         """Test that generate command exists and can be imported."""
         from schema_diff.cli.generate import cmd_generate
         assert callable(cmd_generate)
-        
+
     def test_gcs_context_functions_exist(self):
         """Test that GCS context functions exist."""
         from schema_diff.io_utils import set_force_download_context, resolve_file_path
@@ -226,7 +226,7 @@ class TestGCSErrorScenarios:
     def test_invalid_gcs_url_formats(self):
         """Test handling of malformed GCS URLs."""
         from schema_diff.gcs_utils import parse_gcs_path
-        
+
         invalid_urls = [
             "gs://",  # Missing bucket
             "gs:///file.json",  # Empty bucket
@@ -236,7 +236,7 @@ class TestGCSErrorScenarios:
             "https://invalid-domain.com/bucket/file.json",  # Wrong domain
             "ftp://bucket/file.json",  # Wrong protocol
         ]
-        
+
         for invalid_url in invalid_urls:
             try:
                 parse_gcs_path(invalid_url)
@@ -249,10 +249,10 @@ class TestGCSErrorScenarios:
         """Test handling of GCS authentication errors."""
         from schema_diff.gcs_utils import download_gcs_file
         from google.auth.exceptions import DefaultCredentialsError
-        
+
         # Mock authentication failure
         mock_client_class.side_effect = DefaultCredentialsError("No credentials found")
-        
+
         try:
             download_gcs_file("gs://test-bucket/test-file.json")
             assert False, "Expected authentication error"
@@ -264,7 +264,7 @@ class TestGCSErrorScenarios:
         """Test handling of GCS network errors."""
         from schema_diff.gcs_utils import download_gcs_file
         from google.api_core.exceptions import ServiceUnavailable
-        
+
         # Mock network failure
         mock_client = Mock()
         mock_bucket = Mock()
@@ -273,7 +273,7 @@ class TestGCSErrorScenarios:
         mock_bucket.blob.return_value = mock_blob
         mock_client.bucket.return_value = mock_bucket
         mock_client_class.return_value = mock_client
-        
+
         try:
             download_gcs_file("gs://test-bucket/test-file.json")
             assert False, "Expected network error"
@@ -285,7 +285,7 @@ class TestGCSErrorScenarios:
         """Test handling of GCS file not found errors."""
         from schema_diff.gcs_utils import download_gcs_file
         from google.api_core.exceptions import NotFound
-        
+
         # Mock file not found
         mock_client = Mock()
         mock_bucket = Mock()
@@ -294,7 +294,7 @@ class TestGCSErrorScenarios:
         mock_bucket.blob.return_value = mock_blob
         mock_client.bucket.return_value = mock_bucket
         mock_client_class.return_value = mock_client
-        
+
         try:
             download_gcs_file("gs://test-bucket/nonexistent-file.json")
             assert False, "Expected file not found error"
@@ -306,7 +306,7 @@ class TestGCSErrorScenarios:
         """Test handling of GCS permission denied errors."""
         from schema_diff.gcs_utils import download_gcs_file
         from google.api_core.exceptions import Forbidden
-        
+
         # Mock permission denied
         mock_client = Mock()
         mock_bucket = Mock()
@@ -315,7 +315,7 @@ class TestGCSErrorScenarios:
         mock_bucket.blob.return_value = mock_blob
         mock_client.bucket.return_value = mock_bucket
         mock_client_class.return_value = mock_client
-        
+
         try:
             download_gcs_file("gs://test-bucket/restricted-file.json")
             assert False, "Expected permission denied error"
@@ -325,17 +325,17 @@ class TestGCSErrorScenarios:
     def test_gcs_url_decoding(self):
         """Test proper URL decoding for GCS paths with special characters."""
         from schema_diff.gcs_utils import parse_gcs_path
-        
+
         # Test HTTPS URL with encoded characters (this format supports URL decoding)
         encoded_https_url = "https://storage.cloud.google.com/my-bucket/path%20with%20spaces/file%2Bname.json"
         bucket, object_path = parse_gcs_path(encoded_https_url)
-        
+
         assert bucket == "my-bucket"
         assert object_path == "path with spaces/file+name.json"
-        
+
         # Test gs:// URL (doesn't do URL decoding - this is expected behavior)
         gs_url = "gs://my-bucket/path%20with%20spaces/file%2Bname.json"
         bucket2, object_path2 = parse_gcs_path(gs_url)
-        
+
         assert bucket2 == "my-bucket"
         assert object_path2 == "path%20with%20spaces/file%2Bname.json"  # No decoding for gs:// format

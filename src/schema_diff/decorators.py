@@ -10,7 +10,7 @@ import functools
 import hashlib
 import json
 import os
-import pickle
+import pickle  # nosec B403: pickle is used safely for internal caching only
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, TypeVar
@@ -52,7 +52,9 @@ class CacheManager:
         if cache_path.exists():
             try:
                 with open(cache_path, "rb") as f:
-                    result = pickle.load(f)  # trunk-ignore(bandit/B301)
+                    result = pickle.load(
+                        f
+                    )  # nosec B301: loading trusted internal cache files only
                 # Store in memory cache for faster access
                 self._memory_cache[cache_key] = result
                 return True, result
@@ -75,8 +77,8 @@ class CacheManager:
             with open(cache_path, "wb") as f:
                 pickle.dump(result, f)
         except Exception:
-            # If we can't write to disk, that's okay
-            pass
+            # If we can't write to disk cache, that's okay - continue without caching
+            return
 
     def clear(self) -> None:
         """Clear all caches."""

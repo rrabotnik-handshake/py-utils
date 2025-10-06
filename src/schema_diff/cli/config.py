@@ -126,7 +126,7 @@ def _check_dependencies() -> None:
     # Check for GCS authentication
     print("\n   GCS Authentication:")
     try:
-        from google.cloud import storage
+        from google.cloud import storage  # type: ignore[attr-defined]
 
         client = storage.Client()
         project = client.project
@@ -156,7 +156,7 @@ def _show_gcs_info(gcs_path: str) -> None:
 
         # Try to get file metadata
         try:
-            from google.cloud import storage
+            from google.cloud import storage  # type: ignore[attr-defined]
 
             client = storage.Client()
             bucket = client.bucket(bucket_name)

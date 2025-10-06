@@ -57,7 +57,7 @@ class ParseError(SchemaDiffError):
         if file_path:
             details["file_path"] = file_path
         if line_number:
-            details["line_number"] = line_number
+            details["line_number"] = str(line_number)
         if parser_type:
             details["parser_type"] = parser_type
 
@@ -310,7 +310,7 @@ class SQLError(SchemaDiffError):
                 else sql_statement
             )
         if error_position:
-            details["position"] = error_position
+            details["position"] = str(error_position)
 
         super().__init__(message, details, cause)
         self.sql_statement = sql_statement
@@ -387,7 +387,9 @@ class CLIError(SchemaDiffError):
         if command:
             details["command"] = command
         if arguments:
-            details["arguments"] = arguments
+            details["arguments"] = (
+                " ".join(arguments) if isinstance(arguments, list) else str(arguments)
+            )
 
         super().__init__(message, details, cause)
         self.command = command
@@ -424,7 +426,7 @@ class ArgumentError(CLIError):
 def wrap_exception(
     exc: Exception,
     message: Optional[str] = None,
-    exception_class: type = SchemaDiffError,
+    exception_class: type[SchemaDiffError] = SchemaDiffError,
     **kwargs,
 ) -> SchemaDiffError:
     """

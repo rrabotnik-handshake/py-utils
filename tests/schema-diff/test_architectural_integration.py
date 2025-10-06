@@ -45,7 +45,7 @@ class TestComparisonPaths:
         file2.write_text(json.dumps(data2))
 
         result = run_cli([
-            str(file1), str(file2), 
+            str(file1), str(file2),
             "--left", "data", "--right", "data", "--no-color"
         ])
         assert result.returncode == 0
@@ -165,11 +165,11 @@ class TestComparisonPaths:
             "required": ["id", "name"]
         }
         schema_file.write_text(json.dumps(schema))
-        
+
         # Create SQL with single table
         sql_file = tmp_path / "schema.sql"
         sql_file.write_text("CREATE TABLE users (id BIGINT NOT NULL, name TEXT NOT NULL);")
-        
+
         # Test jsonschema vs sql with explicit table
         result = run_cli([
             str(schema_file), str(sql_file),
@@ -190,7 +190,7 @@ class TestComparisonPaths:
             "required": ["id"]
         }
         schema_file.write_text(json.dumps(schema))
-        
+
         # Create SQL with multiple tables
         sql_file = tmp_path / "multi.sql"
         sql_content = """
@@ -203,7 +203,7 @@ CREATE TABLE table_b (
 );
 """
         sql_file.write_text(sql_content)
-        
+
         # Compare against table_a (should match - integer types)
         result_match = run_cli([
             str(schema_file), str(sql_file),
@@ -213,7 +213,7 @@ CREATE TABLE table_b (
         assert result_match.returncode == 0
         assert "Schema diff" in result_match.stdout
         assert "No differences" in result_match.stdout or "Type mismatches -- (0)" in result_match.stdout
-        
+
         # Compare against table_b (should mismatch - int vs string)
         result_mismatch = run_cli([
             str(schema_file), str(sql_file),
@@ -230,7 +230,7 @@ CREATE TABLE table_b (
         # Create data with string id
         data_file = tmp_path / "data.json"
         data_file.write_text('{"id": "1"}')  # String id
-        
+
         # Create schema expecting integer id
         schema_file = tmp_path / "schema.json"
         schema = {
@@ -239,7 +239,7 @@ CREATE TABLE table_b (
             "required": ["id"]
         }
         schema_file.write_text(json.dumps(schema))
-        
+
         # Should detect type mismatch
         result = run_cli([
             str(data_file), str(schema_file),
@@ -254,7 +254,7 @@ CREATE TABLE table_b (
         # Create data file
         data_file = tmp_path / "data.json"
         data_file.write_text('{"id": 1, "full_name": "Alice"}')
-        
+
         # Create matching SQL schema
         sql_file = tmp_path / "schema.sql"
         sql_file.write_text("""
@@ -263,7 +263,7 @@ CREATE TABLE users (
   full_name TEXT NOT NULL
 );
 """)
-        
+
         # Should match
         result = run_cli([
             str(data_file), str(sql_file),
@@ -535,7 +535,7 @@ class TestErrorHandling:
     def test_unsupported_combinations(self, tmp_path, run_cli):
         """Test handling of unsupported file type combinations."""
         from schema_diff.io_utils import CommandError
-        
+
         file1 = tmp_path / "test.json"
         file1.write_text(json.dumps({"test": "data"}))
 
@@ -545,7 +545,7 @@ class TestErrorHandling:
                 str(file1), str(file1),
                 "--left", "invalid_type", "--right", "data"
             ])
-        
+
         # Should contain argument validation error
         assert "invalid choice" in str(exc_info.value)
 

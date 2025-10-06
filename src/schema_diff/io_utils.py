@@ -3,7 +3,7 @@ from __future__ import annotations
 import gzip
 import io
 import json
-import subprocess
+import subprocess  # nosec B404: subprocess is used safely for internal commands
 from collections.abc import Iterator, Sequence
 from typing import Any
 
@@ -105,7 +105,9 @@ def _run(args, cwd=None, env=None, check_untrusted=True):
         if check_untrusted and any(c in a for c in [";", "|", "&", "\n", "\r"]):
             raise ValueError(f"Suspicious characters in arg: {a!r}")
 
-    res = subprocess.run(args, cwd=cwd, capture_output=True, text=True, env=env)
+    res = subprocess.run(
+        args, cwd=cwd, capture_output=True, text=True, env=env
+    )  # nosec B603: args are internally constructed
 
     if res.returncode != 0:
         raise CommandError(args, res.returncode, res.stdout, res.stderr)

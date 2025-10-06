@@ -24,7 +24,7 @@ class TestParserFactory:
         """Test creating parsers for all valid kinds."""
         valid_kinds = [
             'data',
-            'jsonschema', 
+            'jsonschema',
             'spark',
             'sql',
             'dbt-manifest',
@@ -32,7 +32,7 @@ class TestParserFactory:
             'dbt-model',
             'protobuf'
         ]
-        
+
         for kind in valid_kinds:
             parser = ParserFactory.create_parser(kind)
             assert parser is not None
@@ -48,10 +48,10 @@ class TestParserFactory:
         """Test listing supported parser kinds."""
         kinds = ParserFactory.list_supported_kinds()
         expected_kinds = [
-            'data', 'jsonschema', 'spark', 'sql', 
+            'data', 'jsonschema', 'spark', 'sql',
             'dbt-manifest', 'dbt-yml', 'dbt-model', 'protobuf'
         ]
-        
+
         for kind in expected_kinds:
             assert kind in kinds
 
@@ -60,23 +60,23 @@ class TestParserFactory:
         class CustomParser:
             def parse(self, path: str, **kwargs):
                 return ParseResult({}, set(), "custom")
-            
+
             def can_handle(self, path: str) -> bool:
                 return path.endswith('.custom')
-        
+
         # Register custom parser
         ParserFactory.register_parser('custom', CustomParser)
-        
+
         # Verify it's registered
         assert 'custom' in ParserFactory.list_supported_kinds()
-        
+
         # Verify we can create it
         parser = ParserFactory.create_parser('custom')
         assert isinstance(parser, CustomParser)
 
     def test_auto_detect_integration(self):
         """Test that factory auto-detection integrates with underlying detection logic."""
-        # This test focuses on the factory pattern integration rather than 
+        # This test focuses on the factory pattern integration rather than
         # duplicating the detailed auto-detection logic tested in test_auto_detection.py
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             # Create a clear JSON Schema file
@@ -86,12 +86,12 @@ class TestParserFactory:
                 "properties": {"name": {"type": "string"}}
             }, f)
             f.flush()
-            
+
             # Test that factory correctly delegates to auto-detection and returns right parser
             parser, kind = ParserFactory.auto_detect_parser(f.name)
             assert kind == 'jsonschema'
             assert isinstance(parser, JsonSchemaParser)
-            
+
             Path(f.name).unlink()
 
     def test_parse_file_with_explicit_kind(self):
@@ -99,18 +99,18 @@ class TestParserFactory:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump({"id": 1, "name": "test"}, f)
             f.flush()
-            
+
             from src.schema_diff.config import Config
             cfg = Config()
-            
+
             result = ParserFactory.parse_file(f.name, kind='data', cfg=cfg, samples=1)
-            
+
             assert isinstance(result, ParseResult)
             assert result.schema_tree is not None
             assert isinstance(result.required_paths, set)
             assert result.label is not None
             assert result.source_type == 'data'
-            
+
             Path(f.name).unlink()
 
     def test_parse_file_with_auto_detection(self):
@@ -122,12 +122,12 @@ class TestParserFactory:
                 "properties": {"name": {"type": "string"}}
             }, f)
             f.flush()
-            
+
             result = ParserFactory.parse_file(f.name, kind='auto')
-            
+
             assert isinstance(result, ParseResult)
             assert result.source_type == 'jsonschema'
-            
+
             Path(f.name).unlink()
 
 
@@ -140,9 +140,9 @@ class TestParseResult:
         required_paths = {"name"}
         label = "test.json"
         source_type = "data"
-        
+
         result = ParseResult(schema_tree, required_paths, label, source_type)
-        
+
         assert result.schema_tree == schema_tree
         assert result.required_paths == required_paths
         assert result.label == label
@@ -151,7 +151,7 @@ class TestParseResult:
     def test_parse_result_optional_source_type(self):
         """Test ParseResult with optional source_type."""
         result = ParseResult({"name": "str"}, set(), "test.json")
-        
+
         assert result.source_type is None
 
 
@@ -161,7 +161,7 @@ class TestIndividualParsers:
     def test_data_parser_can_handle(self):
         """Test DataParser can_handle method."""
         parser = DataParser()
-        
+
         assert parser.can_handle("data.json")
         assert parser.can_handle("data.jsonl")
         assert parser.can_handle("data.ndjson")
@@ -170,32 +170,32 @@ class TestIndividualParsers:
     def test_json_schema_parser_can_handle(self):
         """Test JsonSchemaParser can_handle method."""
         parser = JsonSchemaParser()
-        
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump({"$schema": "http://json-schema.org/draft-07/schema#"}, f)
             f.flush()
-            
+
             assert parser.can_handle(f.name)
             Path(f.name).unlink()
 
     def test_spark_parser_can_handle(self):
         """Test SparkSchemaParser can_handle method."""
         parser = SparkSchemaParser()
-        
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
             f.write("root\n |-- field: string (nullable = true)")
             f.flush()
-            
+
             assert parser.can_handle(f.name)
             Path(f.name).unlink()
 
     def test_sql_parser_can_handle(self):
         """Test SqlSchemaParser can_handle method."""
         parser = SqlSchemaParser()
-        
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False) as f:
             f.write("CREATE TABLE test (id INT);")
             f.flush()
-            
+
             assert parser.can_handle(f.name)
             Path(f.name).unlink()
