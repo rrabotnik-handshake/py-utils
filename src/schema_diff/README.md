@@ -68,7 +68,25 @@ schema-diff compare data.json my-project:dataset.table --right bigquery
 
 # Data vs BigQuery live table (auto-detected)
 schema-diff compare data.json handshake-production:coresignal.users
+
+# BigQuery table comparison (shows clean type vs nullability separation)
+schema-diff compare project:dataset.table1 project:dataset.table2
 ```
+
+### Example Output
+
+The improved output clearly separates type changes from nullability changes:
+
+```
+-- Presence mismatches (NULL/required) -- (1)
+  user_id: required → nullable
+
+-- Type mismatches -- (2)
+  is_active: bool → int
+  score: float → str
+```
+
+This makes it easy to understand what changed: `user_id` became nullable, while `is_active` and `score` changed data types.
 
 ### Schema Generation
 
@@ -319,8 +337,8 @@ schema-diff compare [OPTIONS] file1 file2
 
 #### Schema Type Selection
 
-- `--left {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model}` - Left file type (auto-detected if not specified)
-- `--right {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model}` - Right file type (auto-detected if not specified)
+- `--left {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Left file type (auto-detected if not specified)
+- `--right {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Right file type (auto-detected if not specified)
 
 #### Schema-Specific Options
 
@@ -488,7 +506,7 @@ schema-diff analyze [OPTIONS] schema_file
 
 #### Schema Type Options
 
-- `--type {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model}` - Schema type (auto-detected if not specified)
+- `--type {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Schema type (auto-detected if not specified)
 - `--table TABLE` - BigQuery table name (for SQL schemas)
 - `--model MODEL` - dbt model name (for dbt schemas)
 - `--message MESSAGE` - Protobuf message name (for protobuf schemas)
@@ -536,15 +554,15 @@ Fields that appear in only one of the compared schemas.
 
 ### Type Mismatches
 
-Fields with the same name but different types between schemas.
+Fields with the same name but different data types between schemas. Shows clean type changes without nullability information (e.g., `bool → int`, `str → float`).
+
+### Presence mismatches (NULL/required)
+
+Differences in field optionality and presence constraints. Shows nullability changes separately from type changes (e.g., `required → nullable`, `nullable → required`).
 
 ### Path Changes
 
 Fields that appear in different locations or structures between schemas.
-
-### Missing Data / NULL-ability
-
-Differences in field optionality and presence constraints.
 
 ---
 
@@ -587,6 +605,15 @@ The analysis is data-driven and uses common patterns to categorize changes:
 - **Union Types:** Handles mixed types gracefully (e.g., `union(int|str)`)
 - **Nested Structures:** Deep analysis of objects and arrays
 - **Null Handling:** Distinguishes between missing fields and null values
+
+### Type vs. Nullability Separation
+
+`schema-diff` intelligently separates type changes from nullability changes for clearer, more intuitive output:
+
+- **Type Mismatches:** Shows only the actual data types (e.g., `bool → int`, `str → float`)
+- **Presence mismatches (NULL/required):** Shows nullability changes separately (e.g., `required → nullable`, `nullable → required`)
+- **Clean Output:** No more confusing `union(type|missing)` notation in type mismatches
+- **Better Understanding:** Users can immediately distinguish between type changes and nullability changes
 
 ### Presence vs. Types
 

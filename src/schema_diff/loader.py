@@ -186,6 +186,24 @@ def _guess_kind(path: str) -> str:
     """
     p = path.lower()
 
+    # Check for BigQuery table reference (project:dataset.table format)
+    if ":" in path and "." in path:
+        # Split by colon to get project and table parts
+        project_part, table_part = path.split(":", 1)
+        # Check if table part has dataset.table format
+        if (
+            "." in table_part
+            and not table_part.startswith(".")
+            and not table_part.endswith(".")
+        ):
+            # Additional validation: ensure it looks like a valid BigQuery reference
+            # (no file extensions, reasonable length, alphanumeric with underscores/dashes)
+            if not any(
+                p.endswith(ext)
+                for ext in [".sql", ".json", ".txt", ".proto", ".yml", ".yaml", ".gz"]
+            ):
+                return KIND_BIGQUERY
+
     # Unambiguous
     if p.endswith(".sql"):
         return _sniff_sql_kind(path)

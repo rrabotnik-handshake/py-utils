@@ -128,11 +128,11 @@ def _has_any(x: Any) -> bool:
 
 def is_presence_issue(a: Any, b: Any) -> bool:
     """
-    Heuristic: bucket a diff as a presence issue if either side includes 'missing'.
+    Heuristic: bucket a diff as a presence issue if the change is primarily about presence/optionality.
 
-    This is intentionally simple: we look only for inclusion of 'missing' on either side,
-    regardless of other members in the union. The reporter uses this to separate
-    'Missing / optional (presence)' from true type mismatches.
+    This distinguishes between:
+    - Presence issues: changes like "str" → "union(str|missing)" or "union(str|missing)" → "str"
+    - Type mismatches: changes like "bool" → "int" or "union(bool|missing)" → "union(int|missing)"
     """
 
     def parts(s: Any) -> set[str]:
@@ -141,4 +141,27 @@ def is_presence_issue(a: Any, b: Any) -> bool:
         return {s} if isinstance(s, str) else {str(s)}
 
     A, B = parts(a), parts(b)
-    return "missing" in A or "missing" in B
+
+    # If neither side has "missing", it's definitely not a presence issue
+    if "missing" not in A and "missing" not in B:
+        return False
+
+    # Get the non-missing types from both sides
+    non_missing_A = A - {"missing"}
+    non_missing_B = B - {"missing"}
+
+    # If both sides have "missing", check if the non-missing types are the same
+    if "missing" in A and "missing" in B:
+        # If the non-missing types are different, it's a type mismatch, not a presence issue
+        if non_missing_A != non_missing_B:
+            return False
+        # If the non-missing types are the same, it's a presence issue (nullable vs required)
+        return True
+
+    # If only one side has "missing", check if the non-missing types are the same
+    # If they're different, it's primarily a type mismatch, not a presence issue
+    if non_missing_A != non_missing_B:
+        return False
+
+    # If the non-missing types are the same, it's a presence issue (adding/removing optionality)
+    return True

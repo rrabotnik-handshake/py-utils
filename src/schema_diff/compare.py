@@ -108,6 +108,7 @@ def compare_trees(
         "dbt-manifest",
         "dbt-yml",
         "dbt-model",
+        "bigquery",
     }
 
     if left_source_type in SCHEMA_SOURCES:

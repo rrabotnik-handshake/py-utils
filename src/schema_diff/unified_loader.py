@@ -27,7 +27,7 @@ def load_schema_unified(
     file_path : str
         Path to the schema file
     schema_type : str
-        Type of schema (json_schema, spark, sql, protobuf, dbt-manifest, dbt-yml, dbt-model)
+        Type of schema (json_schema, spark, sql, protobuf, dbt-manifest, dbt-yml, dbt-model, bigquery)
     table : str, optional
         Table name for SQL schemas
     model : str, optional
@@ -92,6 +92,14 @@ def _load_unified_schema(
         from .dbt_schema_parser import schema_from_dbt_model_unified
 
         return schema_from_dbt_model_unified(file_path)  # type: ignore[no-any-return]
+
+    elif schema_type == "bigquery":
+        from .loader import _handle_bigquery_live_table
+        from .models import from_legacy_tree
+
+        # Handle BigQuery live table schema extraction
+        tree, required, label = _handle_bigquery_live_table(file_path)
+        return from_legacy_tree(tree, required, source_type="bigquery")
 
     else:
         raise ValueError(f"Unsupported schema type for unified loading: {schema_type}")

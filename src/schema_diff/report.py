@@ -24,8 +24,43 @@ from __future__ import annotations
 
 from typing import Any, Dict, Tuple
 
-from .normalize import _has_any, is_presence_issue
+from .normalize import _has_any
 from .utils import clean_deepdiff_path, fmt_dot_path
+
+
+def extract_base_type_and_nullability(type_repr: str) -> tuple[str, bool]:
+    """
+    Extract base type and nullability from a type representation.
+
+    Args:
+        type_repr: Type representation like 'str', 'union(str|missing)', etc.
+
+    Returns:
+        Tuple of (base_type, is_nullable)
+    """
+    if type_repr == "missing":
+        return ("missing", True)
+
+    if (
+        isinstance(type_repr, str)
+        and type_repr.startswith("union(")
+        and type_repr.endswith(")")
+    ):
+        parts = type_repr[6:-1].split("|")
+        if "missing" in parts:
+            # Remove 'missing' and get the actual type
+            non_missing_parts = [p for p in parts if p != "missing"]
+            if len(non_missing_parts) == 1:
+                return (non_missing_parts[0], True)
+            else:
+                # Multiple non-missing types (complex union)
+                return (type_repr, True)
+        else:
+            # Union without missing
+            return (type_repr, False)
+
+    # Simple type like 'str', 'int', etc.
+    return (type_repr, False)
 
 
 def fmt_presence_type(type_repr: str, is_schema_source: bool = False) -> str:
@@ -223,8 +258,28 @@ def build_report_struct(
         old, new = ch.get("old_value"), ch.get("new_value")
         if _has_any(old) or _has_any(new):
             continue
-        entry = {"path": clean_deepdiff_path(p), "file1": old, "file2": new}
-        (presence if is_presence_issue(old, new) else schema).append(entry)
+
+        # Extract base types and nullability
+        old_base, old_nullable = extract_base_type_and_nullability(old)
+        new_base, new_nullable = extract_base_type_and_nullability(new)
+
+        # Check if there's a type change
+        if old_base != new_base:
+            type_entry = {
+                "path": clean_deepdiff_path(p),
+                "file1": old_base,
+                "file2": new_base,
+            }
+            schema.append(type_entry)
+
+        # Check if there's a nullability change
+        if old_nullable != new_nullable:
+            nullability_entry = {
+                "path": clean_deepdiff_path(p),
+                "file1": "required" if not old_nullable else "nullable",
+                "file2": "required" if not new_nullable else "nullable",
+            }
+            presence.append(nullability_entry)
 
     # Handle type_changes (when DeepDiff detects fundamental type changes)
     for p, ch in (diff.get("type_changes") or {}).items():
@@ -319,14 +374,27 @@ def build_report_struct(
 
         # Only add if there's actually a meaningful difference and not a sampling artifact
         if old_repr != new_repr and not is_sampling_artifact:
-            entry = {
-                "path": clean_deepdiff_path(p),
-                "file1": old_repr,
-                "file2": new_repr,
-            }
-            (presence if is_presence_issue(old_repr, new_repr) else schema).append(
-                entry
-            )
+            # Extract base types and nullability
+            old_base, old_nullable = extract_base_type_and_nullability(old_repr)
+            new_base, new_nullable = extract_base_type_and_nullability(new_repr)
+
+            # Check if there's a type change
+            if old_base != new_base:
+                type_entry = {
+                    "path": clean_deepdiff_path(p),
+                    "file1": old_base,
+                    "file2": new_base,
+                }
+                schema.append(type_entry)
+
+            # Check if there's a nullability change
+            if old_nullable != new_nullable:
+                nullability_entry = {
+                    "path": clean_deepdiff_path(p),
+                    "file1": "required" if not old_nullable else "nullable",
+                    "file2": "required" if not new_nullable else "nullable",
+                }
+                presence.append(nullability_entry)
 
     # Stable order for deterministic output
     schema.sort(key=lambda x: x["path"])
@@ -397,6 +465,7 @@ def print_report_text(
             "dbt-manifest",
             "dbt-yml",
             "dbt-model",
+            "bigquery",
         }
         left_is_schema = left_source_type in SCHEMA_SOURCES
         right_is_schema = right_source_type in SCHEMA_SOURCES
@@ -412,7 +481,7 @@ def print_report_text(
 
         if is_data_to_schema:
             # For data-to-schema comparisons, suppress presence issues as they're mostly noise
-            print(f"\n{YEL}-- Missing Data / NULL-ABILITY -- (0){RST}")
+            print(f"\n{YEL}-- Presence mismatches (NULL/required) -- (0){RST}")
             print(
                 f"  {CYN}Skipped for data-to-schema comparison{RST} (data files don't have explicit nullability)"
             )
@@ -431,7 +500,7 @@ def print_report_text(
                     actual_presence_issues.append((e, left_formatted, right_formatted))
 
             print(
-                f"\n{YEL}-- Missing Data / NULL-ABILITY -- ({len(actual_presence_issues)}){RST}"
+                f"\n{YEL}-- Presence mismatches (NULL/required) -- ({len(actual_presence_issues)}){RST}"
             )
 
             for e, left_formatted, right_formatted in actual_presence_issues:

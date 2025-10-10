@@ -45,6 +45,7 @@ def add_compare_subcommand(subparsers) -> None:
             "dbt-manifest",
             "dbt-yml",
             "dbt-model",
+            "bigquery",
         ],
         help="Left file type (auto-detected if not specified)",
     )
@@ -60,6 +61,7 @@ def add_compare_subcommand(subparsers) -> None:
             "dbt-manifest",
             "dbt-yml",
             "dbt-model",
+            "bigquery",
         ],
         help="Right file type (auto-detected if not specified)",
     )
@@ -222,6 +224,7 @@ def cmd_compare(args) -> None:
             "dbt-manifest",
             "dbt-yml",
             "dbt-model",
+            "bigquery",
         }
 
         if left_kind == "data" and right_kind == "data":
