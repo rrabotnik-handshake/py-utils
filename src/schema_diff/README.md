@@ -1,83 +1,105 @@
 # schema-diff
 
-**Compare schemas across JSON/NDJSON data, JSON Schema, Spark/Databricks schemas, SQL DDL, dbt models, BigQuery live tables, and Protobuf definitions.**
+**Compare schemas across multiple formats and generate schema documentation.**
 
-Works with large files (streams arrays/NDJSON, gz OK), infers types from samples, aligns optionality vs. presence constraints, and prints clean diffs. Also includes BigQuery DDL generation, schema extraction, and migration analysis capabilities.
+## Table of Contents
 
----
+- [🚀 Quick Start](#-quick-start)
+- [📋 Common Use Cases](#-common-use-cases)
+- [📊 Example Output](#-example-output)
+- [🔧 Advanced Usage](#-advanced-usage)
+- [📦 Supported Formats](#-supported-formats)
+- [🔧 Command Reference](#-command-reference)
+- [📊 Output Sections](#-output-sections)
+- [🔄 Migration Analysis](#-migration-analysis)
+- [🛠️ Configuration](#️-configuration)
+- [🔍 Troubleshooting](#-troubleshooting)
 
 ## 🚀 Quick Start
 
 ```bash
-# Install (editable)
+# Install
 pip install -e .
 
-# Install with optional features
-pip install -e ".[bigquery]"      # BigQuery DDL generation + live table access
-pip install -e ".[gcs]"           # Google Cloud Storage support
-pip install -e ".[validation]"    # Schema validation for generated schemas
-pip install -e ".[dev]"          # Development tools (pytest)
+# Basic comparison (most common use case)
+schema-diff compare file1.json file2.json
 
-# Install multiple features
-pip install -e ".[bigquery,gcs,validation]"  # BigQuery + GCS + validation
-pip install -e ".[bigquery,gcs,validation,dev]"  # Everything
+# Compare with different formats
+schema-diff compare data.json schema.sql --right sql
+schema-diff compare data.json my-project:dataset.table --right bigquery
+
+# Generate schema from data
+schema-diff generate data.json --format json_schema
 ```
 
-### Basic Schema Comparison
+## 📋 Common Use Cases
+
+### Compare Data Files
 
 ```bash
-# Basic data vs data (sample 1000 records by default)
-schema-diff compare file1.ndjson.gz file2.json.gz
+# Compare two JSON files
+schema-diff compare old_data.json new_data.json
 
-# First record only
+# Compare compressed files
+schema-diff compare data1.json.gz data2.ndjson.gz
+
+# Quick check (first record only)
 schema-diff compare file1.json file2.json --first-record
-
-# Show the sampled records
-schema-diff compare file1.json file2.json -k 5 --show-samples
-
-# Process ALL records (comprehensive analysis)
-schema-diff compare file1.json file2.json --all-records
-
-# Compare only specific fields
-schema-diff compare file1.json file2.json --fields headline full_name industry
-
-# Combine all-records with field filtering
-schema-diff compare file1.json file2.json --all-records --fields headline member_id
 ```
 
-### Cross-Format Comparisons
+### Compare Data vs Schema
 
 ```bash
 # Data vs JSON Schema
-schema-diff compare data.ndjson schema.json --right jsonschema --first-record
+schema-diff compare data.json schema.json --right jsonschema
 
-# Data vs SQL (choose table)
-schema-diff compare data.json schema.sql --right sql --right-table my_table --first-record
+# Data vs SQL schema
+schema-diff compare data.json schema.sql --right sql --right-table users
 
-# JSON Schema vs SQL (multi-table file)
-schema-diff compare schema.json db.sql --left jsonschema --right sql --right-table users
+# Data vs BigQuery table
+schema-diff compare data.json my-project:dataset.table --right bigquery
+```
+
+### Compare Schemas
+
+```bash
+# JSON Schema vs SQL
+schema-diff compare schema.json db.sql --left jsonschema --right sql
+
+# BigQuery table vs BigQuery table
+schema-diff compare project:dataset.table1 project:dataset.table2
 
 # Spark schema vs data
 schema-diff compare data.json spark_schema.txt --left data --right spark
-
-# Protobuf schema vs data
-schema-diff compare data.json demo.proto --right proto --right-message User
-
-# BigQuery live table vs data
-schema-diff compare data.json my-project:dataset.table --right bigquery
-
-# Data vs BigQuery live table (auto-detected)
-schema-diff compare data.json handshake-production:coresignal.users
-
-# BigQuery table comparison (shows clean type vs nullability separation)
-schema-diff compare project:dataset.table1 project:dataset.table2
 ```
 
-### Example Output
+### Generate Schemas
 
-The improved output clearly separates type changes from nullability changes:
+```bash
+# Generate JSON Schema
+schema-diff generate data.json --format json_schema
+
+# Generate BigQuery DDL
+schema-diff generate data.json --format bigquery_ddl --table-name my_table
+
+# Generate SQL DDL
+schema-diff generate data.json --format sql_ddl
+```
+
+## 📊 Example Output
 
 ```
+=== Schema diff (types only, old_schema.json → new_schema.json) ===
+
+-- Only in old_schema.json -- (2)
+  deprecated_field
+  old_version
+
+-- Only in new_schema.json -- (3)
+  new_feature
+  updated_timestamp
+  version
+
 -- Presence mismatches (NULL/required) -- (1)
   user_id: required → nullable
 
@@ -86,28 +108,37 @@ The improved output clearly separates type changes from nullability changes:
   score: float → str
 ```
 
-This makes it easy to understand what changed: `user_id` became nullable, while `is_active` and `score` changed data types.
+---
 
-### Schema Generation
+## 🔧 Advanced Usage
+
+### Installation Options
 
 ```bash
-# Generate JSON Schema from data
-schema-diff generate data.json --format json_schema
+# Install with optional features
+pip install -e ".[bigquery]"      # BigQuery DDL generation + live table access
+pip install -e ".[gcs]"           # Google Cloud Storage support
+pip install -e ".[validation]"    # Schema validation for generated schemas
+pip install -e ".[dev]"          # Development tools (pytest)
 
-# Generate BigQuery DDL
-schema-diff generate data.json --format bigquery_ddl --table-name my_table
+# Install multiple features
+pip install -e ".[bigquery,gcs,validation]"  # BigQuery + GCS + validation
+```
 
-# Generate with validation
-schema-diff generate data.json --format sql_ddl --validate
+### Advanced Comparison Options
 
-# Save to file
-schema-diff generate data.json --format spark --output
+```bash
+# Process all records (comprehensive analysis)
+schema-diff compare file1.json file2.json --all-records
 
-# Mark specific fields as required
-schema-diff generate data.json --format json_schema --required-fields user_id email
+# Compare only specific fields
+schema-diff compare file1.json file2.json --fields headline full_name industry
 
-# All generated schemas have fields ordered alphabetically at all nesting levels
-schema-diff generate data.json --format bigquery_ddl  # Fields will be A-Z ordered
+# Show sampled records
+schema-diff compare file1.json file2.json -k 5 --show-samples
+
+# Save results to file
+schema-diff compare file1.json file2.json --output
 ```
 
 ### BigQuery DDL Generation
@@ -117,7 +148,7 @@ schema-diff generate data.json --format bigquery_ddl  # Fields will be A-Z order
 schema-diff ddl table my-project:dataset.table
 
 # Batch DDL generation
-schema-diff ddl batch my-project:dataset.table1 my-project:dataset.table2 my-project:dataset.table3
+schema-diff ddl batch my-project:dataset.table1 my-project:dataset.table2
 
 # Entire dataset DDL
 schema-diff ddl dataset my-project:dataset
@@ -127,44 +158,9 @@ schema-diff ddl table my-project:dataset.table --output
 schema-diff ddl dataset my-project:dataset --output
 ```
 
-### Migration Analysis
-
-```bash
-# Generate migration analysis report (markdown by default)
-schema-diff compare old_data.json new_data.json --output
-
-# Migration analysis is automatically generated when using --output
-schema-diff compare old_data.json new_data.json --output
-```
-
-### Google Cloud Storage (GCS) Support
-
-```bash
-# Compare GCS files directly (gs:// format)
-schema-diff compare gs://my-bucket/old-data.json gs://my-bucket/new-data.json
-
-# Compare GCS files using HTTPS URLs
-schema-diff compare https://storage.cloud.google.com/bucket/file1.json https://storage.googleapis.com/bucket/file2.json
-
-# Mixed comparisons (GCS + local)
-schema-diff compare gs://my-bucket/data.json local-schema.sql --right sql
-
-# Generate schema from GCS file
-schema-diff generate gs://my-bucket/production-data.json.gz --format bigquery_ddl --output
-
-# Compare GCS file with BigQuery live table
-schema-diff compare gs://my-bucket/data.json my-project:dataset.table --right bigquery
-
-# Get GCS file information
-schema-diff config --gcs-info gs://my-bucket/data.json
-
-# Force re-download (bypass cache)
-schema-diff compare gs://bucket/file1.json gs://bucket/file2.json --force-download
-```
-
 ---
 
-## 📋 Supported Input Formats
+## 📦 Supported Formats
 
 ### Data Files
 
@@ -172,54 +168,128 @@ schema-diff compare gs://bucket/file1.json gs://bucket/file2.json --force-downlo
 - **NDJSON/JSONL:** `.ndjson`, `.jsonl` files with one JSON object per line
 - **Compressed:** All formats support `.gz` compression
 - **Large Files:** Streaming support for files of any size
-- **Google Cloud Storage:** `gs://bucket/path`, `https://storage.cloud.google.com/bucket/path`, `https://storage.googleapis.com/bucket/path`
+- **Google Cloud Storage:** `gs://bucket/path`, `https://storage.cloud.google.com/bucket/path`
 
 ### Schema Formats
 
-- **JSON Schema:** Draft-07 compatible schemas with `$schema`, `type`, `properties`, `required`, `oneOf/anyOf/allOf`, `enum`
-- **Spark Schema:** Output from `df.printSchema()` with deep nested `array<struct<...>>` parsing
-- **SQL DDL:** PostgreSQL and BigQuery DDL including `ARRAY<...>`, `STRUCT<...>`, backticked identifiers
+- **JSON Schema:** Draft-07 compatible schemas
+- **Spark Schema:** Output from `df.printSchema()` with deep nested parsing
+- **SQL DDL:** PostgreSQL and BigQuery DDL including `ARRAY<...>`, `STRUCT<...>`
 - **dbt:** `manifest.json`, `schema.yml`, and model `.sql` files
 - **BigQuery Live:** Direct table access via `project:dataset.table` references
 - **Protobuf:** `.proto` files with explicit message selection
 
----
+### Auto-Detection
 
-## 🎯 Intelligent Auto-Detection
+`schema-diff` automatically detects file types:
 
-`schema-diff` automatically detects file types and comparison modes:
-
-### Extension-Based Detection
-
-- `.sql` → Content analysis (SQL DDL vs dbt model)
-- `.yml/.yaml` → dbt schema files
-- `.txt` → Spark schema dumps
-- `.proto` → Protobuf schemas
-- `.json/.gz` → Content analysis (see below)
-
-### Content-Based Detection for JSON Files
-
-- **dbt manifest:** `nodes`, `sources`, `child_map`, or `metadata.dbt_version`
-- **JSON Schema:** `$schema`, `type: "object"`, or schema keywords (`oneOf`, `properties`, etc.)
-- **NDJSON:** Multiple lines starting with `{`
-- **Data:** Everything else
-
-### Content-Based Detection for SQL Files
-
-- **dbt model:** `SELECT`, Jinja (`{{}}`), or dbt functions (`ref()`, `source()`, etc.)
-- **SQL DDL:** `CREATE TABLE`, `ALTER TABLE`, etc.
-
-### Automatic Mode Selection
-
-- **General mode:** Different file types or any schema sources detected
-- **Classic data-to-data:** Both files detected as data with same type
-- **Direct schema modes:** Explicit `--json-schema`, `--spark-schema`, `--sql-schema` arguments
-
-No `--left`/`--right` arguments needed for most comparisons!
+- **Extension-based:** `.sql`, `.yml`, `.txt`, `.proto`, `.json`
+- **Content-based:** Analyzes file contents to determine format
+- **No configuration needed** for most comparisons
 
 ---
 
-## 📦 Optional Dependencies
+## 🔧 Command Reference
+
+### Main Commands
+
+- `compare` - Compare two schemas or data files
+- `generate` - Generate schema from data file
+- `ddl` - Generate BigQuery DDL from live tables
+- `config` - Configuration management
+- `analyze` - Advanced schema analysis
+
+### Compare Command
+
+```bash
+schema-diff compare [OPTIONS] file1 file2
+```
+
+**Key Options:**
+
+- `--first-record` - Compare only the first record
+- `--all-records` - Process all records (no sampling)
+- `--fields [FIELDS ...]` - Compare only specific fields
+- `--left/--right {data,json_schema,spark,sql,bigquery,protobuf,dbt-manifest}` - Specify file types
+- `--output` - Save results to file
+
+### Generate Command
+
+```bash
+schema-diff generate [OPTIONS] data_file
+```
+
+**Key Options:**
+
+- `--format {json_schema,sql_ddl,bigquery_ddl,spark}` - Output format
+- `--table-name TABLE_NAME` - Table name for DDL formats
+- `--required-fields [FIELDS ...]` - Mark fields as required
+
+### DDL Command
+
+```bash
+schema-diff ddl {table,batch,dataset} [OPTIONS] ...
+```
+
+**Examples:**
+
+- `schema-diff ddl table my-project:dataset.table`
+- `schema-diff ddl batch table1 table2 table3`
+- `schema-diff ddl dataset my-project:dataset`
+
+---
+
+## 📊 Output Sections
+
+`schema-diff` provides comprehensive comparison results organized into clear sections:
+
+### Common Fields
+
+Fields that appear in both schemas, showing their types and any differences between them.
+
+### Only in Source / Only in Target
+
+Fields that exist in only one of the compared schemas, helping identify added or removed fields.
+
+### Type Mismatches
+
+Fields with the same name but different data types between schemas (e.g., `bool → int`, `str → float`).
+
+### Presence mismatches (NULL/required)
+
+Differences in field optionality and nullability constraints (e.g., `required → nullable`, `nullable → required`).
+
+### Path Changes
+
+Fields that appear in different locations or structures between schemas, useful for understanding structural changes.
+
+---
+
+## 🔄 Migration Analysis
+
+The migration analysis feature generates comprehensive reports for schema migrations based on comparison results:
+
+### Report Sections
+
+- **📊 Migration Overview** - High-level summary with field counts and compatibility metrics
+- **🎯 Compatibility Summary** - Overall migration complexity rating
+- **❌ Critical Issues** - Breaking changes requiring immediate attention
+- **⚠️ Warnings** - Changes that may impact your system
+- **💡 Migration Recommendation** - Actionable steps and timeline guidance
+- **📊 Complete Schema Comparison** - Full technical comparison with detailed field analysis
+
+### Usage
+
+```bash
+# Generate migration analysis report
+schema-diff compare old_data.json new_data.json --output
+
+# Migration analysis is automatically generated when using --output
+```
+
+---
+
+## 🛠️ Configuration
 
 `schema-diff` uses optional dependencies to keep the core installation lightweight while providing extended functionality:
 
@@ -544,25 +614,27 @@ schema-diff analyze my_table.sql --type sql --table users --suggestions
 
 ## 📊 Output Sections
 
+`schema-diff` provides comprehensive comparison results organized into clear sections:
+
 ### Common Fields
 
-Fields that appear in both schemas with their types and any differences.
+Fields that appear in both schemas, showing their types and any differences between them.
 
 ### Only in Source / Only in Target
 
-Fields that appear in only one of the compared schemas.
+Fields that exist in only one of the compared schemas, helping identify added or removed fields.
 
 ### Type Mismatches
 
-Fields with the same name but different data types between schemas. Shows clean type changes without nullability information (e.g., `bool → int`, `str → float`).
+Fields with the same name but different data types between schemas (e.g., `bool → int`, `str → float`).
 
 ### Presence mismatches (NULL/required)
 
-Differences in field optionality and presence constraints. Shows nullability changes separately from type changes (e.g., `required → nullable`, `nullable → required`).
+Differences in field optionality and nullability constraints (e.g., `required → nullable`, `nullable → required`).
 
 ### Path Changes
 
-Fields that appear in different locations or structures between schemas.
+Fields that appear in different locations or structures between schemas, useful for understanding structural changes.
 
 ---
 
@@ -606,14 +678,14 @@ The analysis is data-driven and uses common patterns to categorize changes:
 - **Nested Structures:** Deep analysis of objects and arrays
 - **Null Handling:** Distinguishes between missing fields and null values
 
-### Type vs. Nullability Separation
+### Intelligent Schema Analysis
 
-`schema-diff` intelligently separates type changes from nullability changes for clearer, more intuitive output:
+`schema-diff` provides intelligent analysis and clear output formatting:
 
-- **Type Mismatches:** Shows only the actual data types (e.g., `bool → int`, `str → float`)
-- **Presence mismatches (NULL/required):** Shows nullability changes separately (e.g., `required → nullable`, `nullable → required`)
-- **Clean Output:** No more confusing `union(type|missing)` notation in type mismatches
-- **Better Understanding:** Users can immediately distinguish between type changes and nullability changes
+- **Type Detection:** Automatically infers types from data samples with support for complex nested structures
+- **Format Support:** Works across multiple schema formats (JSON Schema, SQL DDL, Spark, BigQuery, dbt, Protobuf)
+- **Smart Comparison:** Separates type changes from nullability changes for clearer understanding
+- **Large File Support:** Handles files of any size with streaming and sampling capabilities
 
 ### Presence vs. Types
 
