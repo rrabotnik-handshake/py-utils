@@ -25,42 +25,8 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple
 
 from .normalize import _has_any
+from .type_analysis import analyze_type_change
 from .utils import clean_deepdiff_path, fmt_dot_path
-
-
-def extract_base_type_and_nullability(type_repr: str) -> tuple[str, bool]:
-    """
-    Extract base type and nullability from a type representation.
-
-    Args:
-        type_repr: Type representation like 'str', 'union(str|missing)', etc.
-
-    Returns:
-        Tuple of (base_type, is_nullable)
-    """
-    if type_repr == "missing":
-        return ("missing", True)
-
-    if (
-        isinstance(type_repr, str)
-        and type_repr.startswith("union(")
-        and type_repr.endswith(")")
-    ):
-        parts = type_repr[6:-1].split("|")
-        if "missing" in parts:
-            # Remove 'missing' and get the actual type
-            non_missing_parts = [p for p in parts if p != "missing"]
-            if len(non_missing_parts) == 1:
-                return (non_missing_parts[0], True)
-            else:
-                # Multiple non-missing types (complex union)
-                return (type_repr, True)
-        else:
-            # Union without missing
-            return (type_repr, False)
-
-    # Simple type like 'str', 'int', etc.
-    return (type_repr, False)
 
 
 def fmt_presence_type(type_repr: str, is_schema_source: bool = False) -> str:
@@ -259,25 +225,24 @@ def build_report_struct(
         if _has_any(old) or _has_any(new):
             continue
 
-        # Extract base types and nullability
-        old_base, old_nullable = extract_base_type_and_nullability(old)
-        new_base, new_nullable = extract_base_type_and_nullability(new)
+        # Analyze the type change
+        analysis = analyze_type_change(old, new)
 
         # Check if there's a type change
-        if old_base != new_base:
+        if analysis["has_type_change"]:
             type_entry = {
                 "path": clean_deepdiff_path(p),
-                "file1": old_base,
-                "file2": new_base,
+                "file1": analysis["old_base_type"],
+                "file2": analysis["new_base_type"],
             }
             schema.append(type_entry)
 
         # Check if there's a nullability change
-        if old_nullable != new_nullable:
+        if analysis["has_nullability_change"]:
             nullability_entry = {
                 "path": clean_deepdiff_path(p),
-                "file1": "required" if not old_nullable else "nullable",
-                "file2": "required" if not new_nullable else "nullable",
+                "file1": "required" if not analysis["old_nullable"] else "nullable",
+                "file2": "required" if not analysis["new_nullable"] else "nullable",
             }
             presence.append(nullability_entry)
 
@@ -374,25 +339,24 @@ def build_report_struct(
 
         # Only add if there's actually a meaningful difference and not a sampling artifact
         if old_repr != new_repr and not is_sampling_artifact:
-            # Extract base types and nullability
-            old_base, old_nullable = extract_base_type_and_nullability(old_repr)
-            new_base, new_nullable = extract_base_type_and_nullability(new_repr)
+            # Analyze the type change
+            analysis = analyze_type_change(old_repr, new_repr)
 
             # Check if there's a type change
-            if old_base != new_base:
+            if analysis["has_type_change"]:
                 type_entry = {
                     "path": clean_deepdiff_path(p),
-                    "file1": old_base,
-                    "file2": new_base,
+                    "file1": analysis["old_base_type"],
+                    "file2": analysis["new_base_type"],
                 }
                 schema.append(type_entry)
 
             # Check if there's a nullability change
-            if old_nullable != new_nullable:
+            if analysis["has_nullability_change"]:
                 nullability_entry = {
                     "path": clean_deepdiff_path(p),
-                    "file1": "required" if not old_nullable else "nullable",
-                    "file2": "required" if not new_nullable else "nullable",
+                    "file1": "required" if not analysis["old_nullable"] else "nullable",
+                    "file2": "required" if not analysis["new_nullable"] else "nullable",
                 }
                 presence.append(nullability_entry)
 

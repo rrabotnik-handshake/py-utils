@@ -158,11 +158,11 @@ class TestGCSIntegrationWithIO:
     def test_resolve_file_path_gcs(self, mock_is_gcs, mock_download):
         """Test path resolution for GCS files."""
         mock_is_gcs.return_value = True
-        mock_download.return_value = "/tmp/downloaded_file.json"
+        mock_download.return_value = "/tmp/downloaded_file.json"  # nosec B108: test file path
 
         result = resolve_file_path("gs://bucket/file.json")
 
-        assert result == "/tmp/downloaded_file.json"
+        assert result == "/tmp/downloaded_file.json"  # nosec B108: test assertion
         mock_download.assert_called_once_with("gs://bucket/file.json", force=False)
 
     @patch('schema_diff.gcs_utils.download_gcs_file')
@@ -170,11 +170,11 @@ class TestGCSIntegrationWithIO:
     def test_resolve_file_path_force_download(self, mock_is_gcs, mock_download):
         """Test path resolution with force download."""
         mock_is_gcs.return_value = True
-        mock_download.return_value = "/tmp/downloaded_file.json"
+        mock_download.return_value = "/tmp/downloaded_file.json"  # nosec B108: test file path
 
         result = resolve_file_path("gs://bucket/file.json", force_download=True)
 
-        assert result == "/tmp/downloaded_file.json"
+        assert result == "/tmp/downloaded_file.json"  # nosec B108: test assertion
         mock_download.assert_called_once_with("gs://bucket/file.json", force=True)
 
     def test_force_download_context(self):
@@ -184,7 +184,7 @@ class TestGCSIntegrationWithIO:
 
         with patch('schema_diff.gcs_utils.download_gcs_file') as mock_download, \
              patch('schema_diff.gcs_utils.is_gcs_path', return_value=True):
-            mock_download.return_value = "/tmp/file.json"
+            mock_download.return_value = "/tmp/file.json"  # nosec B108: test file path
 
             resolve_file_path("gs://bucket/file.json")
             mock_download.assert_called_once_with("gs://bucket/file.json", force=False)
@@ -194,7 +194,7 @@ class TestGCSIntegrationWithIO:
 
         with patch('schema_diff.gcs_utils.download_gcs_file') as mock_download, \
              patch('schema_diff.gcs_utils.is_gcs_path', return_value=True):
-            mock_download.return_value = "/tmp/file.json"
+            mock_download.return_value = "/tmp/file.json"  # nosec B108: test file path
 
             resolve_file_path("gs://bucket/file.json")
             mock_download.assert_called_once_with("gs://bucket/file.json", force=True)

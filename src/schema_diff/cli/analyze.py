@@ -33,6 +33,7 @@ def add_analyze_subcommand(subparsers):
             "dbt-manifest",
             "dbt-yml",
             "dbt-model",
+            "bigquery",
         ],
         help="Schema type (auto-detected if not specified)",
     )

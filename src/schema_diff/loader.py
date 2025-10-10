@@ -195,6 +195,7 @@ def _guess_kind(path: str) -> str:
             "." in table_part
             and not table_part.startswith(".")
             and not table_part.endswith(".")
+            and project_part  # Must have a project part
         ):
             # Additional validation: ensure it looks like a valid BigQuery reference
             # (no file extensions, reasonable length, alphanumeric with underscores/dashes)

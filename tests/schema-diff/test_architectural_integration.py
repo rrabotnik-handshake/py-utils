@@ -114,8 +114,8 @@ class TestComparisonPaths:
             "--left", "json_schema", "--right", "json_schema", "--no-color"
         ])
         assert result.returncode == 0
-        assert "Missing Data / NULL-ABILITY" in result.stdout
-        assert "nullable str → str" in result.stdout
+        assert "Presence mismatches (NULL/required)" in result.stdout
+        assert "name: nullable → required" in result.stdout
 
     def test_all_comparison_combinations_matrix(self, tmp_path, run_cli):
         """Test matrix of all supported comparison combinations."""
