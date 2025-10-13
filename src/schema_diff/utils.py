@@ -80,7 +80,7 @@ def coerce_root_to_field_dict(tree: Any) -> Any:
 
 
 def wrap_optional(t: Any) -> Any:
-    """Wrap a scalar or array type with union(...|missing) if not already.    wrapped.
+    """Wrap a scalar or array type with union(...|missing) if not already. wrapped.
 
     - Scalars: "str" -> "union(str|missing)"
                "union(int|float)" -> "union(float|int|missing)"
@@ -101,7 +101,7 @@ def wrap_optional(t: Any) -> Any:
 
 
 def inject_presence_for_diff(tree: Any, required_paths: Iterable[str] | None) -> Any:
-    """Apply presence constraints to a *pure* type tree by wrapping optional.    leaves
+    """Apply presence constraints to a *pure* type tree by wrapping optional. leaves
     with '|missing', so it aligns with the data-derived schema.
 
     Parameters
@@ -291,7 +291,7 @@ def fmt_dot_path(p: str) -> str:
 
 
 def filter_schema_by_fields(schema: Any, fields: list[str]) -> Any:
-    """Filter a schema tree to include only specific fields with comprehensive.    path
+    """Filter a schema tree to include only specific fields with comprehensive. path
     support.
 
     Parameters

@@ -147,7 +147,7 @@ def _resolve_ref(
 
 
 def list_protobuf_messages(path: str) -> list[str]:
-    """Return fully-qualified names of all message definitions in a .proto.    file.
+    """Return fully-qualified names of all message definitions in a .proto. file.
 
     Enums and oneofs are ignored; only messages are returned.
     """

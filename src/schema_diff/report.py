@@ -482,8 +482,8 @@ def print_common_fields(
     sch2n: Any,
     colors: tuple[str, str, str, str, str],
 ) -> None:
-    """Print the intersection of field paths (including nested fields) when.    both
-    roots are objects.
+    """Print the intersection of field paths (including nested fields) when. both roots
+    are objects.
 
     Parameters
     ----------

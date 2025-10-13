@@ -215,7 +215,7 @@ def compare_schemas_unified(
     left_label: str | None = None,
     right_label: str | None = None,
 ) -> dict | None:
-    """Compare two Schema objects (unified format) and return comparison.    results.
+    """Compare two Schema objects (unified format) and return comparison. results.
 
     Parameters
     ----------

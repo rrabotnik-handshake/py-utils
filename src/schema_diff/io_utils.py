@@ -115,8 +115,8 @@ def _run(args, cwd=None, env=None, check_untrusted=True):
 
 
 def open_text(path: str) -> io.TextIOWrapper:
-    """Open a path as text, auto-detecting gzip via magic bytes. Supports GCS.    paths
-    by downloading them first.
+    """Open a path as text, auto-detecting gzip via magic bytes. Supports GCS. paths by
+    downloading them first.
 
     - Uses UTF-8 with BOM support (`utf-8-sig`)
     - Raises UnicodeDecodeError on invalid sequences (`errors='strict')

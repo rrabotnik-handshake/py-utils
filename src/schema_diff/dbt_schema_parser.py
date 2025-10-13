@@ -141,7 +141,7 @@ def _iter_test_names(tests_field: Any) -> list[str]:
 def schema_from_dbt_manifest(
     path: str, model: str | None = None
 ) -> tuple[dict[str, Any], set[str]]:
-    """Parse dbt target/manifest.json, pull column `data_type` for the target.    model.
+    """Parse dbt target/manifest.json, pull column `data_type` for the target. model.
 
     Args:
       path: path to manifest.json.
@@ -204,9 +204,9 @@ def schema_from_dbt_manifest(
 def schema_from_dbt_schema_yml(
     path: str, model: str | None = None
 ) -> tuple[dict[str, Any], set[str]]:
-    """Parse a dbt schema.yml (v2). Uses tests for presence (not_null). Types.    are
-    often not present, so columns default to "any" unless a custom 'data_type' (or
-    meta.type) is provided.
+    """Parse a dbt schema.yml (v2). Uses tests for presence (not_null). Types. are often
+    not present, so columns default to "any" unless a custom 'data_type' (or meta.type)
+    is provided.
 
     Args:
       path: path to schema.yml

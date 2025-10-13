@@ -216,7 +216,7 @@ def _parse_struct_type(struct_type: str) -> dict[str, Any] | str:
 
 
 def _split_struct_fields(fields_str: str) -> list[str]:
-    """Split comma-separated field definitions, respecting nested angle.    brackets.
+    """Split comma-separated field definitions, respecting nested angle. brackets.
 
     Example: "name STRING, tags ARRAY<STRING>, profile STRUCT<bio STRING>"
     -> ["name STRING", "tags ARRAY<STRING>", "profile STRUCT<bio STRING>"]
@@ -253,7 +253,7 @@ def _split_struct_fields(fields_str: str) -> list[str]:
 
 
 def _parse_struct_field(field_def: str) -> tuple[str, str]:
-    """Parse a single field definition like "name STRING" or "tags.    ARRAY<STRING>".
+    """Parse a single field definition like "name STRING" or "tags. ARRAY<STRING>".
 
     Returns: (field_name, field_type)
     """
@@ -363,7 +363,7 @@ def _normalize_bigquery_arrays(schema: Any) -> Any:
 
 
 def _as_pure_type(mapped: Any) -> Any:
-    """Convert a mapper result (scalar or [elem]) into a consistent "pure.    type".
+    """Convert a mapper result (scalar or [elem]) into a consistent "pure. type".
 
     Ensures arrays normalize to ['any'] instead of ['any', ...] or [].
     Then applies BigQuery normalization.

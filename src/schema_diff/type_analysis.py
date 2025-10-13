@@ -108,8 +108,8 @@ def analyze_type_change(old_type: str, new_type: str) -> dict[str, Any]:
 
 
 def is_presence_issue(old_type: str, new_type: str) -> bool:
-    """Determine if a type change is primarily about presence/optionality.    rather
-    than type.
+    """Determine if a type change is primarily about presence/optionality. rather than
+    type.
 
     This is a convenience function that wraps analyze_type_change for backward compatibility.
 

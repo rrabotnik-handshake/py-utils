@@ -2485,9 +2485,6 @@ def main():
                     f"{Colors.BLUE}→ Run with {Colors.BOLD}--output report.md{Colors.RESET}{Colors.BLUE} to save full report{Colors.RESET}"
                 )
 
-    # Summary footer is now part of the structured RESULTS section above
-    # No need for redundant footer
-
     # Determine exit code based on strict mode
     exit_code = 0
     if summary.score_percent >= 90:
