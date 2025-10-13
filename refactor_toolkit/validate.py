@@ -70,6 +70,14 @@ class Colors:
     BOLD_CYAN = "\033[1;96m"
     BOLD_YELLOW = "\033[1;93m"
 
+    @staticmethod
+    def enabled() -> bool:
+        """Check if ANSI colors should be enabled.
+
+        Disables if NO_COLOR is set, or stdout is not a TTY.
+        """
+        return os.environ.get("NO_COLOR") is None and sys.stdout.isatty()
+
 
 class TechStack(Enum):
     PYTHON = "python"
@@ -245,22 +253,24 @@ class RefactorValidator:
 
     def _substitute_commands(self, command: str) -> str:
         """Replace hardcoded commands with detected ones for terminal-agnostic execution."""
+        import re
+
         # Replace python module invocations
         for py_cmd in ("python -m", "python3 -m", "py -m"):
             command = command.replace(py_cmd, f"{self.python_cmd} -m")
 
-        # Replace bare 'pip'/'pip3' anywhere they appear as tokens
-        tokens = command.split()
-        for i, t in enumerate(tokens):
-            if t in ("pip", "pip3") and (i == 0 or tokens[i - 1] != "-m"):
-                # Replace with first token of pip_cmd (e.g., "python" from "python -m pip")
-                tokens[i] = self.pip_cmd.split()[0]
-        command = " ".join(tokens)
+        # Robust replace for 'pip'/'pip3' at word boundaries
+        def _replace_pip(m):
+            return self.pip_cmd
 
-        # If command starts with 'pip' after splitting, force python -m pip
-        if command.startswith("pip ") or command.startswith("pip3 "):
-            first_token = command.split()[0]
-            command = command.replace(first_token, self.pip_cmd, 1)
+        # Start of string
+        command = re.sub(r"^(pip3?)\s", lambda m: self.pip_cmd + " ", command)
+        # After typical separators or subshell open
+        command = re.sub(
+            r"([;&|]\s*|\(\s*)(pip3?)\s",
+            lambda m: m.group(1) + self.pip_cmd + " ",
+            command,
+        )
 
         return command
 
@@ -447,31 +457,31 @@ class RefactorValidator:
 
         run_and_add_if_match(
             "Import Dependencies",
-            f"""{self.python_cmd} -c "import importlib, pathlib, sys, os
-# Add src directory to Python path for local development
-cwd = os.getcwd()
-src_path = os.path.join(cwd, 'src') if not cwd.endswith('/src') else cwd
-if os.path.exists(src_path) and src_path not in sys.path:
-    sys.path.insert(0, src_path)
-# Skip import check if we're inside a package directory (like src/)
-if any(marker in cwd for marker in ['/src', '/tests', '/schema_diff']):
-    print('Skipping import check for package directory'); sys.exit(0)
-# Only check files that should be importable as standalone modules
-exclude_dirs = {{'.git', '__pycache__', 'venv', '.venv', 'build', 'dist', 'site-packages', 'lib', 'coresignal', 'tests'}}
-exclude_patterns = ['src/', 'test_', 'conftest.py']
-files=[p for p in pathlib.Path('.').rglob('*.py')
-       if not any(s in str(p) for s in exclude_dirs)
-       and not any(str(p).startswith(pattern) for pattern in exclude_patterns)
-       and p.stem not in ('__init__','setup')
-       and not str(p).startswith('./coresignal/')
-       and not str(p).startswith('./src/')]
-ok=True
+            f"""{self.python_cmd} - <<'PY'
+import os, sys, traceback
+from pathlib import Path
+import importlib.util
+
+root = Path('.').resolve()
+exclude_dirs = {{'.git','__pycache__','venv','.venv','build','dist','site-packages','lib','node_modules','tests'}}
+def should_skip(p: Path) -> bool:
+    parts = set(p.parts)
+    return any(d in parts for d in exclude_dirs) or p.name in ('__init__.py','conftest.py') or p.parts[0] in ('src','coresignal')
+
+files = [p for p in root.rglob('*.py') if not should_skip(p)]
+ok = True
 for f in files:
     try:
-        importlib.import_module(f.stem)
+        spec = importlib.util.spec_from_file_location(f"chk_{{f.stem}}", f)
+        if spec and spec.loader:
+            m = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
     except Exception as e:
-        print(f'Import error in {{f}}: {{e}}'); ok=False
-sys.exit(0 if ok else 1)" """,
+        print(f"Import error in {{f}}: {{e}}")
+        ok = False
+sys.exit(0 if ok else 1)
+PY
+""",
             "Core modules import successfully",
             "Import dependency issues found",
             required=True,
@@ -481,7 +491,7 @@ sys.exit(0 if ok else 1)" """,
 
         # Type Checking - use per-file mode for small changesets
         mypy_targets = (
-            changed_files if changed_files and len(changed_files) <= 100 else []
+            changed_files if changed_files and len(changed_files) <= 400 else []
         )
         if mypy_targets:
             # Per-file mypy for small changesets
@@ -569,7 +579,7 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
             "Vulnerability Scan",
             self._pip_audit_cmd(),
             "No known vulnerabilities detected",
-            "Security vulnerabilities found in dependencies",
+            "Security vulnerabilities found in dependencies (or audit could not complete; check network/DNS)",
             required=True,
             layer=ValidationLayer.SECURITY,
             remediation_tip="Upgrade vulnerable packages; add temporary ignores with expiry dates if needed",
@@ -613,7 +623,7 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
             if self._has_gitleaks():
                 secret_cmd = "gitleaks detect --no-banner --source . --report-format=json --redact"
             else:
-                secret_cmd = r"""git ls-files -z | xargs -0 grep -nEI --max-count=1 '(AWS_ACCESS_KEY_ID|AKIA[0-9A-Z]{16}|BEGIN RSA PRIVATE KEY|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{48}|xox[baprs]-[A-Za-z0-9-]{10,})' || true"""
+                secret_cmd = r"""git ls-files -z | xargs -0 grep -nEo '(AKIA[0-9A-Z]{16}|AWS_ACCESS_KEY_ID|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{48}|xox[baprs]-[A-Za-z0-9-]{10,}|BEGIN RSA PRIVATE KEY)' || true"""
 
             run_and_add_if_match(
                 "Secret Scan",
@@ -729,30 +739,49 @@ sys.exit(0 if not r.stdout.strip() else 1)
             )
 
         # 22) N+1 or heavy I/O risk markers - detect potential performance issues (Unix tools required)
-        if self._has_unix_tools():
-            run_and_add_if_match(
-                "I/O Risk Patterns",
-                r"""find . -name "*.py" -not -path "./.git/*" -not -path "./venv/*" -not -path "./.venv/*" -not -path "./*venv/*" -not -path "./*/lib/python*" -not -path "./__pycache__/*" -not -path "./node_modules/*" -not -path "./build/*" -not -path "./dist/*" -exec grep -l -E "(requests\.|urllib\.|\.query\(|\.execute\(|\.fetchall\()" {} \; | xargs -I {} grep -n -E "(for |while )" {} | head -5 | grep -E "(requests\.|urllib\.|\.query\(|\.execute\(|\.fetchall\()" && { echo '--- Potential I/O in loops detected ---'; exit 1; } || { echo 'No obvious I/O-in-loop patterns detected'; exit 0; }""",
-                "No obvious I/O-in-loop patterns detected",
-                "Potential N+1 or heavy I/O patterns found",
-                required=True,
-                layer=ValidationLayer.PERFORMANCE,
-                remediation_tip="Review flagged patterns: consider batching requests, caching, or moving I/O outside loops",
-            )
-        else:
-            results.append(
-                ValidationResult(
-                    "I/O Risk Patterns",
-                    True,
-                    "Unix tools not available - skipping I/O pattern check",
-                    0.0,
-                    required=True,
-                    layer=ValidationLayer.PERFORMANCE,
-                    remediation_tip="Install find/grep for I/O pattern checks, or manually review for N+1 query patterns",
-                    full_output=None,
-                    command=None,
-                )
-            )
+        # Python AST-based detector (portable, fewer false positives)
+        run_and_add_if_match(
+            "I/O Risk Patterns",
+            f"""{self.python_cmd} - <<'PY'
+import ast, sys
+from pathlib import Path
+calls = ('requests.', 'urllib.', '.execute(', '.query(', '.fetchall(')
+def has_io_call_in_loop(code: str) -> bool:
+    try:
+        tree = ast.parse(code)
+    except Exception:
+        return False
+    class Visitor(ast.NodeVisitor):
+        def __init__(self): self.flag=False
+        def visit_For(self, node): self._scan_block(node)
+        def visit_While(self, node): self._scan_block(node)
+        def _scan_block(self, loop):
+            s = ast.get_source_segment(code, loop) or ""
+            if any(k in s for k in calls): self.flag=True
+            self.generic_visit(loop)
+    v=Visitor(); v.visit(tree)
+    return v.flag
+paths=[p for p in Path('.').rglob('*.py') if '.venv' not in str(p) and 'site-packages' not in str(p) and '.git' not in str(p)]
+hits=[]
+for p in paths:
+    try:
+        c=p.read_text(encoding='utf-8', errors='ignore')
+        if has_io_call_in_loop(c):
+            hits.append(str(p))
+    except Exception: pass
+if hits:
+    print("\\n".join(hits[:10]))
+    if len(hits)>10: print(f"... and {{len(hits)-10}} more")
+    sys.exit(1)
+print("No obvious I/O-in-loop patterns detected")
+PY
+""",
+            "No obvious I/O-in-loop patterns detected",
+            "Potential N+1 or heavy I/O patterns found",
+            required=True,
+            layer=ValidationLayer.PERFORMANCE,
+            remediation_tip="Review flagged patterns: consider batching requests, caching, or moving I/O outside loops",
+        )
 
         # 23) Environment parity - CI awareness (cross-platform, informational)
         run_and_add_if_match(
@@ -813,15 +842,15 @@ for m in ['pytest','mypy','ruff']:
         return all(shutil.which(tool) for tool in ["grep", "awk", "find"])
 
     def _mypy_target(self) -> str:
-        """Detect a sensible target directory for mypy."""
-        candidates = ["src"]
-        # Add top-level package folders
+        """Detect a sensible target directory for mypy (bounded)."""
+        # Prefer src/
+        if (self.project_dir / "src").exists():
+            return "src"
+        # Next, first top-level package dir
         for p in self.project_dir.iterdir():
             if p.is_dir() and (p / "__init__.py").exists():
-                candidates.append(p.name)
-        for c in candidates:
-            if (self.project_dir / c).exists():
-                return c
+                return p.name
+        # Fallback
         return "."
 
     def _ruff_cmd(self, targets: str) -> str:
@@ -2079,7 +2108,7 @@ def main():
         "--fail-on",
         choices=["error", "warning", "info"],
         default=None,
-        help="Exit non-zero if any checks at this level (or higher) fail",
+        help="Exit non-zero if any required check fails (currently equivalent to 'error')",
     )
     parser.add_argument(
         "--timeout",
@@ -2089,6 +2118,12 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Disable ANSI colors if not a TTY or NO_COLOR is set
+    if not Colors.enabled():
+        for k, v in Colors.__dict__.items():
+            if isinstance(v, str) and v.startswith("\033["):
+                setattr(Colors, k, "")
 
     # Handle --timeout flag
     if args.timeout:
