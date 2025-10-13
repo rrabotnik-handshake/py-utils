@@ -578,7 +578,7 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
 
         run_and_add_if_match(
             "Unit Tests",
-            f"{self.python_cmd} -m pytest tests/ --tb=short -v --durations=5 || (echo 'Installing pytest...' && {self.pip_cmd} install pytest && {self.python_cmd} -m pytest tests/ --tb=short -v --durations=5) || {self.python_cmd} -m unittest discover -s tests -p 'test_*.py' -v",
+            f"{self.python_cmd} -m pytest tests/ --tb=short -v --durations=5 || (echo 'Installing pytest...' && {self.pip_cmd} install pytest && {self.python_cmd} -m pytest tests/ --tb=short -v --durations=5) || {self.python_cmd} -m unittest discover -s tests -p \\\"test_*\\.py\\\" -v",
             "All tests passed successfully",
             "Test failures or errors detected",
             required=True,
@@ -589,7 +589,19 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
         # Coverage gate (opportunistic)
         run_and_add_if_match(
             "Coverage Threshold",
-            f"""{self.python_cmd} -c "import os,sys,xml.etree.ElementTree as ET; p='coverage.xml'; sys.exit(0) if not os.path.exists(p) else (lambda r: sys.exit(0 if r>=0.8 else 1))(float(ET.parse(p).getroot().attrib.get('line-rate',0)))" """,
+            self._py_inline(
+                """
+import os, sys, xml.etree.ElementTree as ET
+p = 'coverage.xml'
+if not os.path.exists(p):
+    sys.exit(0)
+try:
+    rate = float(ET.parse(p).getroot().attrib.get('line-rate', 0))
+    sys.exit(0 if rate >= 0.8 else 1)
+except Exception:
+    sys.exit(1)
+"""
+            ),
             "Coverage meets threshold (≥80%)",
             "Coverage below 80% threshold",
             required=True,
@@ -622,7 +634,7 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
         # Complexity and maintainability checks
         run_and_add_if_match(
             "Code Complexity",
-            f"radon cc . -a -nb --min C --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing radon...' && {self.pip_cmd} install radon && radon cc . -a -nb --min C --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
+            f'radon cc . -a -nb --min C --exclude="*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git" || (echo \'Installing radon...\' && {self.pip_cmd} install radon && radon cc . -a -nb --min C --exclude="*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git")',
             "Code complexity acceptable",
             "High complexity detected",
             required=True,
@@ -632,7 +644,7 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
 
         run_and_add_if_match(
             "Maintainability Index",
-            f"radon mi . -s -n B --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing radon...' && {self.pip_cmd} install radon && radon mi . -s -n B --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
+            f'radon mi . -s -n B --exclude="*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git" || (echo \'Installing radon...\' && {self.pip_cmd} install radon && radon mi . -s -n B --exclude="*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git")',
             "Code maintainability acceptable",
             "Low maintainability detected",
             required=True,
@@ -643,7 +655,7 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
         # Dead code detection
         run_and_add_if_match(
             "Dead Code Analysis",
-            f"vulture . --min-confidence 60 --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing vulture...' && {self.pip_cmd} install vulture && vulture . --min-confidence 60 --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
+            f'vulture . --min-confidence 60 --exclude="*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git" || (echo \'Installing vulture...\' && {self.pip_cmd} install vulture && vulture . --min-confidence 60 --exclude="*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git")',
             "No obvious dead code detected",
             "Dead code candidates found",
             required=True,
@@ -686,10 +698,13 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
         if self.verbose and self._has_git():
             run_and_add_if_match(
                 "Working Tree Status",
-                f"""{self.python_cmd} -c "import subprocess, sys
+                self._py_inline(
+                    """
+import subprocess, sys
 r = subprocess.run(['git','status','--porcelain'], capture_output=True, text=True)
 sys.exit(0 if not r.stdout.strip() else 1)
-" """,
+"""
+                ),
                 "Working tree is clean",
                 "Uncommitted changes detected (informational)",
                 required=True,
@@ -995,8 +1010,11 @@ for m in ['pytest','mypy','ruff']:
                 and not self._has_gitleaks()
             ):
                 return "missing Unix tools or gitleaks"
-        if name == "Working Tree Status" and not self._has_git():
-            return "no git repo"
+        if name == "Working Tree Status":
+            if not self._has_git():
+                return "no git repo"
+            if not self.verbose:
+                return "verbose only"
         return None
 
     def validate_patterns(self) -> ValidationResult:
@@ -1020,9 +1038,9 @@ for m in ['pytest','mypy','ruff']:
             )
 
         # Run pattern analysis with JSON output on the project directory
-        cmd = f"{self.python_cmd} {patterns_script} {self.project_dir} --json"
+        cmd = f"{self.python_cmd} {_quote(str(patterns_script))} {_quote(str(self.project_dir))} --json"
         if (self.project_dir / "pattern_config.json").exists():
-            cmd += f" --config {self.project_dir}/pattern_config.json"
+            cmd += f" --config {_quote(str(self.project_dir / 'pattern_config.json'))}"
 
         return self.run_check(
             "Design Patterns",
@@ -1032,6 +1050,7 @@ for m in ['pytest','mypy','ruff']:
             required=True,
             layer=ValidationLayer.PATTERNS,
             remediation_tip="Fix cycles first, then high fan-out, then LoD/Feature Envy violations",
+            category="Patterns",
         )
 
     def calculate_layer_summaries(
