@@ -1,19 +1,4 @@
 {
-  "layers": ["entities", "use_cases", "interface_adapters", "frameworks"],
-  "layer_roots": {
-    "entities": ["src/domain/entities", "src/domain/value_objects"],
-    "use_cases": ["src/domain/use_cases", "src/domain/services"],
-    "interface_adapters": [
-      "src/adapters/controllers",
-      "src/adapters/presenters",
-      "src/adapters/gateways"
-    ],
-    "frameworks": [
-      "src/infrastructure/web",
-      "src/infrastructure/database",
-      "src/infrastructure/external"
-    ]
-  },
   "forbid_cross_layer": [
     ["entities", "use_cases"],
     ["entities", "interface_adapters"],
@@ -21,5 +6,20 @@
     ["use_cases", "interface_adapters"],
     ["use_cases", "frameworks"],
     ["interface_adapters", "frameworks"]
-  ]
+  ],
+  "layer_roots": {
+    "entities": ["src/domain/entities", "src/domain/value_objects"],
+    "frameworks": [
+      "src/infrastructure/web",
+      "src/infrastructure/database",
+      "src/infrastructure/external"
+    ],
+    "interface_adapters": [
+      "src/adapters/controllers",
+      "src/adapters/presenters",
+      "src/adapters/gateways"
+    ],
+    "use_cases": ["src/domain/use_cases", "src/domain/services"]
+  },
+  "layers": ["entities", "use_cases", "interface_adapters", "frameworks"]
 }

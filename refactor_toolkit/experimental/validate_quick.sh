@@ -40,7 +40,7 @@ EOF
 # Function to add result to report
 add_result() {
     local check="$1"
-    local status="$2" 
+    local status="$2"
     local notes="$3"
     echo "| $check | $status | $notes |" >> "$REPORT_FILE"
 }
@@ -51,9 +51,9 @@ run_check() {
     local cmd="$2"
     local success_msg="$3"
     local fail_msg="$4"
-    
+
     echo -e "${YELLOW}Checking: $name${NC}"
-    
+
     if eval "$cmd" > /dev/null 2>&1; then
         echo -e "${GREEN}✅ $name: PASSED${NC}"
         add_result "$name" "✅" "$success_msg"
@@ -91,147 +91,147 @@ PASSED_CHECKS=0
 case "$TECH_STACK" in
     "python")
         echo -e "${BLUE}🐍 Python Validation${NC}"
-        
+
         # Code quality
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Code Quality" "python -m ruff check $PROJECT_DIR" "No linting issues" "Linting issues found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Type checking
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Type Checking" "python -m mypy $PROJECT_DIR" "Type checking passed" "Type errors found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Tests
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Unit Tests" "python -m pytest tests/ -x" "All tests passed" "Test failures found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Import check
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Import Check" "python -c 'import sys; sys.path.insert(0, \"$PROJECT_DIR\"); import $(basename $PROJECT_DIR)'" "Imports work" "Import errors"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
         ;;
-        
+
     "javascript")
         echo -e "${BLUE}📦 JavaScript/Node.js Validation${NC}"
-        
+
         # Linting
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "ESLint" "npx eslint $PROJECT_DIR" "No linting issues" "Linting issues found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Type checking
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "TypeScript" "npx tsc --noEmit" "Type checking passed" "Type errors found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Tests
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Unit Tests" "npm test" "All tests passed" "Test failures found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Build check
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Build Check" "npm run build" "Build successful" "Build failed"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
         ;;
-        
+
     "java")
         echo -e "${BLUE}☕ Java Validation${NC}"
-        
+
         # Compilation
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Compilation" "mvn compile -q" "Compilation successful" "Compilation failed"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Tests
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Unit Tests" "mvn test -q" "All tests passed" "Test failures found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Code style
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Code Style" "mvn checkstyle:check -q" "Style checks passed" "Style issues found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
         ;;
-        
+
     "go")
         echo -e "${BLUE}🐹 Go Validation${NC}"
-        
+
         # Format check
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Format Check" "gofmt -l $PROJECT_DIR | wc -l | grep -q '^0$'" "Code properly formatted" "Formatting issues found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Vet
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Go Vet" "go vet ./..." "No vet issues" "Vet issues found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Tests
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Unit Tests" "go test ./..." "All tests passed" "Test failures found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Build
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Build Check" "go build ./..." "Build successful" "Build failed"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
         ;;
-        
+
     "rust")
         echo -e "${BLUE}🦀 Rust Validation${NC}"
-        
+
         # Format check
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Format Check" "cargo fmt -- --check" "Code properly formatted" "Formatting issues found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Clippy
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Clippy" "cargo clippy -- -D warnings" "No clippy warnings" "Clippy warnings found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Tests
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Unit Tests" "cargo test" "All tests passed" "Test failures found"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # Build
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Build Check" "cargo build" "Build successful" "Build failed"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
         ;;
-        
+
     *)
         echo -e "${YELLOW}⚠️  Generic validation (no specific tech stack detected)${NC}"
-        
+
         # Git status
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "Git Status" "git status --porcelain | wc -l | grep -q '^0$'" "Working directory clean" "Uncommitted changes"; then
             PASSED_CHECKS=$((PASSED_CHECKS + 1))
         fi
-        
+
         # File permissions
         TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
         if run_check "File Permissions" "find $PROJECT_DIR -name '*.sh' -executable | wc -l | grep -q '[0-9]'" "Executable files found" "No executable files"; then

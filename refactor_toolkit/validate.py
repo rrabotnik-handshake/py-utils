@@ -11,14 +11,19 @@ Usage:
     python validate.py --tech python      # Explicitly set tech (default: python)
     python validate.py --since <git-ref>  # Only check files changed since ref
     python validate.py --category tests   # Run only a category of checks
+    python validate.py --list-checks      # List checks that would run (dry-run)
     python validate.py --output report.md # Save report to file
     python validate.py --json             # JSON output
     python validate.py --strict           # Non-zero exit on NEEDS ATTENTION
+    python validate.py --fail-on error    # Exit non-zero on any failed check
+    python validate.py --timeout 600      # Set check timeout (seconds)
     python validate.py --verbose          # Show detailed command outputs
 """
 
 import argparse
 import json
+import os
+import shlex
 import shutil
 import subprocess  # nosec B404: subprocess is used safely for validation commands
 import sys
@@ -28,6 +33,42 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Constants
+DEFAULT_TIMEOUT = 300  # seconds - timeout for individual checks
+MAX_OUTPUT_BYTES = 60_000  # Maximum bytes to capture from command output
+
+
+def _quote(path: str) -> str:
+    """Cross-platform path quoting for shell commands.
+
+    Uses shlex.quote on Unix, double-quote wrapping on Windows.
+    """
+    if os.name != "nt":
+        return shlex.quote(path)
+    # Windows cmd.exe: wrap in double quotes if whitespace/special chars
+    needs = any(c in path for c in " \t&()[]{}^=;!'+,`~")
+    return f'"{path}"' if needs else path
+
+
+# ANSI color codes for better readability
+class Colors:
+    """ANSI color codes for terminal output"""
+
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+
+    # Colors
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    GRAY = "\033[90m"
+
+    # Combinations
+    BOLD_GREEN = "\033[1;92m"
+    BOLD_CYAN = "\033[1;96m"
+    BOLD_YELLOW = "\033[1;93m"
 
 
 class TechStack(Enum):
@@ -46,8 +87,34 @@ class ValidationLayer(Enum):
     UNIT_TESTS = "Unit Tests"
     INTEGRATION = "Integration"
     PATTERNS = "Design Patterns"
-    PERFORMANCE = "Performance"
     SECURITY = "Security"
+    PERFORMANCE = "Performance"
+
+
+# Centralized category mapping for consistent filtering
+CATEGORY_MAP = {
+    "code-quality": [
+        "Python Syntax",
+        "Code Quality",
+        "Pre-commit Hooks",
+        "Type Checking",
+        "Code Complexity",
+        "Maintainability Index",
+        "Tool Versions",
+    ],
+    "security": ["Vulnerability Scan", "Secret Scan", "Security Scan"],
+    "tests": ["Unit Tests", "Coverage Threshold"],
+    "dependencies": ["Import Dependencies", "Package Dependencies"],
+    "dead-code": ["Dead Code Analysis"],
+    "patterns": ["Design Patterns"],
+    "documentation": ["Repository Metadata", "Project Documentation"],
+    "other": [
+        "I/O Risk Patterns",
+        "Large Binary Check",
+        "Giant Files",
+        "Working Tree Status",
+    ],
+}
 
 
 # Note: Time estimates removed - actual duration shown in summary
@@ -106,6 +173,21 @@ class ValidationSummary:
     final_recommendation: Dict[str, Any] = field(default_factory=dict)
 
 
+# Helper functions for robust command execution
+
+
+def _shell_cmd(cmd: str) -> str:
+    """
+    Normalize a command string in a way that works on Windows and *nix.
+    - On Windows, keep as string (cmd.exe).
+    - On POSIX, ensure it's a string but properly quoted when we inject variables.
+    """
+    if os.name == "nt":
+        return cmd  # cmd.exe expects a string
+    # For POSIX, we still pass a string, but ensure we ourselves quote dynamic inserts before calling this.
+    return cmd
+
+
 class RefactorValidator:
     """Simple, focused refactor validation tool."""
 
@@ -130,6 +212,28 @@ class RefactorValidator:
         # Always prefer python -m pip for consistency
         return f"{self.python_cmd} -m pip"
 
+    def _ensure_tool(self, tool: str, install_hint: str = "") -> Optional[str]:
+        """
+        Return None if tool exists. Otherwise return a human-readable message.
+        """
+        if shutil.which(tool):
+            return None
+        hint = install_hint or f"Install `{tool}` or add it to PATH."
+        return f"Missing tool: `{tool}`. {hint}"
+
+    def _has_git(self) -> bool:
+        """Check if project is in a git repository."""
+        try:
+            r = subprocess.run(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                cwd=self.project_dir,
+                capture_output=True,
+                text=True,
+            )
+            return r.returncode == 0 and "true" in (r.stdout or "").lower()
+        except Exception:
+            return False
+
     def _has_trunk(self) -> bool:
         """Check if Trunk is available and configured."""
         import shutil
@@ -144,14 +248,20 @@ class RefactorValidator:
         # Replace python module invocations
         for py_cmd in ("python -m", "python3 -m", "py -m"):
             command = command.replace(py_cmd, f"{self.python_cmd} -m")
-        # Replace pip unless already using any python -m pip variant
-        if " -m pip" not in command:
-            command = command.replace(" pip ", f" {self.pip_cmd} ")
-            command = command.replace(" pip3 ", f" {self.pip_cmd} ")
-        if command.startswith("pip "):
-            command = command.replace("pip ", f"{self.pip_cmd} ", 1)
-        if command.startswith("pip3 "):
-            command = command.replace("pip3 ", f"{self.pip_cmd} ", 1)
+
+        # Replace bare 'pip'/'pip3' anywhere they appear as tokens
+        tokens = command.split()
+        for i, t in enumerate(tokens):
+            if t in ("pip", "pip3") and (i == 0 or tokens[i - 1] != "-m"):
+                # Replace with first token of pip_cmd (e.g., "python" from "python -m pip")
+                tokens[i] = self.pip_cmd.split()[0]
+        command = " ".join(tokens)
+
+        # If command starts with 'pip' after splitting, force python -m pip
+        if command.startswith("pip ") or command.startswith("pip3 "):
+            first_token = command.split()[0]
+            command = command.replace(first_token, self.pip_cmd, 1)
+
         return command
 
     # Note: detect_tech_stack() removed - tech stack is now explicitly passed via --tech CLI argument
@@ -170,20 +280,24 @@ class RefactorValidator:
         required: bool = True,
         layer: Optional[ValidationLayer] = None,
         remediation_tip: Optional[str] = None,
+        timeout: Optional[int] = None,
     ) -> ValidationResult:
-        """Run a single validation check."""
+        """Run a single validation check.
+
+        Args:
+            timeout: Custom timeout in seconds. If None, uses DEFAULT_TIMEOUT.
+        """
         start = time.time()
 
         # Make command terminal agnostic
         command = self._substitute_commands(command)
 
-        # Show what we're about to run (verbose mode only)
-        if self.verbose:
-            print(f"🔍 Running: {name}")
-            print(f"   Command: {command}")
-        else:
-            # Minimal output - just show we're running the check
-            print(f"🔍 {name}...", end=" ", flush=True)
+        # Normalize command for cross-platform execution
+        command = _shell_cmd(command)
+
+        # Show what we're about to run (pad name to 30 chars for alignment)
+        padded_name = f"{name}...".ljust(33)
+        print(f"  {Colors.GRAY}•{Colors.RESET} {padded_name}", end=" ", flush=True)
 
         try:
             # Run command and capture output
@@ -193,7 +307,7 @@ class RefactorValidator:
                 cwd=self.project_dir,
                 capture_output=True,
                 text=True,
-                timeout=300,  # 5 minute timeout
+                timeout=timeout or DEFAULT_TIMEOUT,
             )
 
             duration = time.time() - start
@@ -202,34 +316,31 @@ class RefactorValidator:
             message = success_msg if passed else fail_msg
 
             if self.verbose:
-                required_mark = " (REQUIRED)" if required else " (optional)"
-                print(
-                    f"   Result: {status_icon} {name}{required_mark} - {duration:.1f}s"
-                )
-                if passed:
-                    print(f"   ✅ {success_msg}")
-                else:
+                # Clean inline result
+                print(f"{status_icon} ({duration:.1f}s)")
+                if not passed:
                     error_preview = (result.stderr or result.stdout or "").strip()[:200]
                     if error_preview:
-                        print(f"   ❌ {fail_msg}\n   Preview: {error_preview}")
-                    else:
-                        print(f"   ❌ {fail_msg}")
-                print()
+                        print(f"      {error_preview}")
             else:
-                if passed:
-                    print(f"{status_icon} ({duration:.1f}s)")
-                else:
-                    print(f"{status_icon} FAILED ({duration:.1f}s)")
-                    # show a short preview on failure in minimal mode
-                    preview = (result.stderr or result.stdout or "").strip()[:120]
-                    if preview:
-                        print(f"   💬 {preview}")
+                # Minimal mode - clean output without error previews
+                print(f"{status_icon} ({duration:.1f}s)")
 
-            full_output = (
-                None
-                if passed
-                else f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-            )
+            # Truncate huge command outputs safely for storage
+            if not passed:
+                stdout = (result.stdout or "")[:MAX_OUTPUT_BYTES]
+                stderr = (result.stderr or "")[:MAX_OUTPUT_BYTES]
+                trunc_note = ""
+                if (
+                    len(result.stdout or "") > MAX_OUTPUT_BYTES
+                    or len(result.stderr or "") > MAX_OUTPUT_BYTES
+                ):
+                    trunc_note = (
+                        "\n\n[Output truncated - run with --verbose for full details]"
+                    )
+                full_output = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}{trunc_note}"
+            else:
+                full_output = None
             return ValidationResult(
                 name=name,
                 passed=passed,
@@ -288,6 +399,12 @@ class RefactorValidator:
         # Get target files for optimization
         targets = self._since_glob(since)
 
+        # Get changed files list for smarter --since behavior
+        changed_files = self._since_files(since)
+        ruff_targets = (
+            " ".join(_quote(f) for f in changed_files) if changed_files else targets
+        )
+
         # Helper to conditionally run and add check based on category filter
         def run_and_add_if_match(check_name, *args, **kwargs):
             """Only run and add check if it matches the category filter."""
@@ -305,6 +422,7 @@ class RefactorValidator:
             required=True,
             layer=ValidationLayer.CODE_QUALITY,
             remediation_tip="Fix syntax errors shown above, then re-run validation",
+            timeout=60,
         )
 
         # Code Quality check
@@ -312,12 +430,7 @@ class RefactorValidator:
             code_quality_cmd = "trunk check --filter=ruff"
             remediation = "Run `trunk fmt` to auto-fix issues, or `trunk check --filter=ruff` for details"
         else:
-            excludes = " --exclude */lib/python* --exclude *venv* --exclude __pycache__ --exclude node_modules --exclude build --exclude dist --exclude .git"
-            code_quality_cmd = (
-                f"{self.python_cmd} -m ruff check {targets}{excludes} "
-                f"|| (echo 'Installing ruff...' && {self.pip_cmd} install ruff && {self.python_cmd} -m ruff check {targets}{excludes}) "
-                f"|| (echo 'Installing flake8...' && {self.pip_cmd} install flake8 && {self.python_cmd} -m flake8 {targets} --count --statistics)"
-            )
+            code_quality_cmd = self._ruff_cmd(ruff_targets)
             remediation = (
                 "Run `ruff --fix` where safe; otherwise fix highest-severity first"
             )
@@ -346,8 +459,8 @@ if any(marker in cwd for marker in ['/src', '/tests', '/schema_diff']):
 # Only check files that should be importable as standalone modules
 exclude_dirs = {{'.git', '__pycache__', 'venv', '.venv', 'build', 'dist', 'site-packages', 'lib', 'coresignal', 'tests'}}
 exclude_patterns = ['src/', 'test_', 'conftest.py']
-files=[p for p in pathlib.Path('.').rglob('*.py') 
-       if not any(s in str(p) for s in exclude_dirs) 
+files=[p for p in pathlib.Path('.').rglob('*.py')
+       if not any(s in str(p) for s in exclude_dirs)
        and not any(str(p).startswith(pattern) for pattern in exclude_patterns)
        and p.stem not in ('__init__','setup')
        and not str(p).startswith('./coresignal/')
@@ -366,9 +479,22 @@ sys.exit(0 if ok else 1)" """,
             remediation_tip="Check import paths and ensure all dependencies are installed",
         )
 
+        # Type Checking - use per-file mode for small changesets
+        mypy_targets = (
+            changed_files if changed_files and len(changed_files) <= 100 else []
+        )
+        if mypy_targets:
+            # Per-file mypy for small changesets
+            mypy_cmd = self._mypy_cmd().replace(
+                self._mypy_target(), " ".join(_quote(f) for f in mypy_targets)
+            )
+        else:
+            # Directory-based mypy for large changes or full validation
+            mypy_cmd = self._mypy_cmd()
+
         run_and_add_if_match(
             "Type Checking",
-            f"{self.python_cmd} -m mypy {self._mypy_target()} --show-error-codes || (echo 'Installing mypy...' && {self.pip_cmd} install mypy && {self.python_cmd} -m mypy {self._mypy_target()} --show-error-codes)",
+            mypy_cmd,
             "Static type analysis passed",
             "Type checking errors detected",
             required=True,
@@ -420,16 +546,7 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
         # Coverage gate (opportunistic)
         run_and_add_if_match(
             "Coverage Threshold",
-            f"""{self.python_cmd} -c "import os,sys,xml.etree.ElementTree as ET
-p='coverage.xml'
-if not os.path.exists(p):
-    print('No coverage.xml found - skipping coverage check'); sys.exit(0)
-try:
-    rate=float(ET.parse(p).getroot().attrib.get('line-rate',0))
-    print(f'Coverage: {{rate:.1%}}')
-    sys.exit(0 if rate>=0.8 else 1)
-except Exception as e:
-    print(f'Coverage file exists but could not parse: {{e}}'); sys.exit(0)" """,
+            f"""{self.python_cmd} -c "import os,sys,xml.etree.ElementTree as ET; p='coverage.xml'; sys.exit(0) if not os.path.exists(p) else (lambda r: sys.exit(0 if r>=0.8 else 1))(float(ET.parse(p).getroot().attrib.get('line-rate',0)))" """,
             "Coverage meets threshold (≥80%)",
             "Coverage below 80% threshold",
             required=True,
@@ -447,21 +564,22 @@ except Exception as e:
             remediation_tip="Run `pip check` and resolve dependency conflicts; update requirements",
         )
 
-        # Vulnerability scanning
+        # Vulnerability scanning - use requirements files if present
         run_and_add_if_match(
             "Vulnerability Scan",
-            f"{self.python_cmd} -m pip_audit --desc || (echo 'Installing pip-audit...' && {self.pip_cmd} install pip-audit && {self.python_cmd} -m pip_audit --desc)",
+            self._pip_audit_cmd(),
             "No known vulnerabilities detected",
             "Security vulnerabilities found in dependencies",
             required=True,
             layer=ValidationLayer.SECURITY,
             remediation_tip="Upgrade vulnerable packages; add temporary ignores with expiry dates if needed",
+            timeout=600,
         )
 
         # Complexity and maintainability checks
         run_and_add_if_match(
             "Code Complexity",
-            "radon cc . -a -nb --min C --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing radon...' && pip install radon && radon cc . -a -nb --min C --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
+            f"radon cc . -a -nb --min C --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing radon...' && {self.pip_cmd} install radon && radon cc . -a -nb --min C --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
             "Code complexity acceptable",
             "High complexity detected",
             required=True,
@@ -471,7 +589,7 @@ except Exception as e:
 
         run_and_add_if_match(
             "Maintainability Index",
-            "radon mi . -s -n B --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing radon...' && pip install radon && radon mi . -s -n B --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
+            f"radon mi . -s -n B --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing radon...' && {self.pip_cmd} install radon && radon mi . -s -n B --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
             "Code maintainability acceptable",
             "Low maintainability detected",
             required=True,
@@ -482,7 +600,7 @@ except Exception as e:
         # Dead code detection
         run_and_add_if_match(
             "Dead Code Analysis",
-            "vulture . --min-confidence 60 --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing vulture...' && pip install vulture && vulture . --min-confidence 60 --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
+            f"vulture . --min-confidence 60 --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing vulture...' && {self.pip_cmd} install vulture && vulture . --min-confidence 60 --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
             "No obvious dead code detected",
             "Dead code candidates found",
             required=True,
@@ -490,37 +608,45 @@ except Exception as e:
             remediation_tip="Review and remove unused code; verify false positives before deletion",
         )
 
-        # Secret scanning (Unix tools required)
-        if self._has_unix_tools():
+        # Secret scanning - prefer gitleaks, fallback to grep
+        if self._has_git() and (self._has_unix_tools() or self._has_gitleaks()):
+            if self._has_gitleaks():
+                secret_cmd = "gitleaks detect --no-banner --source . --report-format=json --redact"
+            else:
+                secret_cmd = r"""git ls-files -z | xargs -0 grep -nEI --max-count=1 '(AWS_ACCESS_KEY_ID|AKIA[0-9A-Z]{16}|BEGIN RSA PRIVATE KEY|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{48}|xox[baprs]-[A-Za-z0-9-]{10,})' || true"""
+
             run_and_add_if_match(
                 "Secret Scan",
-                r"""git ls-files -z | xargs -0 grep -nEI --max-count=1 '(AWS_ACCESS_KEY_ID|AKIA[0-9A-Z]{16}|BEGIN RSA PRIVATE KEY|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{48}|xox[baprs]-[A-Za-z0-9-]{10,})' || true""",
+                secret_cmd,
                 "No secrets detected in repository",
                 "Potential secrets or credentials found",
                 required=True,
                 layer=ValidationLayer.SECURITY,
-                remediation_tip="Rotate exposed credentials immediately; remove from git history with git filter-repo",
+                remediation_tip="Rotate exposed credentials, purge history (git filter-repo), and add detectors to CI",
             )
         else:
             results.append(
                 ValidationResult(
                     "Secret Scan",
                     True,
-                    "Unix tools not available - skipping secret scan",
+                    "Git/Unix tools not available - skipping secret scan",
                     0.0,
                     required=True,
                     layer=ValidationLayer.SECURITY,
-                    remediation_tip="Install grep/xargs for secret scanning, or use a dedicated tool like truffleHog",
+                    remediation_tip="Run in a git repo with grep/xargs available, or install gitleaks",
                     full_output=None,
                     command=None,
                 )
             )
 
         # Git hygiene checks (informational only, verbose mode)
-        if self.verbose:
+        if self.verbose and self._has_git():
             run_and_add_if_match(
                 "Working Tree Status",
-                'test -z "$(git status --porcelain)"',
+                f"""{self.python_cmd} -c "import subprocess, sys
+r = subprocess.run(['git','status','--porcelain'], capture_output=True, text=True)
+sys.exit(0 if not r.stdout.strip() else 1)
+" """,
                 "Working tree is clean",
                 "Uncommitted changes detected (informational)",
                 required=True,
@@ -528,8 +654,8 @@ except Exception as e:
                 remediation_tip="This is informational - uncommitted changes during development are normal",
             )
 
-            # Large binary check (Unix tools required)
-        if self._has_unix_tools():
+            # Large binary check (Unix tools and git required)
+        if self._has_unix_tools() and self._has_git():
             run_and_add_if_match(
                 "Large Binary Check",
                 'git ls-files -s | awk \'{if($4!="") print $4}\' | xargs -I{} sh -c \'test -f "{}" && du -k "{}"\' 2>/dev/null | awk \'$1>5120{print $2 " (" $1 "KB)"; exit 1}\' || { echo \'No large binaries found\'; exit 0; }',
@@ -544,11 +670,11 @@ except Exception as e:
                 ValidationResult(
                     "Large Binary Check",
                     True,
-                    "Unix tools not available - skipping binary size check",
+                    "Git/Unix tools not available - skipping binary size check",
                     0.0,
                     required=True,
                     layer=ValidationLayer.PERFORMANCE,
-                    remediation_tip="Install awk/xargs for binary size checks, or manually review large files",
+                    remediation_tip="Use Git LFS for large files or run this in a git repo",
                     full_output=None,
                     command=None,
                 )
@@ -576,8 +702,8 @@ except Exception as e:
         )
 
         # Performance smoke tests (language-agnostic)
-        # 21) Hot file hotspots - detect oversized files (Unix tools required)
-        if self._has_unix_tools():
+        # 21) Hot file hotspots - detect oversized files (Unix tools and git required)
+        if self._has_unix_tools() and self._has_git():
             run_and_add_if_match(
                 "Giant Files",
                 r"""git ls-files '*.py' '*.ts' | xargs wc -l 2>/dev/null | awk '$1>800 && $2!="total"{print $2 " (" $1 " lines)"; found=1} END{exit found?1:0}' || { echo 'No oversized files detected'; exit 0; }""",
@@ -592,11 +718,11 @@ except Exception as e:
                 ValidationResult(
                     "Giant Files",
                     True,
-                    "Unix tools not available - skipping file size check",
+                    "Git/Unix tools not available - skipping file size check",
                     0.0,
                     required=True,
                     layer=ValidationLayer.PERFORMANCE,
-                    remediation_tip="Install awk/xargs for file size checks, or manually review large source files",
+                    remediation_tip="Install awk/xargs or review large files manually",
                     full_output=None,
                     command=None,
                 )
@@ -628,15 +754,25 @@ except Exception as e:
                 )
             )
 
-        # 23) Environment parity - CI awareness
+        # 23) Environment parity - CI awareness (cross-platform, informational)
         run_and_add_if_match(
             "Tool Versions",
-            f"""{self.python_cmd} -c "import sys; print(f'Python: {{sys.version}}'); import platform; print(f'Platform: {{platform.platform()}}'); exec('try:\\n import pytest; print(f\\"pytest: {{pytest.__version__}}\\")\\nexcept: print(\\"pytest: not installed\\")'); exec('try:\\n import mypy; print(f\\"mypy: {{mypy.__version__}}\\")\\nexcept: print(\\"mypy: not installed\\")'); exec('try:\\n import ruff; print(f\\"ruff: {{ruff.__version__}}\\")\\nexcept: print(\\"ruff: not installed\\")')" 2>/dev/null || {{ echo "Could not capture all tool versions"; exit 0; }}""",
+            f"""{self.python_cmd} -c "import sys, platform, importlib
+print(f'Python: {{sys.version}}')
+print(f'Platform: {{platform.platform()}}')
+for m in ['pytest','mypy','ruff']:
+    try:
+        mod = importlib.import_module(m)
+        ver = getattr(mod, '__version__', 'unknown')
+        print(f'{{m}}: {{ver}}')
+    except Exception:
+        print(f'{{m}}: not installed')
+" """,
             "Captured tool versions for reproducibility",
             "Could not capture complete tool versions",
-            required=True,
+            required=False,  # informational only
             layer=ValidationLayer.INTEGRATION,
-            remediation_tip="Ensure consistent tool versions across environments using requirements.txt or pyproject.toml",
+            remediation_tip="Ensure consistent tool versions via requirements.txt/pyproject.toml",
         )
 
         return results
@@ -672,10 +808,6 @@ except Exception as e:
     #     # Implementation commented out - future enhancement
     #     return results
 
-    def check_tool_availability(self, tool_name: str) -> bool:
-        """Check if a tool is available in PATH."""
-        return shutil.which(tool_name) is not None
-
     def _has_unix_tools(self) -> bool:
         """Check if Unix tools (grep, awk, find) are available."""
         return all(shutil.which(tool) for tool in ["grep", "awk", "find"])
@@ -691,6 +823,95 @@ except Exception as e:
             if (self.project_dir / c).exists():
                 return c
         return "."
+
+    def _ruff_cmd(self, targets: str) -> str:
+        """Build ruff command with config discovery and auto-install."""
+        cfg = next(
+            (
+                p
+                for p in ["pyproject.toml", "ruff.toml", ".ruff.toml"]
+                if (self.project_dir / p).exists()
+            ),
+            None,
+        )
+        cfg_flag = f" --config {cfg}" if cfg else ""
+        excludes = " --force-exclude"
+        base = f"{self.python_cmd} -m ruff check{cfg_flag}{excludes} {targets}"
+        return f"{base} || (echo 'Installing ruff...' && {self.pip_cmd} install ruff && {base})"
+
+    def _mypy_cmd(self) -> str:
+        """Build mypy command with config discovery and auto-install."""
+        cfg = next(
+            (
+                p
+                for p in ["mypy.ini", "setup.cfg", "pyproject.toml"]
+                if (self.project_dir / p).exists()
+            ),
+            None,
+        )
+        cfg_flag = (
+            f" --config-file {cfg}"
+            if cfg and cfg.endswith(("mypy.ini", "setup.cfg"))
+            else ""
+        )
+        target = self._mypy_target()
+        base = f"{self.python_cmd} -m mypy {target}{cfg_flag} --show-error-codes"
+        return f"{base} || (echo 'Installing mypy...' && {self.pip_cmd} install mypy && {base})"
+
+    def _pip_audit_cmd(self) -> str:
+        """Build pip-audit command with requirements file awareness."""
+        reqs = [
+            p
+            for p in ["requirements.txt", "requirements-prod.txt"]
+            if (self.project_dir / p).exists()
+        ]
+        flags = " ".join(f"-r {r}" for r in reqs) if reqs else ""
+        base = f"{self.python_cmd} -m pip_audit --desc {flags}"
+        return f"{base} || (echo 'Installing pip-audit...' && {self.pip_cmd} install pip-audit && {base})"
+
+    def _since_files(self, since: Optional[str]) -> List[str]:
+        """Get list of Python files changed since a git ref."""
+        if not since or not self._has_git():
+            return []
+        try:
+            out = subprocess.check_output(
+                [
+                    "git",
+                    "diff",
+                    "--name-only",
+                    "--diff-filter=ACMR",
+                    "--find-renames",
+                    since,
+                    "--",
+                    ".",
+                ],
+                cwd=self.project_dir,
+                text=True,
+            ).splitlines()
+            return [f for f in out if f.endswith((".py", ".pyi"))]
+        except Exception:
+            return []
+
+    def _has_gitleaks(self) -> bool:
+        """Check if gitleaks is available."""
+        return shutil.which("gitleaks") is not None
+
+    def _will_skip(self, name: str) -> Optional[str]:
+        """Check if a check will be skipped due to environment constraints."""
+        if name in ("Secret Scan", "Large Binary Check", "Giant Files"):
+            if not self._has_git():
+                return "no git repo"
+            if not self._has_unix_tools() and name != "Secret Scan":
+                return "missing Unix tools"
+            if (
+                name == "Secret Scan"
+                and not self._has_unix_tools()
+                and not self._has_gitleaks()
+            ):
+                return "missing Unix tools or gitleaks"
+        if name == "Working Tree Status" and not self._has_git():
+            return "no git repo"
+        return None
 
     def validate_patterns(self) -> ValidationResult:
         """Run design pattern validation using refactor_toolkit's validate_patterns.py."""
@@ -902,76 +1123,54 @@ except Exception as e:
         name = result.name
         message = result.message
 
-        if "Code Quality" in name or "Pre-commit" in name or "Hook" in name:
+        if "Type Checking" in name or "Type" in name or "mypy" in name.lower():
             return "Code Quality"
-        elif "Test" in name:
+        elif (
+            "Code Quality" in name
+            or "Pre-commit" in name
+            or "Hook" in name
+            or "Syntax" in name
+            or "Linting" in name
+            or "Ruff" in name
+            or "Flake8" in name
+            or "Complexity" in name
+            or "Maintainability" in name
+        ):
+            return "Code Quality"
+        elif "Test" in name or "Coverage" in name:
             return "Tests"
         elif (
-            "Security" in name or "Vulnerability" in name or "Vulnerability" in message
+            "Security" in name
+            or "Vulnerability" in name
+            or "Vulnerability" in message
+            or "Secret" in name
         ):
             return "Security"
         elif "Import" in name or "Dependencies" in name or "Package" in name:
             return "Dependencies"
-        elif "Dead Code" in name:
+        elif "Dead Code" in name or "Vulture" in name:
             return "Dead Code"
-        elif "Documentation" in name or "README" in message:
+        elif "Documentation" in name or "README" in message or "Metadata" in name:
             return "Documentation"
+        elif "Pattern" in name:
+            return "Design Patterns"
+        elif (
+            "Binary" in name
+            or "File" in name
+            or "I/O" in name
+            or "Tool" in name
+            or "Version" in name
+        ):
+            return "Code Quality"
         else:
-            return "Other"
+            # Fallback: use a generic category based on the check name
+            return "Code Quality"
 
     def should_run_check(self, check_name: str, category_filter: str) -> bool:
         """Determine if a check should run based on category filter."""
         if category_filter == "all":
             return True
-
-        # Map category filter to check names (comprehensive list based on ValidationLayer)
-        category_map = {
-            "code-quality": [
-                "Python Syntax",
-                "Code Quality",
-                "Pre-commit Hooks",
-                "Type Checking",
-                "Code Complexity",
-                "Maintainability Index",
-            ],
-            "security": ["Vulnerability Scan", "Secret Scan"],
-            "tests": ["Unit Tests", "Coverage Threshold"],
-            "dependencies": [
-                "Import Dependencies",
-                "Package Dependencies",
-                "Import Smoke",
-            ],
-            "dead-code": ["Dead Code Analysis"],
-            "patterns": ["Design Patterns"],
-            "documentation": ["Repository Metadata", "Project Documentation"],
-            "other": [
-                "I/O Risk Patterns",
-                "Large Binary Check",
-                "Giant Files",
-                "Tool Versions",
-                "Working Tree Status",
-            ],
-        }
-
-        checks_for_category = category_map.get(category_filter, [])
-        return check_name in checks_for_category
-
-    def _truncate_long_text(self, text: str, max_length: int = 200) -> str:
-        """Truncate long text and add ellipsis if needed."""
-        if len(text) <= max_length:
-            return text
-
-        # Try to truncate at a sentence boundary
-        truncated = text[:max_length]
-        last_period = truncated.rfind(".")
-        last_space = truncated.rfind(" ")
-
-        if last_period > max_length * 0.7:  # If period is reasonably close to end
-            return truncated[: last_period + 1] + " [...see --verbose for full details]"
-        elif last_space > max_length * 0.8:  # If space is close to end
-            return truncated[:last_space] + "... [see --verbose for full details]"
-        else:
-            return truncated + "... [see --verbose for full details]"
+        return check_name in CATEGORY_MAP.get(category_filter, [])
 
     def _parse_specific_errors(self, result: ValidationResult) -> List[str]:
         """Parse specific errors from validation result output."""
@@ -1190,7 +1389,7 @@ except Exception as e:
 
         if not errors and ("FAILED" in output or "Failed" in output):
             errors.append(
-                "**Pre-commit**: Run `pre-commit run --all-files --show-diff-on-failure` for details"
+                "Pre-commit hooks failed - run 'pre-commit run --all-files --show-diff-on-failure' for details"
             )
 
         return errors
@@ -1232,12 +1431,46 @@ except Exception as e:
         lines = output.split("\n")
 
         for line in lines:
+            # Match pytest FAILED output
             if "FAILED" in line and "::" in line:
-                test_path = line.split("FAILED")[0].strip()
-                errors.append(f"**Test Failed**: Fix failing test `{test_path}`")
+                # Extract test path (format: path/to/test.py::TestClass::test_method FAILED)
+                if " FAILED" in line:
+                    test_path = line.split(" FAILED")[0].strip()
+                else:
+                    test_path = line.split("FAILED")[0].strip()
+                errors.append(f"Test failed: {test_path}")
+            # Match pytest ERROR output
             elif "ERROR" in line and "::" in line:
-                test_path = line.split("ERROR")[0].strip()
-                errors.append(f"**Test Error**: Fix test error in `{test_path}`")
+                if " ERROR" in line:
+                    test_path = line.split(" ERROR")[0].strip()
+                else:
+                    test_path = line.split("ERROR")[0].strip()
+                errors.append(f"Test error: {test_path}")
+            # Match unittest failures
+            elif "FAIL:" in line or "ERROR:" in line:
+                errors.append(f"Test issue: {line.strip()}")
+            # Match pytest summary lines
+            elif "failed" in line.lower() and (
+                "passed" in line.lower() or "error" in line.lower()
+            ):
+                # E.g., "2 failed, 5 passed in 3.2s"
+                if any(x in line for x in ["failed", "error"]) and len(line) < 100:
+                    errors.append(f"Test summary: {line.strip()}")
+
+        # If no specific errors found but output contains failure indicators
+        if not errors and any(
+            indicator in output.lower()
+            for indicator in ["failed", "error", "traceback"]
+        ):
+            # Extract first meaningful error line
+            for line in lines:
+                if line.strip() and not line.startswith(("=", "-", "_", "~", ".")):
+                    if any(
+                        word in line.lower()
+                        for word in ["error", "failed", "assertion"]
+                    ):
+                        errors.append(f"Test issue: {line.strip()}")
+                        break
 
         return errors
 
@@ -1261,7 +1494,8 @@ except Exception as e:
             if not line:
                 continue
             if "Found" in line and "vulnerabilit" in line.lower():
-                errors.append(f"**Vulnerability Summary**: {line}")
+                # Skip this redundant summary line - we show the actual vulnerabilities
+                continue
             elif line.startswith("Name:"):
                 current_package = line.replace("Name:", "").strip()
             elif line.startswith("Version:") and current_package:
@@ -1283,7 +1517,8 @@ except Exception as e:
 
         for line in lines:
             if "found" in line.lower() and "vulnerabilit" in line.lower():
-                errors.append(f"**Vulnerability Summary**: {line.strip()}")
+                # Skip this redundant summary line - we show the actual vulnerabilities
+                continue
             elif line.strip().startswith("│") and (
                 "High" in line or "Critical" in line
             ):
@@ -1508,9 +1743,19 @@ except Exception as e:
         if not since:
             return "."
         try:
+            # Only tracked files changed since ref; follow renames
             out = (
                 subprocess.check_output(  # nosec B603 B607: git command with controlled args
-                    ["git", "diff", "--name-only", since, "--", "."],
+                    [
+                        "git",
+                        "diff",
+                        "--name-only",
+                        "--diff-filter=ACMR",
+                        "--find-renames",
+                        since,
+                        "--",
+                        ".",
+                    ],
                     cwd=self.project_dir,
                     text=True,
                 )
@@ -1518,7 +1763,8 @@ except Exception as e:
                 .splitlines()
             )
             files = [f for f in out if f.endswith((".py", ".pyi"))]
-            return " ".join(files) if files else "."
+            # Quote filenames for shell safety
+            return " ".join(_quote(f) for f in files) if files else "."
         except Exception:
             # Fallback to all files if git command fails
             return "."
@@ -1531,26 +1777,46 @@ except Exception as e:
     ) -> ValidationSummary:
         """Run comprehensive validation for the specified tech stack."""
 
-        # Show category filter info if not running all
-        category_info = (
-            f" (category: {category_filter})" if category_filter != "all" else ""
-        )
-
-        if self.verbose:
-            # Verbose header with full details
-            print("\n🚀 Refactor Validation Starting...")
-            print(f"   Project: {self.project_dir.name}")
-            print(f"   Tech: {tech_stack.value}")
-            if category_filter != "all":
-                print(f"   Category: {category_filter}")
-            print(f"   Working Directory: {self.project_dir}")
-            print("\n" + "=" * 60)
-            print("🏁 VALIDATION PHASE: COMPREHENSIVE")
-            print("=" * 60 + "\n")
-        else:
-            # Minimal header
-            print(f"\n🚀 Validating {self.project_dir.name}{category_info}")
-            print()
+        # Show appropriate header based on context
+        if self.verbose and category_filter == "all":
+            # Full header for comprehensive validation
+            print(f"\n{Colors.BOLD_YELLOW}{'═' * 60}{Colors.RESET}")
+            print(
+                f"{Colors.BOLD_YELLOW}  REFACTOR TOOLKIT • COMPREHENSIVE VALIDATION{Colors.RESET}"
+            )
+            print(f"{Colors.BOLD_YELLOW}{'═' * 60}{Colors.RESET}")
+            print(f"{Colors.BOLD_CYAN}PROJECT:{Colors.RESET} {self.project_dir.name}")
+            print(f"{Colors.BOLD_CYAN}TECH STACK:{Colors.RESET} {tech_stack.value}")
+            print(f"{Colors.BOLD_CYAN}DIRECTORY:{Colors.RESET} {self.project_dir}")
+            print(f"{Colors.GRAY}{'═' * 60}{Colors.RESET}")
+            print(f"{Colors.BOLD_CYAN}RUNNING:{Colors.RESET}")
+        elif self.verbose and category_filter != "all":
+            # Structured header for category-specific runs
+            print(f"\n{Colors.BOLD_YELLOW}{'═' * 50}{Colors.RESET}")
+            print(
+                f"{Colors.BOLD_YELLOW}  REFACTOR TOOLKIT • CATEGORY VALIDATION{Colors.RESET}"
+            )
+            print(f"{Colors.BOLD_YELLOW}{'═' * 50}{Colors.RESET}")
+            print(f"{Colors.BOLD_CYAN}CATEGORY:{Colors.RESET} {category_filter}")
+            print(f"{Colors.BOLD_CYAN}DIRECTORY:{Colors.RESET} {self.project_dir.name}")
+            print(f"{Colors.GRAY}{'═' * 50}{Colors.RESET}")
+            print(f"{Colors.BOLD_CYAN}RUNNING:{Colors.RESET}")
+        elif not self.verbose:
+            # Minimal header with clean formatting
+            separator_width = 60 if category_filter == "all" else 50
+            print(f"\n{Colors.BOLD_YELLOW}{'═' * separator_width}{Colors.RESET}")
+            if category_filter == "all":
+                print(
+                    f"{Colors.BOLD_YELLOW}  REFACTOR TOOLKIT • COMPREHENSIVE VALIDATION{Colors.RESET}"
+                )
+            else:
+                print(
+                    f"{Colors.BOLD_YELLOW}  REFACTOR TOOLKIT • {category_filter.upper()} VALIDATION{Colors.RESET}"
+                )
+            print(f"{Colors.BOLD_YELLOW}{'═' * separator_width}{Colors.RESET}")
+            print(f"{Colors.BOLD_CYAN}DIRECTORY:{Colors.RESET} {self.project_dir.name}")
+            print(f"{Colors.GRAY}{'═' * separator_width}{Colors.RESET}\n")
+            print(f"{Colors.BOLD_CYAN}RUNNING:{Colors.RESET}")
 
         # Run technology-specific validation - currently Python-focused
         if tech_stack == TechStack.PYTHON:
@@ -1575,9 +1841,6 @@ except Exception as e:
             pattern_result = self.validate_patterns()
             results.append(pattern_result)
 
-        if self.verbose and category_filter != "all" and len(results) > 0:
-            print(f"\n📌 Ran {len(results)} check(s) in category: {category_filter}\n")
-
         # Calculate summary
         total_checks = len(results)
         passed_checks = sum(1 for r in results if r.passed)
@@ -1587,40 +1850,29 @@ except Exception as e:
         )
         duration = time.time() - self.start_time
 
-        # Show completion summary
-        if self.verbose:
-            # Verbose completion summary
-            print("\n" + "=" * 60)
-            print("🏁 VALIDATION COMPLETE")
-            print("=" * 60)
-            print(f"📊 Final Score: {passed_checks}/{total_checks} ({score_percent}%)")
-            print(f"⏱️  Duration: {duration:.1f}s")
+        # For category-specific runs that pass, show structured output
+        if category_filter != "all" and score_percent == 100:
+            print(f"\n{Colors.GRAY}{'─' * 50}{Colors.RESET}")
+            print(
+                f"{Colors.BOLD_GREEN}RESULTS:{Colors.RESET} ✅ All checks passed ({Colors.BOLD}{passed_checks}/{total_checks}{Colors.RESET} in {Colors.DIM}{duration:.1f}s{Colors.RESET})\n"
+            )
+            # Skip the verbose completion blocks below
+        elif self.verbose:
+            # Verbose completion summary (only when not a perfect category run)
+            separator_width = 60 if category_filter == "all" else 50
+            print(f"\n{Colors.GRAY}{'─' * separator_width}{Colors.RESET}")
 
-            if score_percent >= 90:
-                print("🎉 Status: READY TO PROCEED")
-            elif score_percent >= 70:
-                print("⚠️  Status: NEEDS ATTENTION")
-            else:
-                print("❌ Status: NOT READY")
-
-            print("=" * 60 + "\n")
+            # Show simple results
+            print(
+                f"{Colors.BOLD_CYAN}RESULTS:{Colors.RESET} {Colors.YELLOW}{passed_checks}/{total_checks}{Colors.RESET} ({Colors.YELLOW}{score_percent}%{Colors.RESET}) {Colors.DIM}in {duration:.1f}s{Colors.RESET}"
+            )
         else:
-            # Minimal completion summary
-            print()
-            if score_percent >= 90:
-                print(
-                    f"🎉 READY TO PROCEED - {passed_checks}/{total_checks} checks passed ({score_percent}%) in {duration:.1f}s"
-                )
-            elif score_percent >= 70:
-                print(
-                    f"⚠️  NEEDS ATTENTION - {passed_checks}/{total_checks} checks passed ({score_percent}%) in {duration:.1f}s"
-                )
-            else:
-                print(
-                    f"❌ NOT READY - {passed_checks}/{total_checks} checks passed ({score_percent}%) in {duration:.1f}s"
-                )
-            print()
-
+            # Minimal completion summary with structured format
+            separator_width = 60 if category_filter == "all" else 50
+            print(f"\n{Colors.GRAY}{'═' * separator_width}{Colors.RESET}")
+            print(
+                f"{Colors.BOLD_CYAN}RESULTS:{Colors.RESET} {Colors.YELLOW}{passed_checks}/{total_checks}{Colors.RESET} ({Colors.YELLOW}{score_percent}%{Colors.RESET}) {Colors.DIM}in {duration:.1f}s{Colors.RESET}"
+            )
         # Calculate enhanced reporting fields
         layer_summaries = self.calculate_layer_summaries(results)
         production_readiness = self.assess_production_readiness(results, score_percent)
@@ -1818,13 +2070,69 @@ def main():
         default="all",
         help="Run checks for a specific category only (default: all)",
     )
+    parser.add_argument(
+        "--list-checks",
+        action="store_true",
+        help="List checks that would run and exit (dry-run mode)",
+    )
+    parser.add_argument(
+        "--fail-on",
+        choices=["error", "warning", "info"],
+        default=None,
+        help="Exit non-zero if any checks at this level (or higher) fail",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        help="Timeout for individual checks in seconds (default: 300)",
+    )
 
     args = parser.parse_args()
 
-    # Auto-enable verbose mode when filtering by category
+    # Handle --timeout flag
+    if args.timeout:
+        global DEFAULT_TIMEOUT
+        DEFAULT_TIMEOUT = args.timeout
+
+    # Handle --list-checks flag
+    if args.list_checks:
+        print("Checks that would run:")
+        all_checks = [
+            "Python Syntax",
+            "Code Quality",
+            "Import Dependencies",
+            "Type Checking",
+            "Security Scan",
+            "Pre-commit Hooks",
+            "Unit Tests",
+            "Coverage Threshold",
+            "Package Dependencies",
+            "Vulnerability Scan",
+            "Code Complexity",
+            "Maintainability Index",
+            "Dead Code Analysis",
+            "Secret Scan",
+            "Working Tree Status",
+            "Large Binary Check",
+            "Repository Metadata",
+            "Project Documentation",
+            "Giant Files",
+            "I/O Risk Patterns",
+            "Tool Versions",
+            "Design Patterns",
+        ]
+        v = RefactorValidator(args.project_dir, verbose=True)
+        for name in all_checks:
+            if v.should_run_check(name, args.category):
+                why = v._will_skip(name)
+                suffix = f" (skip: {why})" if why else ""
+                print(f" - {name}{suffix}")
+        sys.exit(0)
+
+    # Auto-enable verbose mode when filtering by category (silently)
     if args.category != "all" and not args.verbose:
         args.verbose = True
-        print("ℹ️  Verbose mode auto-enabled for category filtering\n")
 
     # Convert string arguments to enums
     tech_stack = TechStack(args.tech)
@@ -1881,14 +2189,23 @@ def main():
             ],
         }
 
+        # Sort arrays for reproducible diffs
+        result_dict["validation_results"].sort(
+            key=lambda r: (r["name"], str(r["layer"] or ""), r["message"])
+        )
+        result_dict["layer_summaries"].sort(key=lambda x: x["layer"])
+
         if args.output:
             Path(args.output).write_text(json.dumps(result_dict, indent=2))
             print(f"📄 JSON report saved to: {args.output}")
         else:
             print(json.dumps(result_dict, indent=2))
     else:
+        # Skip report generation for perfect category-specific runs
+        if args.category != "all" and summary.score_percent == 100:
+            pass  # Already showed "✅ All checks passed" message
         # Generate and display report (verbose mode or when saving to file)
-        if args.verbose or args.output:
+        elif args.verbose or args.output:
             report = validator.generate_report(summary, args.output)
             if not args.output:
                 print(report)
@@ -1899,7 +2216,10 @@ def main():
                 categorized_errors = validator.extract_categorized_errors(
                     summary.results
                 )
-                print("\n🔧 Issues to Fix:")
+                # Structured issues section with prominent separator
+                separator_width = 60
+                print(f"{Colors.GRAY}{'═' * separator_width}{Colors.RESET}\n")
+                print(f"{Colors.RED}{Colors.BOLD}ISSUES FOUND:{Colors.RESET}\n")
                 if categorized_errors:
                     category_filter_name = {
                         "Code Quality": "code-quality",
@@ -1907,34 +2227,105 @@ def main():
                         "Dependencies": "dependencies",
                         "Tests": "tests",
                         "Dead Code": "dead-code",
-                        "Patterns": "patterns",
+                        "Design Patterns": "patterns",
                         "Documentation": "documentation",
-                        "Other": "other",
                     }
-                    category_icons = {
-                        "Code Quality": "📝",
-                        "Security": "🔒",
-                        "Dependencies": "📦",
-                        "Tests": "🧪",
-                        "Dead Code": "🧹",
-                        "Patterns": "🎨",
-                        "Documentation": "📚",
-                        "Other": "⚠️",
-                    }
+                    first_category = True
                     for category, data in categorized_errors.items():
                         errors = data["errors"]
-                        commands = data["commands"]
-                        icon = category_icons.get(category, "•")
                         count = len(errors)
+
+                        # Category subsection header in red with separator (skip for first category)
+                        if not first_category:
+                            print(f"{Colors.GRAY}{'─' * separator_width}{Colors.RESET}")
                         print(
-                            f"\n{icon} {category} ({count} issue{'s' if count != 1 else ''}):"
+                            f"{Colors.RED}{Colors.BOLD}{category}{Colors.RESET} {Colors.DIM}({count} issue{'s' if count != 1 else ''}){Colors.RESET}"
                         )
+                        first_category = False
+
                         max_display = 10
                         for error in errors[:max_display]:
-                            cleaned_error = validator._truncate_long_text(
-                                error, max_length=200
-                            )
-                            print(f"  • {cleaned_error}")
+                            # Remove markdown and technical formatting from error messages
+                            cleaned_error = (
+                                error.replace("**", "").replace("`", "")
+                            ).strip()
+
+                            # For vulnerability messages, extract just the key info
+                            if (
+                                "Vulnerability ID:" in cleaned_error
+                                or "GHSA-" in cleaned_error
+                                or "CVE-" in cleaned_error
+                            ):
+                                # Keep just the ID and first sentence
+                                parts = cleaned_error.split("###")
+                                cleaned_error = parts[0].strip()
+                                # Truncate at reasonable length for vulnerability descriptions
+                                if len(cleaned_error) > 200:
+                                    # Find first complete sentence
+                                    for end in [". ", ".\n", ". \n"]:
+                                        idx = cleaned_error.find(end, 100, 200)
+                                        if idx > 0:
+                                            cleaned_error = cleaned_error[
+                                                : idx + 1
+                                            ].strip()
+                                            break
+                                    else:
+                                        cleaned_error = (
+                                            cleaned_error[:200].strip() + "..."
+                                        )
+                            else:
+                                # For other errors, just remove section markers
+                                for marker in [
+                                    "### Summary",
+                                    "### Impact",
+                                    "### Remediation",
+                                    "### Conditions",
+                                ]:
+                                    if marker in cleaned_error:
+                                        cleaned_error = cleaned_error.split(marker)[
+                                            0
+                                        ].strip()
+
+                            # Smart multi-line wrapping for long lines
+                            max_width = 100
+                            if len(cleaned_error) > max_width:
+                                lines = []
+                                remaining = cleaned_error
+
+                                # First line
+                                break_point = max_width
+                                for i in range(max_width, max_width - 20, -1):
+                                    if i < len(remaining) and remaining[i] in " .,;:-":
+                                        break_point = i
+                                        break
+                                lines.append(remaining[:break_point].strip())
+                                remaining = remaining[break_point:].strip()
+
+                                # Continue wrapping remaining text
+                                while remaining:
+                                    if len(remaining) <= max_width:
+                                        lines.append(remaining)
+                                        break
+                                    else:
+                                        break_point = max_width
+                                        for i in range(max_width, max_width - 20, -1):
+                                            if (
+                                                i < len(remaining)
+                                                and remaining[i] in " .,;:-"
+                                            ):
+                                                break_point = i
+                                                break
+                                        lines.append(remaining[:break_point].strip())
+                                        remaining = remaining[break_point:].strip()
+
+                                # Print first line with bullet
+                                print(f"  {Colors.GRAY}•{Colors.RESET} {lines[0]}")
+                                # Print continuation lines indented
+                                for line in lines[1:]:
+                                    print(f"    {line}")
+                            else:
+                                print(f"  {Colors.GRAY}•{Colors.RESET} {cleaned_error}")
+
                         cli_category = category_filter_name.get(
                             category, category.lower()
                         )
@@ -1945,35 +2336,33 @@ def main():
                         )
                         if count > max_display:
                             remaining = count - max_display
-                            print(f"  • ... and {remaining} more issue(s)")
                             print(
-                                f"  💡 Run: {script_name} . --category {cli_category}"
+                                f"  {Colors.DIM}... and {remaining} more ({count} total){Colors.RESET}"
                             )
-                        elif commands:
                             print(
-                                f"  💡 Run: {script_name} . --category {cli_category}"
+                                f"\n  {Colors.BLUE}→ Run '{Colors.BOLD}{script_name} . --category {cli_category}{Colors.RESET}{Colors.BLUE}' for full list and details{Colors.RESET}"
+                            )
+                        else:
+                            # Always show run command for detailed category view
+                            print(
+                                f"\n  {Colors.BLUE}→ Run '{Colors.BOLD}{script_name} . --category {cli_category}{Colors.RESET}{Colors.BLUE}' for details{Colors.RESET}"
                             )
                 else:
                     # Fallback to basic error list if no actionable errors parsed
-                    for i, result in enumerate(failed_results, 1):
-                        print(f"{i:2d}. {result.name}: {result.message}")
+                    for result in failed_results:
+                        print(f"  • {result.name}: {result.message}")
 
-                print("\n💡 Run with --verbose for detailed error information")
-                print("💡 Run with --output report.md to save full report")
+                # Footer with helpful tips
+                print(f"\n{Colors.GRAY}{'═' * 60}{Colors.RESET}\n")
+                print(
+                    f"{Colors.BLUE}→ Run with {Colors.BOLD}--verbose{Colors.RESET}{Colors.BLUE} for detailed error information{Colors.RESET}"
+                )
+                print(
+                    f"{Colors.BLUE}→ Run with {Colors.BOLD}--output report.md{Colors.RESET}{Colors.BLUE} to save full report{Colors.RESET}"
+                )
 
-    # Print detailed summary to console (only in verbose mode or JSON mode)
-    if args.verbose or args.json:
-        print(
-            f"\n📊 Final Score: {summary.passed_checks}/{summary.total_checks} ({summary.score_percent}%)"
-        )
-        print(f"⏱️  Duration: {summary.duration:.1f}s")
-
-        if summary.score_percent >= 90:
-            print("🎉 Status: READY TO PROCEED")
-        elif summary.score_percent >= 70:
-            print("⚠️  Status: NEEDS ATTENTION")
-        else:
-            print("❌ Status: NOT READY")
+    # Summary footer is now part of the structured RESULTS section above
+    # No need for redundant footer
 
     # Determine exit code based on strict mode
     exit_code = 0
@@ -1985,6 +2374,14 @@ def main():
         )  # CI-friendly: fail on NEEDS ATTENTION if --strict
     else:
         exit_code = 1
+
+    # Handle --fail-on threshold (overrides --strict)
+    if args.fail_on:
+        # For simplicity, treat any failed required check as an "error"
+        # More granular severity mapping could be added later if needed
+        any_failed = any(not r.passed and r.required for r in summary.results)
+        if any_failed:
+            exit_code = 1
 
     sys.exit(exit_code)
 

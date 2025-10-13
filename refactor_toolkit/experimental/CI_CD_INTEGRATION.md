@@ -755,7 +755,7 @@ jobs:
 # Run expensive validations only when needed
 comprehensive-validation:
   if: |
-    github.event_name == 'push' && 
+    github.event_name == 'push' &&
     github.ref == 'refs/heads/main' &&
     contains(github.event.head_commit.message, '[full-validation]')
 ```

@@ -20,7 +20,7 @@ pattern_matching:
     python_lint:
       primary: ".*(0 errors|Success|✓).*"
       variants: ["^$", ".*All done.*", ".*would reformat 0 files.*"]
-      signals: [exit_code_0, not_contains:error]
+      signals: [exit_code_0, "not_contains:error"]
     python_tests:
       primary: "== .* passed.*"
       variants:
@@ -29,16 +29,16 @@ pattern_matching:
           ".*100% passed.*",
           ".*test session starts.*",
         ]
-      signals: [exit_code_0, contains:passed, not_contains:FAILED]
+      signals: [exit_code_0, "contains:passed", "not_contains:FAILED"]
     javascript_lint:
       primary: ".*(0 problems|✓).*"
       variants: ["^$", ".*No problems found.*"]
-      signals: [exit_code_0, not_contains:error]
+      signals: [exit_code_0, "not_contains:error"]
     build_success:
       primary: ".*(Build successful|✓).*"
       variants:
         [".*Finished.*", ".*BUILD SUCCESS.*", ".*compiled successfully.*"]
-      signals: [exit_code_0, not_contains:error, not_contains:failed]
+      signals: [exit_code_0, "not_contains:error", "not_contains:failed"]
 # yamllint enable rule:quoted-strings
 
 # Anti-pattern detection integration
@@ -86,7 +86,7 @@ flows:
         layer: code_quality
         cmd: "ruff check . && mypy . && trunk check ."
         expect_patterns: [python_lint]
-        expect_signals: [exit_code_0, not_contains:error]
+        expect_signals: [exit_code_0, "not_contains:error"]
         timeout_s: 120
         on_fail_tip: "Run mypy with --show-error-codes; fix highest-severity first."
 
@@ -94,7 +94,7 @@ flows:
         layer: unit_tests
         cmd: "pytest -q --maxfail=3 --tb=short"
         expect_patterns: [python_tests]
-        expect_signals: [exit_code_0, contains:passed, not_contains:FAILED]
+        expect_signals: [exit_code_0, "contains:passed", "not_contains:FAILED"]
         timeout_s: 300
         on_fail_tip: "Run pytest -v to see detailed test failures."
 
@@ -111,7 +111,8 @@ flows:
         # yamllint disable-line rule:quoted-strings
         cmd: "python validate_patterns.py . --auto-detect --include-anti-patterns"
         expect_patterns: [build_success]
-        expect_signals: [exit_code_0, not_contains:CRITICAL, not_contains:HIGH]
+        expect_signals:
+          [exit_code_0, "not_contains:CRITICAL", "not_contains:HIGH"]
         timeout_s: 60
         # yamllint disable-line rule:quoted-strings
         on_fail_tip: "Review anti-pattern violations and apply suggested remediations."

@@ -53,7 +53,7 @@ class QueryBuilder:
 class LoggingDecorator:
     def __init__(self, component):
         self.component = component
-    
+
     def operation(self):
         return "hardcoded"  # No delegation
 """

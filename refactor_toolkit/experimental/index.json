@@ -1,240 +1,64 @@
 {
-  "toolkit_info": {
-    "name": "Universal Refactor Validation Toolkit",
-    "version": "2.0.0",
-    "description": "Comprehensive validation system for any codebase, technology stack, and team size"
-  },
-  "routes": [
-    {
-      "when": {
-        "time": "<1m",
-        "scenario": "emergency"
-      },
-      "go_to": "consolidated_prompt_library#p001-critical-hotfix-validation",
-      "prompt_id": "P001",
-      "description": "Hotfix validation, critical bugs"
-    },
-    {
-      "when": {
-        "time": "5-10m",
-        "scenario": "daily"
-      },
-      "go_to": "consolidated_prompt_library#p002-standard-daily-validation",
-      "prompt_id": "P002",
-      "description": "Daily development, code changes, PR validation"
-    },
-    {
-      "when": {
-        "time": "10m",
-        "scenario": "code_quality"
-      },
-      "go_to": "consolidated_prompt_library#p003-code-quality-focus",
-      "prompt_id": "P003",
-      "description": "Code quality focus, linting, formatting"
-    },
-    {
-      "when": {
-        "time": "15-30m",
-        "scenario": "patterns"
-      },
-      "go_to": "consolidated_prompt_library#p004-pattern-compliance-validation",
-      "prompt_id": "P004",
-      "description": "Pattern implementation, architecture review"
-    },
-    {
-      "when": {
-        "time": "30-45m",
-        "scenario": "major_refactor"
-      },
-      "go_to": "consolidated_prompt_library#p005-pre-production-validation",
-      "prompt_id": "P005",
-      "description": "Major refactors, production releases"
-    },
-    {
-      "when": {
-        "time": "30-60m",
-        "scenario": "performance"
-      },
-      "go_to": "consolidated_prompt_library#p006-performance--security-deep-dive",
-      "prompt_id": "P006",
-      "description": "Performance analysis, security scanning"
-    },
-    {
-      "when": {
-        "scenario": "migration"
-      },
-      "go_to": "consolidated_prompt_library#p007-migration-impact-analysis",
-      "prompt_id": "P007",
-      "description": "Schema/data migration validation"
-    },
-    {
-      "when": {
-        "time": "30-45m",
-        "automated": true
-      },
-      "go_to": "validate_full.sh",
-      "description": "Automated comprehensive validation script"
-    },
-    {
-      "when": {
-        "ai_assistance": true,
-        "time": "<5m"
-      },
-      "go_to": "quick_validation_prompts#30-second-prompts",
-      "description": "Fast AI-assisted validation"
-    },
-    {
-      "when": {
-        "ai_assistance": true,
-        "time": "15-45m"
-      },
-      "go_to": "universal_ai_refactor_prompt#comprehensive-validation",
-      "description": "AI-guided comprehensive validation"
-    },
-    {
-      "when": {
-        "role": "ai_agent"
-      },
-      "go_to": "agent_navigation_guide#decision-tree",
-      "description": "Complete AI agent guidance system"
-    },
-    {
-      "when": {
-        "need": "examples"
-      },
-      "go_to": "assessment_examples#templates",
-      "description": "Filled-out validation report examples"
-    },
-    {
-      "when": {
-        "need": "ci_cd"
-      },
-      "go_to": "ci_cd_integration#platform-configs",
-      "description": "GitHub Actions, GitLab CI, Azure DevOps, Jenkins"
-    },
-    {
-      "when": {
-        "need": "anti_patterns"
-      },
-      "go_to": "anti_pattern_catalog#detection-automation",
-      "description": "God Object, Spaghetti Code, Circular Dependencies"
-    }
-  ],
-  "prompts": [
-    {
-      "id": "P-QV-001",
-      "title": "Quick 5-Minute Sanity Check",
-      "file": "quick_validation_prompts",
-      "section": "30-second-prompts",
-      "tech": ["python", "javascript", "java", "go", "rust", "generic"],
-      "inputs": ["tech_stack", "change_type", "time_available"],
-      "outputs": ["mini_report", "pass_fail_status"],
-      "time_band": "5-10m"
-    },
-    {
-      "id": "P-CV-001",
-      "title": "Comprehensive Validation",
-      "file": "universal_ai_refactor_prompt",
-      "section": "comprehensive-validation",
-      "tech": ["all"],
-      "inputs": ["tech_stack", "change_complexity", "risk_level"],
-      "outputs": ["full_assessment", "production_readiness"],
-      "time_band": "30-45m"
-    },
-    {
-      "id": "P-PV-001",
-      "title": "Pattern Validation",
-      "file": "design_pattern_validation",
-      "section": "pattern-specific-validation",
-      "tech": ["all"],
-      "inputs": ["pattern_type", "implementation_details"],
-      "outputs": ["pattern_assessment", "compliance_report"],
-      "time_band": "15-30m"
-    }
-  ],
   "anti_patterns": [
     {
-      "id": "AP-GOD-001",
-      "name": "God Object",
-      "severity": "critical",
       "auto_detectable": true,
       "detection_time": "5-10m",
       "file": "anti_pattern_catalog",
-      "section": "god-object"
+      "id": "AP-GOD-001",
+      "name": "God Object",
+      "section": "god-object",
+      "severity": "critical"
     },
     {
-      "id": "AP-SPA-001",
-      "name": "Spaghetti Code",
-      "severity": "high",
       "auto_detectable": true,
       "detection_time": "10-15m",
       "file": "anti_pattern_catalog",
-      "section": "spaghetti-code"
+      "id": "AP-SPA-001",
+      "name": "Spaghetti Code",
+      "section": "spaghetti-code",
+      "severity": "high"
     },
     {
-      "id": "AP-CIR-001",
-      "name": "Circular Dependencies",
-      "severity": "critical",
       "auto_detectable": true,
       "detection_time": "5-10m",
       "file": "anti_pattern_catalog",
-      "section": "circular-dependencies"
+      "id": "AP-CIR-001",
+      "name": "Circular Dependencies",
+      "section": "circular-dependencies",
+      "severity": "critical"
     },
     {
-      "id": "AP-LAV-001",
-      "name": "Lava Flow",
-      "severity": "medium",
       "auto_detectable": "partial",
       "detection_time": "15-30m",
       "file": "anti_pattern_catalog",
-      "section": "lava-flow"
+      "id": "AP-LAV-001",
+      "name": "Lava Flow",
+      "section": "lava-flow",
+      "severity": "medium"
     },
     {
-      "id": "AP-POL-001",
-      "name": "Poltergeist",
-      "severity": "medium",
       "auto_detectable": "partial",
       "detection_time": "10-15m",
       "file": "anti_pattern_catalog",
-      "section": "poltergeist"
-    }
-  ],
-  "scripts": [
-    {
-      "name": "validate_quick.sh",
-      "description": "Automated quick validation (5-10 minutes)",
-      "inputs": ["project_dir", "tech_stack"],
-      "outputs": ["mini_assessment", "exit_code"],
-      "time_band": "5-10m"
-    },
-    {
-      "name": "validate_full.sh",
-      "description": "Automated comprehensive validation (30-45 minutes)",
-      "inputs": ["project_dir", "tech_stack"],
-      "outputs": [
-        "comprehensive_assessment",
-        "production_readiness",
-        "exit_code"
-      ],
-      "time_band": "30-45m"
-    },
-    {
-      "name": "validate_patterns.py",
-      "description": "Design pattern validation tool",
-      "inputs": ["source_dir", "language", "patterns"],
-      "outputs": ["pattern_report", "issues_found"],
-      "time_band": "1-15m"
+      "id": "AP-POL-001",
+      "name": "Poltergeist",
+      "section": "poltergeist",
+      "severity": "medium"
     }
   ],
   "assessment_templates": [
     {
-      "type": "mini",
-      "fields": ["status", "checks_passed", "issues", "next_steps"],
+      "fields": [
+        "status",
+        "checks_passed",
+        "issues",
+        "next_steps"
+      ],
       "file": "assessment_examples",
-      "section": "mini-assessment-examples"
+      "section": "mini-assessment-examples",
+      "type": "mini"
     },
     {
-      "type": "comprehensive",
       "fields": [
         "validation_results",
         "production_readiness",
@@ -244,19 +68,251 @@
         "risk_level"
       ],
       "file": "assessment_examples",
-      "section": "comprehensive-assessment-examples"
+      "section": "comprehensive-assessment-examples",
+      "type": "comprehensive"
     },
     {
-      "type": "pattern_focused",
-      "fields": ["pattern_analysis", "detailed_findings", "pattern_readiness"],
+      "fields": [
+        "pattern_analysis",
+        "detailed_findings",
+        "pattern_readiness"
+      ],
       "file": "assessment_examples",
-      "section": "pattern-focused-assessment-examples"
+      "section": "pattern-focused-assessment-examples",
+      "type": "pattern_focused"
+    }
+  ],
+  "prompts": [
+    {
+      "file": "quick_validation_prompts",
+      "id": "P-QV-001",
+      "inputs": [
+        "tech_stack",
+        "change_type",
+        "time_available"
+      ],
+      "outputs": [
+        "mini_report",
+        "pass_fail_status"
+      ],
+      "section": "30-second-prompts",
+      "tech": [
+        "python",
+        "javascript",
+        "java",
+        "go",
+        "rust",
+        "generic"
+      ],
+      "time_band": "5-10m",
+      "title": "Quick 5-Minute Sanity Check"
+    },
+    {
+      "file": "universal_ai_refactor_prompt",
+      "id": "P-CV-001",
+      "inputs": [
+        "tech_stack",
+        "change_complexity",
+        "risk_level"
+      ],
+      "outputs": [
+        "full_assessment",
+        "production_readiness"
+      ],
+      "section": "comprehensive-validation",
+      "tech": [
+        "all"
+      ],
+      "time_band": "30-45m",
+      "title": "Comprehensive Validation"
+    },
+    {
+      "file": "design_pattern_validation",
+      "id": "P-PV-001",
+      "inputs": [
+        "pattern_type",
+        "implementation_details"
+      ],
+      "outputs": [
+        "pattern_assessment",
+        "compliance_report"
+      ],
+      "section": "pattern-specific-validation",
+      "tech": [
+        "all"
+      ],
+      "time_band": "15-30m",
+      "title": "Pattern Validation"
+    }
+  ],
+  "routes": [
+    {
+      "description": "Hotfix validation, critical bugs",
+      "go_to": "consolidated_prompt_library#p001-critical-hotfix-validation",
+      "prompt_id": "P001",
+      "when": {
+        "scenario": "emergency",
+        "time": "<1m"
+      }
+    },
+    {
+      "description": "Daily development, code changes, PR validation",
+      "go_to": "consolidated_prompt_library#p002-standard-daily-validation",
+      "prompt_id": "P002",
+      "when": {
+        "scenario": "daily",
+        "time": "5-10m"
+      }
+    },
+    {
+      "description": "Code quality focus, linting, formatting",
+      "go_to": "consolidated_prompt_library#p003-code-quality-focus",
+      "prompt_id": "P003",
+      "when": {
+        "scenario": "code_quality",
+        "time": "10m"
+      }
+    },
+    {
+      "description": "Pattern implementation, architecture review",
+      "go_to": "consolidated_prompt_library#p004-pattern-compliance-validation",
+      "prompt_id": "P004",
+      "when": {
+        "scenario": "patterns",
+        "time": "15-30m"
+      }
+    },
+    {
+      "description": "Major refactors, production releases",
+      "go_to": "consolidated_prompt_library#p005-pre-production-validation",
+      "prompt_id": "P005",
+      "when": {
+        "scenario": "major_refactor",
+        "time": "30-45m"
+      }
+    },
+    {
+      "description": "Performance analysis, security scanning",
+      "go_to": "consolidated_prompt_library#p006-performance--security-deep-dive",
+      "prompt_id": "P006",
+      "when": {
+        "scenario": "performance",
+        "time": "30-60m"
+      }
+    },
+    {
+      "description": "Schema/data migration validation",
+      "go_to": "consolidated_prompt_library#p007-migration-impact-analysis",
+      "prompt_id": "P007",
+      "when": {
+        "scenario": "migration"
+      }
+    },
+    {
+      "description": "Automated comprehensive validation script",
+      "go_to": "validate_full.sh",
+      "when": {
+        "automated": true,
+        "time": "30-45m"
+      }
+    },
+    {
+      "description": "Fast AI-assisted validation",
+      "go_to": "quick_validation_prompts#30-second-prompts",
+      "when": {
+        "ai_assistance": true,
+        "time": "<5m"
+      }
+    },
+    {
+      "description": "AI-guided comprehensive validation",
+      "go_to": "universal_ai_refactor_prompt#comprehensive-validation",
+      "when": {
+        "ai_assistance": true,
+        "time": "15-45m"
+      }
+    },
+    {
+      "description": "Complete AI agent guidance system",
+      "go_to": "agent_navigation_guide#decision-tree",
+      "when": {
+        "role": "ai_agent"
+      }
+    },
+    {
+      "description": "Filled-out validation report examples",
+      "go_to": "assessment_examples#templates",
+      "when": {
+        "need": "examples"
+      }
+    },
+    {
+      "description": "GitHub Actions, GitLab CI, Azure DevOps, Jenkins",
+      "go_to": "ci_cd_integration#platform-configs",
+      "when": {
+        "need": "ci_cd"
+      }
+    },
+    {
+      "description": "God Object, Spaghetti Code, Circular Dependencies",
+      "go_to": "anti_pattern_catalog#detection-automation",
+      "when": {
+        "need": "anti_patterns"
+      }
+    }
+  ],
+  "scripts": [
+    {
+      "description": "Automated quick validation (5-10 minutes)",
+      "inputs": [
+        "project_dir",
+        "tech_stack"
+      ],
+      "name": "validate_quick.sh",
+      "outputs": [
+        "mini_assessment",
+        "exit_code"
+      ],
+      "time_band": "5-10m"
+    },
+    {
+      "description": "Automated comprehensive validation (30-45 minutes)",
+      "inputs": [
+        "project_dir",
+        "tech_stack"
+      ],
+      "name": "validate_full.sh",
+      "outputs": [
+        "comprehensive_assessment",
+        "production_readiness",
+        "exit_code"
+      ],
+      "time_band": "30-45m"
+    },
+    {
+      "description": "Design pattern validation tool",
+      "inputs": [
+        "source_dir",
+        "language",
+        "patterns"
+      ],
+      "name": "validate_patterns.py",
+      "outputs": [
+        "pattern_report",
+        "issues_found"
+      ],
+      "time_band": "1-15m"
     }
   ],
   "time_bands": {
+    "comprehensive": "30-45m",
     "emergency": "30s-1m",
     "quick": "5-10m",
-    "standard": "15-30m",
-    "comprehensive": "30-45m"
+    "standard": "15-30m"
+  },
+  "toolkit_info": {
+    "description": "Comprehensive validation system for any codebase, technology stack, and team size",
+    "name": "Universal Refactor Validation Toolkit",
+    "version": "2.0.0"
   }
 }

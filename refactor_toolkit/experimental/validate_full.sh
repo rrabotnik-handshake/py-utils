@@ -42,7 +42,7 @@ EOF
 # Function to add layer result to report
 add_layer_result() {
     local layer="$1"
-    local status="$2" 
+    local status="$2"
     local results="$3"
     local time="$4"
     echo "| $layer | $status | $results | $time |" >> "$REPORT_FILE"
@@ -52,10 +52,10 @@ add_layer_result() {
 run_layer() {
     local layer_name="$1"
     local layer_start=$(date +%s)
-    
+
     echo -e "${PURPLE}📋 Layer: $layer_name${NC}"
     echo "----------------------------------------"
-    
+
     # Return values: passed_checks, total_checks, details
     case "$layer_name" in
         "Code Quality")
@@ -77,16 +77,16 @@ run_layer() {
             run_security_layer
             ;;
     esac
-    
+
     local layer_end=$(date +%s)
     local layer_time=$((layer_end - layer_start))
     local layer_time_formatted="${layer_time}s"
-    
+
     # Calculate layer status
     local layer_score=$((LAYER_PASSED * 100 / LAYER_TOTAL))
     local layer_status
     local layer_results="$LAYER_PASSED/$LAYER_TOTAL checks passed"
-    
+
     if [ $layer_score -ge 90 ]; then
         layer_status="✅"
     elif [ $layer_score -ge 70 ]; then
@@ -94,12 +94,12 @@ run_layer() {
     else
         layer_status="❌"
     fi
-    
+
     add_layer_result "$layer_name" "$layer_status" "$layer_results" "$layer_time_formatted"
-    
+
     echo -e "${BLUE}Layer Complete: $layer_results ($layer_score%) in ${layer_time}s${NC}"
     echo ""
-    
+
     # Update global counters
     TOTAL_CHECKS=$((TOTAL_CHECKS + LAYER_TOTAL))
     PASSED_CHECKS=$((PASSED_CHECKS + LAYER_PASSED))
@@ -109,7 +109,7 @@ run_layer() {
 run_code_quality_layer() {
     LAYER_PASSED=0
     LAYER_TOTAL=0
-    
+
     case "$TECH_STACK" in
         "python")
             # Ruff linting
@@ -120,7 +120,7 @@ run_code_quality_layer() {
             else
                 echo -e "${RED}❌ Ruff linting failed${NC}"
             fi
-            
+
             # MyPy type checking
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
             if python -m mypy "$PROJECT_DIR" > /dev/null 2>&1; then
@@ -129,7 +129,7 @@ run_code_quality_layer() {
             else
                 echo -e "${RED}❌ MyPy type checking failed${NC}"
             fi
-            
+
             # Black formatting
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
             if python -m black --check "$PROJECT_DIR" > /dev/null 2>&1; then
@@ -138,7 +138,7 @@ run_code_quality_layer() {
             else
                 echo -e "${RED}❌ Black formatting failed${NC}"
             fi
-            
+
             # Import sorting
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
             if python -m isort --check-only "$PROJECT_DIR" > /dev/null 2>&1; then
@@ -148,7 +148,7 @@ run_code_quality_layer() {
                 echo -e "${RED}❌ Import sorting failed${NC}"
             fi
             ;;
-            
+
         "javascript")
             # ESLint
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
@@ -158,7 +158,7 @@ run_code_quality_layer() {
             else
                 echo -e "${RED}❌ ESLint failed${NC}"
             fi
-            
+
             # Prettier
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
             if npx prettier --check "$PROJECT_DIR" > /dev/null 2>&1; then
@@ -167,7 +167,7 @@ run_code_quality_layer() {
             else
                 echo -e "${RED}❌ Prettier formatting failed${NC}"
             fi
-            
+
             # TypeScript
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
             if npx tsc --noEmit > /dev/null 2>&1; then
@@ -177,7 +177,7 @@ run_code_quality_layer() {
                 echo -e "${RED}❌ TypeScript compilation failed${NC}"
             fi
             ;;
-            
+
         *)
             # Generic checks
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
@@ -194,7 +194,7 @@ run_code_quality_layer() {
 run_unit_tests_layer() {
     LAYER_PASSED=0
     LAYER_TOTAL=0
-    
+
     case "$TECH_STACK" in
         "python")
             # Pytest
@@ -205,7 +205,7 @@ run_unit_tests_layer() {
             else
                 echo -e "${RED}❌ Pytest failed${NC}"
             fi
-            
+
             # Coverage
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
             if python -m pytest tests/ --cov="$PROJECT_DIR" --cov-report=term-missing --cov-fail-under=80 > /dev/null 2>&1; then
@@ -215,7 +215,7 @@ run_unit_tests_layer() {
                 echo -e "${YELLOW}⚠️ Test coverage <80%${NC}"
             fi
             ;;
-            
+
         "javascript")
             # Jest/npm test
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
@@ -225,7 +225,7 @@ run_unit_tests_layer() {
             else
                 echo -e "${RED}❌ JavaScript tests failed${NC}"
             fi
-            
+
             # Coverage
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
             if npm run test:coverage > /dev/null 2>&1; then
@@ -235,7 +235,7 @@ run_unit_tests_layer() {
                 echo -e "${YELLOW}⚠️ Test coverage check failed${NC}"
             fi
             ;;
-            
+
         *)
             # Generic test check
             LAYER_TOTAL=$((LAYER_TOTAL + 1))
@@ -252,7 +252,7 @@ run_unit_tests_layer() {
 run_integration_layer() {
     LAYER_PASSED=0
     LAYER_TOTAL=0
-    
+
     # Build/compile check
     LAYER_TOTAL=$((LAYER_TOTAL + 1))
     case "$TECH_STACK" in
@@ -277,7 +277,7 @@ run_integration_layer() {
             LAYER_PASSED=$((LAYER_PASSED + 1))
             ;;
     esac
-    
+
     # Dependency check
     LAYER_TOTAL=$((LAYER_TOTAL + 1))
     case "$TECH_STACK" in
@@ -307,7 +307,7 @@ run_integration_layer() {
 run_patterns_layer() {
     LAYER_PASSED=0
     LAYER_TOTAL=0
-    
+
     # Pattern validation tool
     LAYER_TOTAL=$((LAYER_TOTAL + 1))
     if [ -f "validate_patterns.py" ]; then
@@ -320,7 +320,7 @@ run_patterns_layer() {
     else
         echo -e "${YELLOW}⚠️ Pattern validation tool not found${NC}"
     fi
-    
+
     # Code complexity check
     LAYER_TOTAL=$((LAYER_TOTAL + 1))
     case "$TECH_STACK" in
@@ -342,7 +342,7 @@ run_patterns_layer() {
 run_performance_layer() {
     LAYER_PASSED=0
     LAYER_TOTAL=0
-    
+
     # Basic performance checks
     LAYER_TOTAL=$((LAYER_TOTAL + 1))
     case "$TECH_STACK" in
@@ -369,7 +369,7 @@ run_performance_layer() {
             LAYER_PASSED=$((LAYER_PASSED + 1))
             ;;
     esac
-    
+
     # Memory usage patterns
     LAYER_TOTAL=$((LAYER_TOTAL + 1))
     if ! grep -r "while True:" "$PROJECT_DIR" > /dev/null 2>&1; then
@@ -383,7 +383,7 @@ run_performance_layer() {
 run_security_layer() {
     LAYER_PASSED=0
     LAYER_TOTAL=0
-    
+
     # Security scanning
     LAYER_TOTAL=$((LAYER_TOTAL + 1))
     case "$TECH_STACK" in
@@ -413,7 +413,7 @@ run_security_layer() {
             fi
             ;;
     esac
-    
+
     # File permissions
     LAYER_TOTAL=$((LAYER_TOTAL + 1))
     if ! find "$PROJECT_DIR" -type f -perm -002 | grep -q .; then

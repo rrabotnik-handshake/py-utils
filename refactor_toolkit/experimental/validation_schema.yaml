@@ -17,10 +17,12 @@ validation_layers:
     commands:
       python:
         - cmd: "ruff check ."
-          expect_signals: [exit_code_0, "contains:0 errors", not_contains:error]
+          expect_signals:
+            [exit_code_0, "contains:0 errors", "not_contains:error"]
           expect_regex: [".*(0 errors|Success|✓).*", "^$"]
         - cmd: "mypy ."
-          expect_signals: [exit_code_0, contains:Success, not_contains:error]
+          expect_signals:
+            [exit_code_0, "contains:Success", "not_contains:error"]
           expect_regex: [".*Success.*", ".*Found 0 errors.*"]
         - cmd: "black --check ."
           expect_signals: [exit_code_0, "not_contains:would reformat"]
@@ -30,7 +32,7 @@ validation_layers:
           expect_signals: [exit_code_0, "contains:0 problems"]
           expect_regex: [".*(0 problems|✓).*", "^$"]
         - cmd: "npx tsc --noEmit"
-          expect_signals: [exit_code_0, not_contains:error]
+          expect_signals: [exit_code_0, "not_contains:error"]
           expect_regex: ["^$"]
       go:
         - cmd: "gofmt -l . | wc -l | grep '^0$'"
@@ -64,21 +66,22 @@ validation_layers:
     commands:
       python:
         - cmd: "pytest -v"
-          expect_signals: [exit_code_0, contains:passed, not_contains:FAILED]
+          expect_signals:
+            [exit_code_0, "contains:passed", "not_contains:FAILED"]
           expect_regex: ["== .* passed.*", ".* passed, .* warnings.*"]
         - cmd: "pytest --cov=. --cov-report=term-missing --cov-fail-under=80"
           expect_signals: [exit_code_0, "contains:80%"]
           expect_regex: [".*(TOTAL.*[8-9][0-9]%).*", ".*(TOTAL.*100%).*"]
       javascript:
         - cmd: "npm test"
-          expect_signals: [exit_code_0, contains:passed]
+          expect_signals: [exit_code_0, "contains:passed"]
           expect_regex: [".*(All tests passed|✓).*", ".*Tests:.*passed.*"]
         - cmd: "npm run test:coverage"
-          expect_signals: [exit_code_0, contains:coverage]
+          expect_signals: [exit_code_0, "contains:coverage"]
           expect_regex: [".*coverage.*[8-9][0-9]%.*"]
       go:
         - cmd: "go test ./..."
-          expect_signals: [exit_code_0, contains:PASS]
+          expect_signals: [exit_code_0, "contains:PASS"]
           expect_regex: [".*(PASS|ok).*"]
       rust:
         - cmd: "cargo test"
@@ -105,10 +108,10 @@ validation_layers:
           expect_regex: ["No broken requirements found"]
       javascript:
         - cmd: "npm run build"
-          expect_signals: [exit_code_0, not_contains:error]
+          expect_signals: [exit_code_0, "not_contains:error"]
           expect_regex: [".*(Build successful|✓).*", "^$"]
         - cmd: "npm audit --audit-level=high"
-          expect_signals: [exit_code_0, not_contains:vulnerabilities]
+          expect_signals: [exit_code_0, "not_contains:vulnerabilities"]
           expect_regex: [".*found 0 vulnerabilities.*"]
       go:
         - cmd: "go build ./..."
@@ -116,7 +119,7 @@ validation_layers:
           expect_regex: ["^$"]
       rust:
         - cmd: "cargo build"
-          expect_signals: [exit_code_0, contains:Finished]
+          expect_signals: [exit_code_0, "contains:Finished"]
           expect_regex: [".*(Finished|✓).*"]
       java:
         - cmd: "mvn compile -q"
@@ -133,7 +136,7 @@ validation_layers:
       all:
         - cmd: "python validate_patterns.py . --auto-detect --verbose"
           expect_signals:
-            [exit_code_0, not_contains:CRITICAL, not_contains:HIGH]
+            [exit_code_0, "not_contains:CRITICAL", "not_contains:HIGH"]
           expect_regex: [".*(✓|No issues found).*", ".*0 critical.*0 high.*"]
 
   performance:
@@ -169,12 +172,12 @@ validation_layers:
           expect_signals: [exit_code_0, "contains:No issues identified"]
           expect_regex: [".*(No issues identified|0 issues).*"]
         - cmd: "safety check"
-          expect_signals: [exit_code_0, not_contains:vulnerability]
+          expect_signals: [exit_code_0, "not_contains:vulnerability"]
           expect_regex:
             [".*All good.*", ".*No known security vulnerabilities.*"]
       javascript:
         - cmd: "npm audit --audit-level=moderate"
-          expect_signals: [exit_code_0, not_contains:vulnerabilities]
+          expect_signals: [exit_code_0, "not_contains:vulnerabilities"]
           expect_regex: [".*found 0 vulnerabilities.*"]
       all:
         - cmd: "grep -r 'password\\|secret\\|key\\|token' . --include='*.py' --include='*.js' --include='*.java' || true"
@@ -369,4 +372,3 @@ exit_codes:
   system_error: 4
   invalid_usage: 5
 # yamllint enable rule:quoted-strings
-
