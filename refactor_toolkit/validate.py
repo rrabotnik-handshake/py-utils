@@ -542,7 +542,23 @@ sys.exit(0 if ok else 1)
 
         run_and_add_if_match(
             "Security Scan",
-            f"{self.python_cmd} -m bandit -r src/ tests/ refactor_toolkit/ -f txt --skip B101,B311 || (echo 'Installing bandit...' && {self.pip_cmd} install bandit && {self.python_cmd} -m bandit -r src/ tests/ refactor_toolkit/ -f txt --skip B101,B311)",
+            self._py_inline(
+                f"""
+import os, sys, subprocess, importlib.util
+# Ensure bandit is present
+if importlib.util.find_spec('bandit') is None:
+    subprocess.run([{self.python_cmd!r}, '-m', 'pip', 'install', 'bandit'], check=False)
+# Pick sensible targets that exist (fallback to current dir)
+candidates = [d for d in ('src','tests','refactor_toolkit') if os.path.isdir(d)]
+if not candidates:
+    # Try common package dirs at repo root
+    candidates = [d for d in os.listdir('.') if os.path.isdir(d) and os.path.isfile(os.path.join(d,'__init__.py'))]
+if not candidates:
+    candidates = ['.']
+cmd = [{self.python_cmd!r}, '-m', 'bandit', '-r', *candidates, '-f', 'txt', '--skip', 'B101,B311']
+sys.exit(subprocess.run(cmd).returncode)
+"""
+            ),
             "No security vulnerabilities detected",
             "Security issues found",
             required=True,
@@ -1028,11 +1044,11 @@ for m in ['pytest','mypy','ruff']:
             return ValidationResult(
                 "Design Patterns",
                 True,
-                "Pattern validator not found (check refactor_toolkit installation)",
+                "Pattern validator not found — skipping",
                 0.0,
-                required=True,
+                required=False,  # mark as optional when tool is absent
                 layer=ValidationLayer.PATTERNS,
-                remediation_tip="Ensure validate_patterns.py exists in refactor_toolkit/",
+                remediation_tip="Add refactor_toolkit/validate_patterns.py to enable this check",
                 full_output=None,
                 command=None,
             )
@@ -1181,7 +1197,7 @@ for m in ['pytest','mypy','ruff']:
             "Unit Tests": "pytest -vv",
             "Vulnerability Scan": "pip-audit",
             "Dead Code Analysis": "vulture . --min-confidence 60",
-            "Design Patterns": "python validate_patterns.py",
+            "Design Patterns": "python refactor_toolkit/validate_patterns.py . --json",
         }
         return command_map.get(name, "")
 
