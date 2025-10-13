@@ -21,7 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 class Severity(Enum):
@@ -77,11 +77,11 @@ NEST_NODES = (
 
 def _looks_like_test_file(p: Path) -> bool:
     """Check if file appears to be a test file."""
-    s = str(p)
+    name = p.name
     return (
         any(part in ("tests", "test") for part in p.parts)
-        or s.endswith("_test.py")
-        or s.startswith("test_")
+        or name.endswith("_test.py")
+        or name.startswith("test_")
     )
 
 
@@ -184,7 +184,12 @@ def function_fingerprint(fn: ast.AST) -> str:
     norm = _Normalizer().visit(fn_copy)
     norm = ast.fix_missing_locations(norm)
     dump = ast.dump(norm, annotate_fields=False, include_attributes=False)
-    return hashlib.md5(dump.encode("utf-8"), usedforsecurity=False).hexdigest()
+    # Be friendly to environments without the 'usedforsecurity' kwarg (older Pythons)
+    try:
+        h = hashlib.md5(dump.encode("utf-8"), usedforsecurity=False)
+    except TypeError:
+        h = hashlib.md5(dump.encode("utf-8"), usedforsecurity=False)
+    return h.hexdigest()
 
 
 def _param_count(fn: ast.FunctionDef) -> int:
@@ -320,6 +325,25 @@ class PatternValidator:
         ]
         excludes = list(excludes or []) + default_excludes
 
+        # Optional: respect .gitignore if pathspec is available
+        try:
+            if self.config.get("respect_gitignore", True):
+                from pathspec import PathSpec
+
+                gitignore = directory / ".gitignore"
+                if gitignore.exists():
+                    spec = PathSpec.from_lines(
+                        "gitwildmatch", gitignore.read_text().splitlines()
+                    )
+                    python_files = [
+                        f
+                        for f in python_files
+                        if not spec.match_file(f.relative_to(directory).as_posix())
+                    ]
+        except Exception:
+            # pathspec not installed or parse failed → ignore gracefully
+            pass
+
         if includes:
             python_files = [f for f in python_files if _match_any(f, includes)]
         if excludes:
@@ -389,6 +413,7 @@ class PatternValidator:
 
         # Build fingerprint index: {fingerprint: [(file, func_node)]}
         fingerprint_map: Dict[str, List[Tuple[Path, ast.FunctionDef]]] = {}
+        min_lines = int(self.config.get("min_function_lines_for_dry", 5))
 
         for file_path in python_files:
             try:
@@ -398,6 +423,9 @@ class PatternValidator:
 
                 for node in ast.walk(tree):
                     if isinstance(node, FUNC_NODES):
+                        # Skip very small functions to reduce DRY false-positives
+                        if _loc(node, content) < min_lines:
+                            continue
                         fp = function_fingerprint(node)
                         if fp not in fingerprint_map:
                             fingerprint_map[fp] = []
@@ -664,31 +692,68 @@ class PatternValidator:
     def _check_magic_numbers(
         self, tree: ast.AST, file_path: Path
     ) -> List[PatternIssue]:
-        """Check for magic numbers using AST (more accurate than regex)"""
+        """Check for magic numbers using AST (handles negatives & common benign contexts)."""
         # Skip test files
         if _looks_like_test_file(file_path):
             return []
 
-        issues = []
-        ALLOW = {-1, 0, 1, 2}
+        issues: List[PatternIssue] = []
+        allowed = set(self.config.get("magic_numbers_allow", [-1, 0, 1, 2]))
 
         def _is_constant_assignment(parent_stack) -> bool:
-            """Check if number is assigned to ALL_CAPS constant."""
+            """Is this number being assigned to an ALL_CAPS constant (module/class scope)?"""
             for i in range(len(parent_stack) - 1):
                 n = parent_stack[i]
                 ch = parent_stack[i + 1]
                 if isinstance(n, (ast.Module, ast.ClassDef)) and isinstance(
-                    ch, ast.Assign
+                    ch, (ast.Assign, getattr(ast, "AnnAssign", ()))
                 ):
-                    for t in ch.targets:
+                    targets = ch.targets if isinstance(ch, ast.Assign) else [ch.target]
+                    for t in targets:
                         if isinstance(t, ast.Name) and t.id.isupper():
                             return True
             return False
 
+        def _call_func_name(node: ast.AST) -> Optional[str]:
+            if isinstance(node, ast.Call):
+                f = node.func
+                if isinstance(f, ast.Name):
+                    return f.id
+                if isinstance(f, ast.Attribute):
+                    return f.attr
+            return None
+
+        def _is_benign_context(stack: List[ast.AST], node: ast.AST) -> bool:
+            """Ignore typical non-magic contexts: ranges, slices, enumerate step, etc."""
+            # Slice indices: obj[a:b:c]
+            if any(isinstance(s, ast.Subscript) for s in stack):
+                return True
+            # range(N) / range(a, b[, step])
+            for s in reversed(stack):
+                if isinstance(s, ast.Call) and _call_func_name(s) in {"range"}:
+                    return True
+                if isinstance(s, ast.Call) and _call_func_name(s) in {"enumerate"}:
+                    # enumerate(iterable, start)
+                    return True
+            return False
+
+        def _num_value(n: ast.AST) -> Optional[float]:
+            """Return numeric value, accounting for unary minus."""
+            if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+                return float(n.value)
+            if (
+                isinstance(n, ast.UnaryOp)
+                and isinstance(n.op, ast.USub)
+                and isinstance(n.operand, ast.Constant)
+            ):
+                if isinstance(n.operand.value, (int, float)):
+                    return -float(n.operand.value)
+            return None
+
         class MagicNumberVisitor(ast.NodeVisitor):
             def __init__(self):
-                self.hits = []
-                self.stack = []
+                self.hits: List[Tuple[ast.AST, float]] = []
+                self.stack: List[ast.AST] = []
 
             def generic_visit(self, node):
                 self.stack.append(node)
@@ -696,28 +761,38 @@ class PatternValidator:
                 self.stack.pop()
 
             def visit_Constant(self, node: ast.Constant):
-                if isinstance(node.value, (int, float)) and node.value not in ALLOW:
-                    if not _is_constant_assignment(self.stack):
-                        self.hits.append(node)
+                val = _num_value(node)
+                if val is not None and val not in allowed:
+                    if not _is_constant_assignment(
+                        self.stack
+                    ) and not _is_benign_context(self.stack, node):
+                        self.hits.append((node, val))
                 self.generic_visit(node)
 
-        visitor = MagicNumberVisitor()
-        visitor.visit(tree)
+            def visit_UnaryOp(self, node: ast.UnaryOp):
+                val = _num_value(node)
+                if val is not None and val not in allowed:
+                    if not _is_constant_assignment(
+                        self.stack
+                    ) and not _is_benign_context(self.stack, node):
+                        self.hits.append((node, val))
+                self.generic_visit(node)
 
-        for node in visitor.hits:
+        v = MagicNumberVisitor()
+        v.visit(tree)
+        for node, val in v.hits:
             issues.append(
                 PatternIssue(
                     category=Category.CODE_SMELL.value,
                     severity=Severity.INFO.value,
                     file_path=str(file_path),
-                    line_number=node.lineno,
+                    line_number=getattr(node, "lineno", 0),
                     issue_type="magic_number",
                     rule_id="CS004",
-                    message=f"Magic number {node.value} detected",
+                    message=f"Magic number {int(val) if val.is_integer() else val} detected",
                     suggestion="Extract a named constant (e.g., MAX_RETRIES = 10)",
                 )
             )
-
         return issues
 
 

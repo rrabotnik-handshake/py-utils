@@ -760,7 +760,7 @@ sys.exit(0 if not r.stdout.strip() else 1)
             f"""{self.python_cmd} -c "import os,sys; sys.exit(0 if os.path.isfile('README.md') else 1)" """,
             "README file present",
             "Missing README.md (informational)",
-            required=True,
+            required=False,  # informational
             layer=ValidationLayer.INTEGRATION,
             remediation_tip="Add README.md with project description (optional, improves documentation)",
         )
@@ -770,7 +770,7 @@ sys.exit(0 if not r.stdout.strip() else 1)
             f"""{self.python_cmd} -c "import os,sys; sys.exit(0 if (os.path.isfile('CONTRIBUTING.md') or os.path.isfile('.github/CONTRIBUTING.md') or os.path.isfile('docs/CONTRIBUTING.md')) else 0)" """,
             "Contributing guidelines present",
             "No contributing guidelines (informational)",
-            required=True,
+            required=False,  # informational
             layer=ValidationLayer.INTEGRATION,
             remediation_tip="Add CONTRIBUTING.md to help new contributors (optional)",
         )
@@ -1192,7 +1192,7 @@ for m in ['pytest','mypy','ruff']:
             return "trunk check --all" if self._has_trunk() else "ruff check ."
         command_map = {
             "Type Checking": "mypy src/ --show-error-codes",
-            "Security Scan": "bandit -r . --exclude ./venv,./coresignal",
+            "Security Scan": "bandit -r . -x .venv,venv,dist,build,site-packages,node_modules",
             "Pre-commit Hooks": "pre-commit run --all-files",
             "Unit Tests": "pytest -vv",
             "Vulnerability Scan": "pip-audit",
