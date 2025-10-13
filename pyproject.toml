@@ -50,6 +50,7 @@ strict_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
+exclude = ["^schema-diff$", "tests/schema-diff/.*"]
 
 # Gradually enable stricter checking
 disallow_any_generics = false

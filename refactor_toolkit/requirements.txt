@@ -1,0 +1,22 @@
+# Refactor Toolkit Dependencies
+# Core validation tools that are automatically installed if missing
+
+# Code Quality & Linting
+ruff>=0.1.0
+flake8>=6.0.0
+
+# Type Checking
+mypy>=1.8.0
+
+# Security Scanning
+bandit>=1.7.0
+
+# Testing
+pytest>=7.0.0
+
+# Pre-commit Hooks
+pre-commit>=3.0.0
+
+# Optional: Additional code quality tools
+# vulture>=2.7.0  # Dead code detection
+# radon>=6.0.0    # Complexity analysis

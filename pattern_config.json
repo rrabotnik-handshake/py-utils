@@ -1,0 +1,41 @@
+{
+  "layers": ["core", "parsers", "analysis", "cli", "external"],
+  "layer_roots": {
+    "core": [
+      "src.schema_diff.models",
+      "src.schema_diff.exceptions",
+      "src.schema_diff.constants"
+    ],
+    "parsers": [
+      "src.schema_diff.json_schema_parser",
+      "src.schema_diff.spark_schema_parser",
+      "src.schema_diff.sql_schema_parser",
+      "src.schema_diff.protobuf_schema_parser",
+      "src.schema_diff.dbt_schema_parser",
+      "src.schema_diff.json_data_file_parser"
+    ],
+    "analysis": [
+      "src.schema_diff.compare",
+      "src.schema_diff.infer",
+      "src.schema_diff.normalize",
+      "src.schema_diff.report",
+      "src.schema_diff.migration_analyzer",
+      "src.schema_diff.advanced_analytics"
+    ],
+    "cli": ["src.schema_diff.cli"],
+    "external": [
+      "src.schema_diff.bigquery_ddl",
+      "src.schema_diff.gcs_utils",
+      "src.schema_diff.output_utils",
+      "src.schema_diff.io_utils"
+    ]
+  },
+  "forbid_cross_layer": [
+    ["parsers", "analysis"],
+    ["parsers", "cli"],
+    ["parsers", "external"],
+    ["analysis", "cli"],
+    ["analysis", "external"],
+    ["cli", "external"]
+  ]
+}

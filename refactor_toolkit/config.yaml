@@ -1,0 +1,30 @@
+# Simple Refactor Validation Configuration
+
+# Validation modes and time limits
+modes:
+  emergency:
+    description: Critical checks only (30 seconds)
+    time_limit: 30
+
+  quick:
+    description: Essential validation (5-10 minutes)
+    time_limit: 600
+
+  standard:
+    description: Comprehensive validation (15-30 minutes)
+    time_limit: 1800
+
+# Success criteria
+thresholds:
+  ready: 90 # ≥90% = Ready to proceed
+  attention: 70 # 70-89% = Needs attention
+  # <70% = Not ready
+
+# Technology detection patterns (currently Python-focused)
+tech_detection:
+  python: [requirements.txt, pyproject.toml, setup.py, *.py]
+  # Future language support:
+  # javascript: [package.json, *.js, *.ts]
+  # java: [pom.xml, build.gradle, *.java]
+  # go: [go.mod, *.go]
+  # rust: [Cargo.toml, *.rs]

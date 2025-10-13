@@ -1,0 +1,28 @@
+# Generated reports and outputs
+output/reports/
+*.json
+*.md
+!README.md
+!docs/**/*.md
+
+# Cache files
+.validation_cache.json
+__pycache__/
+*.pyc
+*.pyo
+
+# Temporary files
+.tmp/
+temp/
+*.tmp
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo

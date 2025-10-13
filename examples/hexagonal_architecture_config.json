@@ -1,0 +1,16 @@
+{
+  "layers": ["domain", "application", "infrastructure"],
+  "layer_roots": {
+    "domain": ["src/domain"],
+    "application": ["src/application/services", "src/application/ports"],
+    "infrastructure": [
+      "src/infrastructure/adapters",
+      "src/infrastructure/config"
+    ]
+  },
+  "forbid_cross_layer": [
+    ["domain", "application"],
+    ["domain", "infrastructure"],
+    ["application", "infrastructure"]
+  ]
+}
