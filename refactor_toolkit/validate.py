@@ -108,6 +108,7 @@ CATEGORY_MAP = {
         "Code Complexity",
         "Maintainability Index",
         "Tool Versions",
+        "Working Tree Status",
     ],
     "security": ["Vulnerability Scan", "Secret Scan", "Security Scan"],
     "tests": ["Unit Tests", "Coverage Threshold"],
@@ -115,11 +116,10 @@ CATEGORY_MAP = {
     "dead-code": ["Dead Code Analysis"],
     "patterns": ["Design Patterns"],
     "documentation": ["Repository Metadata", "Project Documentation"],
-    "other": [
+    "performance": [
         "I/O Risk Patterns",
         "Large Binary Check",
         "Giant Files",
-        "Working Tree Status",
     ],
 }
 
@@ -262,20 +262,30 @@ class RefactorValidator:
         for py_cmd in ("python -m", "python3 -m", "py -m"):
             command = command.replace(py_cmd, f"{self.python_cmd} -m")
 
-        # Robust replace for 'pip'/'pip3' at word boundaries
-        def _replace_pip(m):
-            return self.pip_cmd
-
-        # Start of string
-        command = re.sub(r"^(pip3?)\s", lambda m: self.pip_cmd + " ", command)
-        # After typical separators or subshell open
+        # Replace pip tokens at word boundaries at start or after separators.
+        # (Single-char separators catch both halves of &&/|| in practice.)
         command = re.sub(
-            r"([;&|]\s*|\(\s*)(pip3?)\s",
-            lambda m: m.group(1) + self.pip_cmd + " ",
+            r"(^|[;\s&|()])pip3?(?=\s)",
+            lambda m: (m.group(1) or "") + self.pip_cmd,
             command,
         )
 
         return command
+
+    def _py_inline(self, script: str) -> str:
+        """Return a cross-platform command that executes a Python script.
+
+        Uses a heredoc on POSIX and base64-encoded -c on Windows.
+        """
+        if os.name != "nt":
+            return f"{self.python_cmd} - <<'PY'\n{script}\nPY"
+        import base64
+
+        b64 = base64.b64encode(script.encode("utf-8")).decode("ascii")
+        return (
+            f"{self.python_cmd} -c "
+            f"\"import base64,sys; exec(base64.b64decode('{b64}').decode())\""
+        )
 
     # Note: detect_tech_stack() removed - tech stack is now explicitly passed via --tech CLI argument
     # Future enhancement: could auto-detect when --tech not provided by checking for:
@@ -294,11 +304,13 @@ class RefactorValidator:
         layer: Optional[ValidationLayer] = None,
         remediation_tip: Optional[str] = None,
         timeout: Optional[int] = None,
+        category: Optional[str] = None,
     ) -> ValidationResult:
         """Run a single validation check.
 
         Args:
             timeout: Custom timeout in seconds. If None, uses DEFAULT_TIMEOUT.
+            category: Display category for grouping checks in output.
         """
         start = time.time()
 
@@ -308,9 +320,16 @@ class RefactorValidator:
         # Normalize command for cross-platform execution
         command = _shell_cmd(command)
 
-        # Show what we're about to run (pad name to 30 chars for alignment)
-        padded_name = f"{name}...".ljust(33)
-        print(f"  {Colors.GRAY}•{Colors.RESET} {padded_name}", end=" ", flush=True)
+        # Print category header if this is a new category
+        if category and category != getattr(self, "_last_printed_category", None):
+            if hasattr(self, "_last_printed_category"):
+                print()  # Blank line between categories
+            print(f"  {Colors.BOLD_CYAN}{category}:{Colors.RESET}")
+            self._last_printed_category = category
+
+        # Show what we're about to run (indented under category, pad name to 30 chars for alignment)
+        padded_name = f"{name}...".ljust(31)
+        print(f"    {Colors.GRAY}•{Colors.RESET} {padded_name}", end=" ", flush=True)
 
         try:
             # Run command and capture output
@@ -418,13 +437,17 @@ class RefactorValidator:
             " ".join(_quote(f) for f in changed_files) if changed_files else targets
         )
 
-        # Helper to conditionally run and add check based on category filter
+        # Collect checks to run, grouped by category
+        checks_to_run = []
+
+        # Helper to conditionally collect check based on category filter
         def run_and_add_if_match(check_name, *args, **kwargs):
-            """Only run and add check if it matches the category filter."""
+            """Collect check if it matches the category filter."""
             if category_filter == "all" or self.should_run_check(
                 check_name, category_filter
             ):
-                results.append(self.run_check(check_name, *args, **kwargs))
+                category = self._get_display_category(check_name)
+                checks_to_run.append((category, check_name, args, kwargs))
 
         # Python Syntax check
         run_and_add_if_match(
@@ -460,31 +483,33 @@ class RefactorValidator:
 
         run_and_add_if_match(
             "Import Dependencies",
-            f"""{self.python_cmd} - <<'PY'
-import os, sys, traceback
+            self._py_inline(
+                """
+import os, sys, hashlib
 from pathlib import Path
 import importlib.util
 
 root = Path('.').resolve()
-exclude_dirs = {{'.git','__pycache__','venv','.venv','build','dist','site-packages','lib','node_modules','tests'}}
-def should_skip(p: Path) -> bool:
-    parts = set(p.parts)
-    return any(d in parts for d in exclude_dirs) or p.name in ('__init__.py','conftest.py') or p.parts[0] in ('src','coresignal')
+exclude_dirs = {'.git','__pycache__','venv','.venv','build','dist','site-packages','lib','node_modules','tests'}
+def in_excluded(p: Path) -> bool:
+    return any(part in exclude_dirs for part in p.parts)
 
-files = [p for p in root.rglob('*.py') if not should_skip(p)]
+files = [p for p in root.rglob('*.py')
+         if not in_excluded(p) and p.name not in ('__init__.py','conftest.py')]
 ok = True
 for f in files:
     try:
-        spec = importlib.util.spec_from_file_location(f"chk_{{f.stem}}", f)
+        name = "chk_" + hashlib.sha1(str(f).encode('utf-8','ignore')).hexdigest()[:12]
+        spec = importlib.util.spec_from_file_location(name, f)
         if spec and spec.loader:
             m = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(m)
     except Exception as e:
-        print(f"Import error in {{f}}: {{e}}")
+        print(f"Import error in {f}: {e}")
         ok = False
 sys.exit(0 if ok else 1)
-PY
-""",
+"""
+            ),
             "Core modules import successfully",
             "Import dependency issues found",
             required=True,
@@ -527,17 +552,23 @@ PY
 
         run_and_add_if_match(
             "Pre-commit Hooks",
-            f"""{self.python_cmd} -c "import os,sys,subprocess.if not os.path.isdir('.git'):
+            self._py_inline(
+                f"""
+import os, sys, subprocess
+if not os.path.isdir('.git'):
     print('Not a git repo; skipping pre-commit'); sys.exit(0)
 try:
-    r=subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failure'])
+    r = subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failure'])
     sys.exit(r.returncode)
 except FileNotFoundError:
     pass
-r=subprocess.run([{self.python_cmd!r},'-m','pip','install','pre-commit']).returncode
-if r!=0: sys.exit(1)
+r = subprocess.run([{self.python_cmd!r}, '-m', 'pip', 'install', 'pre-commit'])
+if r.returncode != 0:
+    sys.exit(1)
 subprocess.run(['pre-commit','install'])
-sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failure']).returncode)" """,
+sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failure']).returncode)
+"""
+            ),
             "All pre-commit hooks passed",
             "Pre-commit hook failures detected",
             required=True,
@@ -625,7 +656,7 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
             if self._has_gitleaks():
                 secret_cmd = "gitleaks detect --no-banner --source . --report-format=json --redact"
             else:
-                secret_cmd = r"""git ls-files -z | xargs -0 grep -nEo '(AKIA[0-9A-Z]{16}|AWS_ACCESS_KEY_ID|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{48}|xox[baprs]-[A-Za-z0-9-]{10,}|BEGIN RSA PRIVATE KEY)' || true."""
+                secret_cmd = r"""git ls-files -z | xargs -0 grep -nEo '(AKIA[0-9A-Z]{16}|AWS_ACCESS_KEY_ID|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{48}|xox[baprs]-[A-Za-z0-9-]{10,}|BEGIN RSA PRIVATE KEY)' || true"""
 
             run_and_add_if_match(
                 "Secret Scan",
@@ -744,7 +775,8 @@ sys.exit(0 if not r.stdout.strip() else 1)
         # Python AST-based detector (portable, fewer false positives)
         run_and_add_if_match(
             "I/O Risk Patterns",
-            f"""{self.python_cmd} - <<'PY'
+            self._py_inline(
+                """
 import ast, sys
 from pathlib import Path
 calls = ('requests.', 'urllib.', '.execute(', '.query(', '.fetchall(')
@@ -773,11 +805,11 @@ for p in paths:
     except Exception: pass
 if hits:
     print("\\n".join(hits[:10]))
-    if len(hits)>10: print(f"... and {{len(hits)-10}} more")
+    if len(hits)>10: print(f"... and {len(hits)-10} more")
     sys.exit(1)
 print("No obvious I/O-in-loop patterns detected")
-PY
-""",
+"""
+            ),
             "No obvious I/O-in-loop patterns detected",
             "Potential N+1 or heavy I/O patterns found",
             required=True,
@@ -788,22 +820,46 @@ PY
         # 23) Environment parity - CI awareness (cross-platform, informational)
         run_and_add_if_match(
             "Tool Versions",
-            f"""{self.python_cmd} -c "import sys, platform, importlib.print(f'Python: {{sys.version}}')
-print(f'Platform: {{platform.platform()}}')
+            self._py_inline(
+                """
+import sys, platform, importlib
+print(f'Python: {sys.version}')
+print(f'Platform: {platform.platform()}')
 for m in ['pytest','mypy','ruff']:
     try:
         mod = importlib.import_module(m)
         ver = getattr(mod, '__version__', 'unknown')
-        print(f'{{m}}: {{ver}}')
+        print(f'{m}: {ver}')
     except Exception:
-        print(f'{{m}}: not installed')
-" """,
+        print(f'{m}: not installed')
+"""
+            ),
             "Captured tool versions for reproducibility",
             "Could not capture complete tool versions",
             required=False,  # informational only
             layer=ValidationLayer.INTEGRATION,
             remediation_tip="Ensure consistent tool versions via requirements.txt/pyproject.toml",
         )
+
+        # Sort checks by category to group them together in output
+        # Define category order for consistent display
+        category_order = {
+            "Code Quality": 1,
+            "Security": 2,
+            "Tests": 3,
+            "Dependencies": 4,
+            "Dead Code": 5,
+            "Patterns": 6,
+            "Documentation": 7,
+            "Performance": 8,
+            "Other": 9,
+        }
+        checks_to_run.sort(key=lambda x: (category_order.get(x[0], 99), x[1]))
+
+        # Now run all checks in category order
+        for category, check_name, args, kwargs in checks_to_run:
+            kwargs["category"] = category
+            results.append(self.run_check(check_name, *args, **kwargs))
 
         return results
 
@@ -1119,6 +1175,7 @@ for m in ['pytest','mypy','ruff']:
             "Tests": {"errors": [], "commands": set()},
             "Dead Code": {"errors": [], "commands": set()},
             "Documentation": {"errors": [], "commands": set()},
+            "Performance": {"errors": [], "commands": set()},
             "Other": {"errors": [], "commands": set()},
         }
 
@@ -1151,6 +1208,37 @@ for m in ['pytest','mypy','ruff']:
                 }
 
         return result_dict
+
+    def _get_display_category(self, check_name: str) -> str:
+        """Get the display category for a check name."""
+        # Map check names to display categories
+        if check_name in [
+            "Python Syntax",
+            "Code Quality",
+            "Pre-commit Hooks",
+            "Type Checking",
+            "Code Complexity",
+            "Maintainability Index",
+            "Tool Versions",
+            "Working Tree Status",
+        ]:
+            return "Code Quality"
+        elif check_name in ["Vulnerability Scan", "Secret Scan", "Security Scan"]:
+            return "Security"
+        elif check_name in ["Unit Tests", "Coverage Threshold"]:
+            return "Tests"
+        elif check_name in ["Import Dependencies", "Package Dependencies"]:
+            return "Dependencies"
+        elif check_name == "Dead Code Analysis":
+            return "Dead Code"
+        elif check_name == "Design Patterns":
+            return "Patterns"
+        elif check_name in ["Repository Metadata", "Project Documentation"]:
+            return "Documentation"
+        elif check_name in ["I/O Risk Patterns", "Large Binary Check", "Giant Files"]:
+            return "Performance"
+        else:
+            return "Other"
 
     def _categorize_result(self, result: ValidationResult) -> str:
         """Determine which category a result belongs to."""
@@ -1188,13 +1276,9 @@ for m in ['pytest','mypy','ruff']:
             return "Documentation"
         elif "Pattern" in name:
             return "Design Patterns"
-        elif (
-            "Binary" in name
-            or "File" in name
-            or "I/O" in name
-            or "Tool" in name
-            or "Version" in name
-        ):
+        elif "I/O" in name or "Binary" in name or "Giant" in name or "File" in name:
+            return "Performance"
+        elif "Tool" in name or "Version" in name:
             return "Code Quality"
         else:
             # Fallback: use a generic category based on the check name
@@ -2098,7 +2182,7 @@ def main():
             "dead-code",
             "patterns",
             "documentation",
-            "other",
+            "performance",
             "all",
         ],
         default="all",
@@ -2241,16 +2325,15 @@ def main():
         else:
             print(json.dumps(result_dict, indent=2))
     else:
-        # Skip report generation for perfect category-specific runs
-        if args.category != "all" and summary.score_percent == 100:
+        # Save markdown report to file if requested
+        if args.output:
+            validator.generate_report(summary, args.output)
+            # Don't print the markdown report, it's saved to file
+        # Skip display for perfect category-specific runs
+        elif args.category != "all" and summary.score_percent == 100:
             pass  # Already showed "✅ All checks passed" message
-        # Generate and display report (verbose mode or when saving to file)
-        elif args.verbose or args.output:
-            report = validator.generate_report(summary, args.output)
-            if not args.output:
-                print(report)
         else:
-            # Minimal mode - always show actionable fixes if there are any failures
+            # Show clean formatted output (both verbose and minimal modes)
             failed_results = [r for r in summary.results if not r.passed]
             if failed_results:
                 categorized_errors = validator.extract_categorized_errors(
@@ -2269,6 +2352,7 @@ def main():
                         "Dead Code": "dead-code",
                         "Design Patterns": "patterns",
                         "Documentation": "documentation",
+                        "Performance": "performance",
                     }
                     first_category = True
                     for category, data in categorized_errors.items():
