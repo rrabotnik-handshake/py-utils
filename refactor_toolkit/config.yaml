@@ -22,9 +22,9 @@ thresholds:
 
 # Technology detection patterns (currently Python-focused)
 tech_detection:
-  python: [requirements.txt, pyproject.toml, setup.py, *.py]
+  python: [requirements.txt, pyproject.toml, setup.py, "*.py"]
   # Future language support:
-  # javascript: [package.json, *.js, *.ts]
-  # java: [pom.xml, build.gradle, *.java]
-  # go: [go.mod, *.go]
-  # rust: [Cargo.toml, *.rs]
+  # javascript: [package.json, "*.js", "*.ts"]
+  # java: [pom.xml, build.gradle, "*.java"]
+  # go: [go.mod, "*.go"]
+  # rust: [Cargo.toml, "*.rs"]
