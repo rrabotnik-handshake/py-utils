@@ -7,12 +7,14 @@ A simple, focused tool to validate code safety after refactoring.
 Answers one question: "Is my code safe to deploy after this change?"
 
 Usage:
-    python validate.py                    # Standard validation (default)
-    python validate.py --mode quick       # 5–10 minute essential checks
-    python validate.py --tech javascript  # Override default Python detection
+    python validate.py                    # Comprehensive validation (default)
+    python validate.py --tech python      # Explicitly set tech (default: python)
+    python validate.py --since <git-ref>  # Only check files changed since ref
+    python validate.py --category tests   # Run only a category of checks
     python validate.py --output report.md # Save report to file
-    python validate.py --strict           # Exit non-zero on NEEDS ATTENTION
-    python validate.py --patterns         # Include design pattern validation
+    python validate.py --json             # JSON output
+    python validate.py --strict           # Non-zero exit on NEEDS ATTENTION
+    python validate.py --verbose          # Show detailed command outputs
 """
 
 import argparse
@@ -430,7 +432,7 @@ except Exception as e:
     print(f'Coverage file exists but could not parse: {{e}}'); sys.exit(0)" """,
             "Coverage meets threshold (≥80%)",
             "Coverage below 80% threshold",
-            required=False,
+            required=True,
             layer=ValidationLayer.UNIT_TESTS,
             remediation_tip="Add tests for uncovered code paths; run `pytest --cov` to generate coverage report",
         )
@@ -451,7 +453,7 @@ except Exception as e:
             f"{self.python_cmd} -m pip_audit --desc || (echo 'Installing pip-audit...' && {self.pip_cmd} install pip-audit && {self.python_cmd} -m pip_audit --desc)",
             "No known vulnerabilities detected",
             "Security vulnerabilities found in dependencies",
-            required=False,
+            required=True,
             layer=ValidationLayer.SECURITY,
             remediation_tip="Upgrade vulnerable packages; add temporary ignores with expiry dates if needed",
         )
@@ -462,7 +464,7 @@ except Exception as e:
             "radon cc . -a -nb --min C --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing radon...' && pip install radon && radon cc . -a -nb --min C --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
             "Code complexity acceptable",
             "High complexity detected",
-            required=False,
+            required=True,
             layer=ValidationLayer.MAINTAINABILITY,
             remediation_tip="Refactor D/E/F rated functions; split complex methods into smaller ones",
         )
@@ -472,7 +474,7 @@ except Exception as e:
             "radon mi . -s -n B --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing radon...' && pip install radon && radon mi . -s -n B --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
             "Code maintainability acceptable",
             "Low maintainability detected",
-            required=False,
+            required=True,
             layer=ValidationLayer.MAINTAINABILITY,
             remediation_tip="Improve code structure, reduce complexity, and enhance readability",
         )
@@ -483,7 +485,7 @@ except Exception as e:
             "vulture . --min-confidence 60 --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git' || (echo 'Installing vulture...' && pip install vulture && vulture . --min-confidence 60 --exclude='*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git')",
             "No obvious dead code detected",
             "Dead code candidates found",
-            required=False,
+            required=True,
             layer=ValidationLayer.MAINTAINABILITY,
             remediation_tip="Review and remove unused code; verify false positives before deletion",
         )
@@ -506,7 +508,7 @@ except Exception as e:
                     True,
                     "Unix tools not available - skipping secret scan",
                     0.0,
-                    required=False,
+                    required=True,
                     layer=ValidationLayer.SECURITY,
                     remediation_tip="Install grep/xargs for secret scanning, or use a dedicated tool like truffleHog",
                     full_output=None,
@@ -521,7 +523,7 @@ except Exception as e:
                 'test -z "$(git status --porcelain)"',
                 "Working tree is clean",
                 "Uncommitted changes detected (informational)",
-                required=False,
+                required=True,
                 layer=ValidationLayer.INTEGRATION,
                 remediation_tip="This is informational - uncommitted changes during development are normal",
             )
@@ -533,7 +535,7 @@ except Exception as e:
                 'git ls-files -s | awk \'{if($4!="") print $4}\' | xargs -I{} sh -c \'test -f "{}" && du -k "{}"\' 2>/dev/null | awk \'$1>5120{print $2 " (" $1 "KB)"; exit 1}\' || { echo \'No large binaries found\'; exit 0; }',
                 "No large binaries in repository",
                 "Large binary files detected (>5MB)",
-                required=False,
+                required=True,
                 layer=ValidationLayer.PERFORMANCE,
                 remediation_tip="Use Git LFS for large files or store artifacts externally; consider .gitignore updates",
             )
@@ -544,7 +546,7 @@ except Exception as e:
                     True,
                     "Unix tools not available - skipping binary size check",
                     0.0,
-                    required=False,
+                    required=True,
                     layer=ValidationLayer.PERFORMANCE,
                     remediation_tip="Install awk/xargs for binary size checks, or manually review large files",
                     full_output=None,
@@ -558,7 +560,7 @@ except Exception as e:
             f"""{self.python_cmd} -c "import os,sys; sys.exit(0 if os.path.isfile('README.md') else 1)" """,
             "README file present",
             "Missing README.md (informational)",
-            required=False,
+            required=True,
             layer=ValidationLayer.INTEGRATION,
             remediation_tip="Add README.md with project description (optional, improves documentation)",
         )
@@ -568,7 +570,7 @@ except Exception as e:
             f"""{self.python_cmd} -c "import os,sys; sys.exit(0 if (os.path.isfile('CONTRIBUTING.md') or os.path.isfile('.github/CONTRIBUTING.md') or os.path.isfile('docs/CONTRIBUTING.md')) else 0)" """,
             "Contributing guidelines present",
             "No contributing guidelines (informational)",
-            required=False,
+            required=True,
             layer=ValidationLayer.INTEGRATION,
             remediation_tip="Add CONTRIBUTING.md to help new contributors (optional)",
         )
@@ -581,7 +583,7 @@ except Exception as e:
                 r"""git ls-files '*.py' '*.ts' | xargs wc -l 2>/dev/null | awk '$1>800 && $2!="total"{print $2 " (" $1 " lines)"; found=1} END{exit found?1:0}' || { echo 'No oversized files detected'; exit 0; }""",
                 "No oversized source files detected",
                 "Oversized files found - consider refactoring",
-                required=False,
+                required=True,
                 layer=ValidationLayer.PERFORMANCE,
                 remediation_tip="Break large files (>800 LOC) into smaller, focused modules for better maintainability",
             )
@@ -592,7 +594,7 @@ except Exception as e:
                     True,
                     "Unix tools not available - skipping file size check",
                     0.0,
-                    required=False,
+                    required=True,
                     layer=ValidationLayer.PERFORMANCE,
                     remediation_tip="Install awk/xargs for file size checks, or manually review large source files",
                     full_output=None,
@@ -607,7 +609,7 @@ except Exception as e:
                 r"""find . -name "*.py" -not -path "./.git/*" -not -path "./venv/*" -not -path "./.venv/*" -not -path "./*venv/*" -not -path "./*/lib/python*" -not -path "./__pycache__/*" -not -path "./node_modules/*" -not -path "./build/*" -not -path "./dist/*" -exec grep -l -E "(requests\.|urllib\.|\.query\(|\.execute\(|\.fetchall\()" {} \; | xargs -I {} grep -n -E "(for |while )" {} | head -5 | grep -E "(requests\.|urllib\.|\.query\(|\.execute\(|\.fetchall\()" && { echo '--- Potential I/O in loops detected ---'; exit 1; } || { echo 'No obvious I/O-in-loop patterns detected'; exit 0; }""",
                 "No obvious I/O-in-loop patterns detected",
                 "Potential N+1 or heavy I/O patterns found",
-                required=False,
+                required=True,
                 layer=ValidationLayer.PERFORMANCE,
                 remediation_tip="Review flagged patterns: consider batching requests, caching, or moving I/O outside loops",
             )
@@ -618,7 +620,7 @@ except Exception as e:
                     True,
                     "Unix tools not available - skipping I/O pattern check",
                     0.0,
-                    required=False,
+                    required=True,
                     layer=ValidationLayer.PERFORMANCE,
                     remediation_tip="Install find/grep for I/O pattern checks, or manually review for N+1 query patterns",
                     full_output=None,
@@ -632,7 +634,7 @@ except Exception as e:
             f"""{self.python_cmd} -c "import sys; print(f'Python: {{sys.version}}'); import platform; print(f'Platform: {{platform.platform()}}'); exec('try:\\n import pytest; print(f\\"pytest: {{pytest.__version__}}\\")\\nexcept: print(\\"pytest: not installed\\")'); exec('try:\\n import mypy; print(f\\"mypy: {{mypy.__version__}}\\")\\nexcept: print(\\"mypy: not installed\\")'); exec('try:\\n import ruff; print(f\\"ruff: {{ruff.__version__}}\\")\\nexcept: print(\\"ruff: not installed\\")')" 2>/dev/null || {{ echo "Could not capture all tool versions"; exit 0; }}""",
             "Captured tool versions for reproducibility",
             "Could not capture complete tool versions",
-            required=False,
+            required=True,
             layer=ValidationLayer.INTEGRATION,
             remediation_tip="Ensure consistent tool versions across environments using requirements.txt or pyproject.toml",
         )
@@ -691,23 +693,26 @@ except Exception as e:
         return "."
 
     def validate_patterns(self) -> ValidationResult:
-        """Run design pattern validation if validate_patterns.py exists."""
-        patterns_script = self.project_dir / "validate_patterns.py"
+        """Run design pattern validation using refactor_toolkit's validate_patterns.py."""
+        # Use the validate_patterns.py from refactor_toolkit
+        toolkit_dir = Path(__file__).parent
+        patterns_script = toolkit_dir / "validate_patterns.py"
+
         if not patterns_script.exists():
             return ValidationResult(
                 "Design Patterns",
                 True,
-                "Pattern validation script not found (optional)",
+                "Pattern validator not found (check refactor_toolkit installation)",
                 0.0,
-                required=False,
+                required=True,
                 layer=ValidationLayer.PATTERNS,
-                remediation_tip="Create validate_patterns.py for design pattern checks",
+                remediation_tip="Ensure validate_patterns.py exists in refactor_toolkit/",
                 full_output=None,
                 command=None,
             )
 
-        # Enhanced design pattern analysis with JSON output
-        cmd = f"{self.python_cmd} {patterns_script} . --json"
+        # Run pattern analysis with JSON output on the project directory
+        cmd = f"{self.python_cmd} {patterns_script} {self.project_dir} --json"
         if (self.project_dir / "pattern_config.json").exists():
             cmd += f" --config {self.project_dir}/pattern_config.json"
 
@@ -716,7 +721,7 @@ except Exception as e:
             cmd,
             "No pattern issues found",
             "Design pattern issues detected",
-            required=False,
+            required=True,
             layer=ValidationLayer.PATTERNS,
             remediation_tip="Fix cycles first, then high fan-out, then LoD/Feature Envy violations",
         )
@@ -834,6 +839,22 @@ except Exception as e:
         # Return required errors first, then optional errors
         return actionable_errors + optional_errors
 
+    def _get_run_command(self, result: ValidationResult) -> str:
+        """Get the suggested rerun command for a specific check."""
+        name = result.name
+        if name == "Code Quality":
+            return "trunk check --all" if self._has_trunk() else "ruff check ."
+        command_map = {
+            "Type Checking": "mypy src/ --show-error-codes",
+            "Security Scan": "bandit -r . --exclude ./venv,./coresignal",
+            "Pre-commit Hooks": "pre-commit run --all-files",
+            "Unit Tests": "pytest -vv",
+            "Vulnerability Scan": "pip-audit",
+            "Dead Code Analysis": "vulture . --min-confidence 60",
+            "Design Patterns": "python validate_patterns.py",
+        }
+        return command_map.get(name, "")
+
     def extract_categorized_errors(self, results: List[ValidationResult]) -> dict:
         """Extract errors grouped by category for better readability."""
         categories = {
@@ -897,24 +918,6 @@ except Exception as e:
             return "Documentation"
         else:
             return "Other"
-
-    def _get_run_command(self, result: ValidationResult) -> str:
-        """Get the command to run for more details about a specific check."""
-        name = result.name
-
-        # Map check names to their run commands
-        command_map = {
-            "Code Quality": "trunk check --all",
-            "Type Checking": "mypy src/ --show-error-codes",
-            "Security Scan": "bandit -r . --exclude ./venv,./coresignal",
-            "Pre-commit Hooks": "pre-commit run --all-files",
-            "Unit Tests": "pytest -vv",
-            "Vulnerability Scan": "pip-audit",
-            "Dead Code Analysis": "vulture . --min-confidence 60",
-            "Design Patterns": "python validate_patterns.py",
-        }
-
-        return command_map.get(name, "")
 
     def should_run_check(self, check_name: str, category_filter: str) -> bool:
         """Determine if a check should run based on category filter."""
@@ -1072,19 +1075,17 @@ except Exception as e:
 
     def _parse_trunk_errors(self, output: str) -> List[str]:
         """Parse Trunk check errors."""
-        errors = []
-        lines = output.split("\n")
+        import re
 
-        for line in lines:
-            line = line.strip()
+        errors = []
+        for raw in output.splitlines():
+            line = raw.strip()
             if not line:
                 continue
-
-            # Trunk format: "file:line:col message [rule]"
-            if ":" in line and any(
-                keyword in line for keyword in ["error", "warning", "E", "W", "F"]
+            # Match "path:line:col ..." and require an error/warning token
+            if re.match(r".+:\d+:\d+\s", line) and re.search(
+                r"\b(error|warning)\b", line, re.I
             ):
-                # Extract file and location
                 parts = line.split(":", 3)
                 if len(parts) >= 3:
                     file_path = parts[0]
@@ -1093,11 +1094,8 @@ except Exception as e:
                     errors.append(
                         f"**Linting Issue**: `{file_path}:{line_num}` - {message.strip()}"
                     )
-
-            # Also catch summary lines
-            elif "issues found" in line.lower() or "errors" in line.lower():
+            elif re.search(r"\bissues?\s+found\b|\berrors?\b", line, re.I):
                 errors.append(f"**Summary**: {line}")
-
         return errors
 
     def _parse_mypy_errors(self, output: str) -> List[str]:
@@ -1157,23 +1155,20 @@ except Exception as e:
                         errors.append(msg)
                         seen_errors.add(msg)
 
-            elif (
-                line.startswith("src/")
-                and ":" in line
-                and any(
-                    c in line
-                    for c in [
-                        "D100",
-                        "D101",
-                        "D102",
-                        "D103",
-                        "D104",
-                        "D105",
-                        "D106",
-                        "D107",
-                    ]
-                )
+            elif ":" in line and any(
+                code in line
+                for code in [
+                    "D100",
+                    "D101",
+                    "D102",
+                    "D103",
+                    "D104",
+                    "D105",
+                    "D106",
+                    "D107",
+                ]
             ):
+                # Try to extract "file:line:code" (path-agnostic)
                 parts = line.split(":", 3)
                 file_path = parts[0]
                 line_num = parts[1] if len(parts) > 1 and parts[1].isdigit() else ""

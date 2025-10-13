@@ -1,603 +1,568 @@
 #!/usr/bin/env python3
 """
-Universal Design Pattern Validator
+Enhanced Pattern and Anti-Pattern Validator for Python
 
-A language-agnostic tool to validate common design patterns in any codebase.
-Supports Python, Java, JavaScript/TypeScript, Go, and more.
+Detects DRY violations, anti-patterns, code smells, and design pattern issues.
+Provides JSON output compatible with validate.py.
 
 Usage:
-    python validate_patterns.py /path/to/src --language python
-    python validate_patterns.py /path/to/src --language java --patterns factory,builder
-    python validate_patterns.py /path/to/src --auto-detect
+    python validate_patterns.py /path/to/src --json
+    python validate_patterns.py /path/to/src --config pattern_config.json
 """
 
 import argparse
+import ast
+import json
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
 
-class Language(Enum):
-    PYTHON = "python"
-    JAVA = "java"
-    JAVASCRIPT = "javascript"
-    TYPESCRIPT = "typescript"
-    GO = "go"
-    RUST = "rust"
-    CSHARP = "csharp"
+class Severity(Enum):
+    """Issue severity levels"""
+
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
 
 
-class PatternType(Enum):
-    FACTORY = "factory"
-    BUILDER = "builder"
-    DECORATOR = "decorator"
-    OBSERVER = "observer"
-    STRATEGY = "strategy"
-    REPOSITORY = "repository"
-    SINGLETON = "singleton"
+class Category(Enum):
+    """Issue categories"""
+
+    DRY_VIOLATION = "dry_violation"
+    ANTI_PATTERN = "anti_pattern"
+    CODE_SMELL = "code_smell"
+    DESIGN_PATTERN = "design_pattern"
 
 
 @dataclass
 class PatternIssue:
-    pattern: PatternType
+    """Represents a detected pattern issue"""
+
+    category: str
+    severity: str
     file_path: str
     line_number: int
     issue_type: str
-    description: str
-    severity: str  # "error", "warning", "info"
+    message: str
+    suggestion: Optional[str] = None
+
+    def to_dict(self):
+        """Convert to dictionary for JSON output"""
+        return asdict(self)
 
 
 class PatternValidator:
-    """Base class for pattern validation"""
+    """Main validator for patterns, anti-patterns, and code quality in Python"""
 
-    def __init__(self, language: Language):
-        self.language = language
+    def __init__(self, config: Optional[Dict] = None):
+        self.config = config or {}
         self.issues: List[PatternIssue] = []
 
-    def validate_file(self, file_path: str) -> List[PatternIssue]:
-        """Validate patterns in a single file"""
-        if not os.path.exists(file_path):
-            return []
+        # Thresholds (can be overridden by config)
+        self.max_function_lines = self.config.get("max_function_lines", 50)
+        self.max_class_lines = self.config.get("max_class_lines", 500)
+        self.max_method_count = self.config.get("max_method_count", 20)
+        self.max_parameters = self.config.get("max_parameters", 5)
+        self.max_nesting = self.config.get("max_nesting", 4)
+        self.dry_similarity_threshold = self.config.get(
+            "dry_similarity_threshold", 0.85
+        )
 
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+    def validate_directory(self, directory: Path) -> List[PatternIssue]:
+        """Validate all Python files in a directory"""
+        python_files = list(directory.rglob("*.py"))
 
-        file_issues = []
-        file_issues.extend(self._validate_factory_pattern(file_path, content))
-        file_issues.extend(self._validate_builder_pattern(file_path, content))
-        file_issues.extend(self._validate_decorator_pattern(file_path, content))
-        file_issues.extend(self._validate_observer_pattern(file_path, content))
-        file_issues.extend(self._validate_strategy_pattern(file_path, content))
-        file_issues.extend(self._validate_repository_pattern(file_path, content))
-
-        return file_issues
-
-    def _validate_factory_pattern(
-        self, file_path: str, content: str
-    ) -> List[PatternIssue]:
-        """Validate Factory pattern implementation"""
-        issues = []
-
-        # Language-specific factory pattern checks
-        if self.language == Language.PYTHON:
-            issues.extend(self._check_python_factory(file_path, content))
-        elif self.language == Language.JAVA:
-            issues.extend(self._check_java_factory(file_path, content))
-        elif self.language in [Language.JAVASCRIPT, Language.TYPESCRIPT]:
-            issues.extend(self._check_js_factory(file_path, content))
-
-        return issues
-
-    def _check_python_factory(self, file_path: str, content: str) -> List[PatternIssue]:
-        """Check Python factory patterns"""
-        issues = []
-        lines = content.split("\n")
-
-        # Check for factory classes
-        factory_classes = []
-        for i, line in enumerate(lines):
-            if re.search(r"class\s+\w*Factory\w*", line):
-                factory_classes.append((i + 1, line.strip()))
-
-        # Check if factory methods return concrete types
-        for line_num, _factory_line in factory_classes:
-            # Look for methods in this factory
-            for j in range(line_num, min(line_num + 50, len(lines))):
-                line = lines[j]
-                if re.search(r"return\s+\w+\(", line) and not re.search(
-                    r"return\s+self\.|return\s+cls\.", line
-                ):
-                    # Check if it's returning a concrete instantiation
-                    if re.search(r"return\s+[A-Z]\w*\(", line):
-                        issues.append(
-                            PatternIssue(
-                                pattern=PatternType.FACTORY,
-                                file_path=file_path,
-                                line_number=j + 1,
-                                issue_type="concrete_return",
-                                description=f"Factory method returns concrete class instead of interface: {line.strip()}",
-                                severity="warning",
-                            )
-                        )
-
-        # Check for direct instantiation bypassing factory
-        for i, line in enumerate(lines):
-            # Look for direct instantiation of classes that might have factories
-            if re.search(r"\w+\s*=\s*[A-Z]\w*\(", line):
-                class_name = re.search(r"([A-Z]\w*)\(", line)
-                if class_name:
-                    # Check if there's a corresponding factory
-                    factory_pattern = f"{class_name.group(1)}Factory"
-                    if factory_pattern.lower() in content.lower():
-                        issues.append(
-                            PatternIssue(
-                                pattern=PatternType.FACTORY,
-                                file_path=file_path,
-                                line_number=i + 1,
-                                issue_type="bypass_factory",
-                                description=f"Direct instantiation found, consider using factory: {line.strip()}",
-                                severity="info",
-                            )
-                        )
-
-        return issues
-
-    def _check_java_factory(self, file_path: str, content: str) -> List[PatternIssue]:
-        """Check Java factory patterns"""
-        issues = []
-        lines = content.split("\n")
-
-        # Check for factory classes
-        for i, line in enumerate(lines):
-            if re.search(r"class\s+\w*Factory\w*", line):
-                # Check methods in factory class
-                for j in range(i, min(i + 100, len(lines))):
-                    method_line = lines[j]
-                    # Check if factory method returns concrete type
-                    if re.search(r"return\s+new\s+[A-Z]\w*\(", method_line):
-                        issues.append(
-                            PatternIssue(
-                                pattern=PatternType.FACTORY,
-                                file_path=file_path,
-                                line_number=j + 1,
-                                issue_type="concrete_return",
-                                description=f"Factory returns concrete class: {method_line.strip()}",
-                                severity="warning",
-                            )
-                        )
-
-        return issues
-
-    def _check_js_factory(self, file_path: str, content: str) -> List[PatternIssue]:
-        """Check JavaScript/TypeScript factory patterns"""
-        issues = []
-        lines = content.split("\n")
-
-        # Check for factory functions/classes
-        for i, line in enumerate(lines):
-            if re.search(r"(function|class)\s+\w*[Ff]actory\w*|create\w+Factory", line):
-                # Look for return statements
-                for j in range(i, min(i + 50, len(lines))):
-                    return_line = lines[j]
-                    if re.search(r"return\s+new\s+[A-Z]\w*\(", return_line):
-                        issues.append(
-                            PatternIssue(
-                                pattern=PatternType.FACTORY,
-                                file_path=file_path,
-                                line_number=j + 1,
-                                issue_type="concrete_return",
-                                description=f"Factory returns concrete class: {return_line.strip()}",
-                                severity="warning",
-                            )
-                        )
-
-        return issues
-
-    def _validate_builder_pattern(
-        self, file_path: str, content: str
-    ) -> List[PatternIssue]:
-        """Validate Builder pattern implementation"""
-        issues = []
-        lines = content.split("\n")
-
-        # Look for builder classes
-        for i, line in enumerate(lines):
-            if re.search(r"class\s+\w*Builder\w*", line):
-                # Check for method chaining
-                has_chaining = False
-                has_build_method = False
-
-                for j in range(i, min(i + 100, len(lines))):
-                    method_line = lines[j]
-
-                    # Check for method chaining (return this/self)
-                    if re.search(r"return\s+(this|self)", method_line):
-                        has_chaining = True
-
-                    # Check for build method
-                    if re.search(
-                        r"def\s+build\(|build\s*\(|function\s+build\(", method_line
-                    ):
-                        has_build_method = True
-
-                if not has_chaining:
-                    issues.append(
-                        PatternIssue(
-                            pattern=PatternType.BUILDER,
-                            file_path=file_path,
-                            line_number=i + 1,
-                            issue_type="no_chaining",
-                            description="Builder class found but no method chaining detected",
-                            severity="warning",
-                        )
-                    )
-
-                if not has_build_method:
-                    issues.append(
-                        PatternIssue(
-                            pattern=PatternType.BUILDER,
-                            file_path=file_path,
-                            line_number=i + 1,
-                            issue_type="no_build_method",
-                            description="Builder class found but no build() method detected",
-                            severity="error",
-                        )
-                    )
-
-        return issues
-
-    def _validate_decorator_pattern(
-        self, file_path: str, content: str
-    ) -> List[PatternIssue]:
-        """Validate Decorator pattern implementation"""
-        issues = []
-        lines = content.split("\n")
-
-        # Look for decorator classes
-        for i, line in enumerate(lines):
-            if re.search(r"class\s+\w*Decorator\w*", line):
-                has_delegation = False
-
-                # Check for delegation to wrapped component
-                for j in range(i, min(i + 100, len(lines))):
-                    delegate_line = lines[j]
-                    if re.search(
-                        r"\.(component|wrapped|delegate)\.|self\._\w+\.", delegate_line
-                    ):
-                        has_delegation = True
-                        break
-
-                if not has_delegation:
-                    issues.append(
-                        PatternIssue(
-                            pattern=PatternType.DECORATOR,
-                            file_path=file_path,
-                            line_number=i + 1,
-                            issue_type="no_delegation",
-                            description="Decorator class found but no delegation to wrapped component detected",
-                            severity="warning",
-                        )
-                    )
-
-        return issues
-
-    def _validate_observer_pattern(
-        self, file_path: str, content: str
-    ) -> List[PatternIssue]:
-        """Validate Observer pattern implementation"""
-        issues = []
-        lines = content.split("\n")
-
-        # Look for observer/subject classes
-        for i, line in enumerate(lines):
-            if re.search(r"class\s+\w*(Subject|Observable)\w*", line):
-                has_observer_list = False
-                has_notify_method = False
-
-                for j in range(i, min(i + 100, len(lines))):
-                    check_line = lines[j]
-
-                    # Check for observer list/collection
-                    if re.search(
-                        r"(observers|listeners|subscribers)", check_line.lower()
-                    ):
-                        has_observer_list = True
-
-                    # Check for notify method
-                    if re.search(r"def\s+(notify|update|fire|trigger)", check_line):
-                        has_notify_method = True
-
-                if not has_observer_list:
-                    issues.append(
-                        PatternIssue(
-                            pattern=PatternType.OBSERVER,
-                            file_path=file_path,
-                            line_number=i + 1,
-                            issue_type="no_observer_list",
-                            description="Subject class found but no observer collection detected",
-                            severity="warning",
-                        )
-                    )
-
-                if not has_notify_method:
-                    issues.append(
-                        PatternIssue(
-                            pattern=PatternType.OBSERVER,
-                            file_path=file_path,
-                            line_number=i + 1,
-                            issue_type="no_notify_method",
-                            description="Subject class found but no notify method detected",
-                            severity="warning",
-                        )
-                    )
-
-        return issues
-
-    def _validate_strategy_pattern(
-        self, file_path: str, content: str
-    ) -> List[PatternIssue]:
-        """Validate Strategy pattern implementation"""
-        issues = []
-        lines = content.split("\n")
-
-        # Look for strategy interfaces/classes
-        for i, line in enumerate(lines):
-            if re.search(r"(interface|class)\s+\w*Strategy\w*", line):
-                # Check if there's a context class that uses strategies
-                has_context_usage = False
-
-                for _j, context_line in enumerate(lines):
-                    if re.search(
-                        r"(setStrategy|set_strategy|changeStrategy)", context_line
-                    ):
-                        has_context_usage = True
-                        break
-
-                if not has_context_usage:
-                    issues.append(
-                        PatternIssue(
-                            pattern=PatternType.STRATEGY,
-                            file_path=file_path,
-                            line_number=i + 1,
-                            issue_type="no_runtime_switching",
-                            description="Strategy interface found but no runtime strategy switching detected",
-                            severity="info",
-                        )
-                    )
-
-        return issues
-
-    def _validate_repository_pattern(
-        self, file_path: str, content: str
-    ) -> List[PatternIssue]:
-        """Validate Repository pattern implementation"""
-        issues = []
-        lines = content.split("\n")
-
-        # Look for repository classes
-        for i, line in enumerate(lines):
-            if re.search(r"class\s+\w*Repository\w*", line):
-                has_crud_methods = False
-                uses_domain_objects = True
-
-                crud_patterns = [
-                    r"find",
-                    r"save",
-                    r"delete",
-                    r"get",
-                    r"create",
-                    r"update",
+        # Filter out virtual environments and common exclusions
+        python_files = [
+            f
+            for f in python_files
+            if not any(
+                part in f.parts
+                for part in [
+                    "venv",
+                    ".venv",
+                    "site-packages",
+                    "__pycache__",
+                    "node_modules",
+                    ".git",
+                    "build",
+                    "dist",
                 ]
-
-                for j in range(i, min(i + 100, len(lines))):
-                    method_line = lines[j]
-
-                    # Check for CRUD methods
-                    for pattern in crud_patterns:
-                        if re.search(f"def\\s+{pattern}|{pattern}\\s*\\(", method_line):
-                            has_crud_methods = True
-                            break
-
-                    # Check for DTO/Entity usage (anti-pattern in domain)
-                    if re.search(r"(DTO|Entity|Model)(?!Interface)", method_line):
-                        uses_domain_objects = False
-
-                if not has_crud_methods:
-                    issues.append(
-                        PatternIssue(
-                            pattern=PatternType.REPOSITORY,
-                            file_path=file_path,
-                            line_number=i + 1,
-                            issue_type="no_crud_methods",
-                            description="Repository class found but no CRUD methods detected",
-                            severity="warning",
-                        )
-                    )
-
-                if not uses_domain_objects:
-                    issues.append(
-                        PatternIssue(
-                            pattern=PatternType.REPOSITORY,
-                            file_path=file_path,
-                            line_number=i + 1,
-                            issue_type="dto_usage",
-                            description="Repository uses DTOs/Entities instead of domain objects",
-                            severity="info",
-                        )
-                    )
-
-        return issues
-
-
-def detect_language(src_path: str) -> Optional[Language]:
-    """Auto-detect programming language from file extensions"""
-    extensions: Dict[str, int] = {}
-
-    for _root, _dirs, files in os.walk(src_path):
-        for file in files:
-            ext = Path(file).suffix.lower()
-            extensions[ext] = extensions.get(ext, 0) + 1
-
-    # Determine primary language
-    if extensions.get(".py", 0) > 0:
-        return Language.PYTHON
-    elif extensions.get(".java", 0) > 0:
-        return Language.JAVA
-    elif extensions.get(".ts", 0) > extensions.get(".js", 0):
-        return Language.TYPESCRIPT
-    elif extensions.get(".js", 0) > 0:
-        return Language.JAVASCRIPT
-    elif extensions.get(".go", 0) > 0:
-        return Language.GO
-    elif extensions.get(".rs", 0) > 0:
-        return Language.RUST
-    elif extensions.get(".cs", 0) > 0:
-        return Language.CSHARP
-
-    return None
-
-
-def get_source_files(src_path: str, language: Language) -> List[str]:
-    """Get list of source files for the given language"""
-    extensions_map = {
-        Language.PYTHON: [".py"],
-        Language.JAVA: [".java"],
-        Language.JAVASCRIPT: [".js"],
-        Language.TYPESCRIPT: [".ts", ".tsx"],
-        Language.GO: [".go"],
-        Language.RUST: [".rs"],
-        Language.CSHARP: [".cs"],
-    }
-
-    extensions = extensions_map.get(language, [])
-    source_files = []
-
-    for root, dirs, files in os.walk(src_path):
-        # Skip common non-source directories
-        dirs[:] = [
-            d
-            for d in dirs
-            if d not in ["node_modules", "__pycache__", ".git", "target", "build"]
+            )
         ]
 
-        for file in files:
-            if any(file.endswith(ext) for ext in extensions):
-                source_files.append(os.path.join(root, file))
+        all_issues = []
 
-    return source_files
+        # Single file checks
+        for file_path in python_files:
+            all_issues.extend(self.validate_file(file_path))
+
+        # Cross-file DRY checks
+        if len(python_files) > 1:
+            all_issues.extend(self._check_dry_violations(python_files))
+
+        return all_issues
+
+    def validate_file(self, file_path: Path) -> List[PatternIssue]:
+        """Validate a single Python file"""
+        if not file_path.exists():
+            return []
+
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        except Exception as e:
+            return [
+                PatternIssue(
+                    category=Category.CODE_SMELL.value,
+                    severity=Severity.WARNING.value,
+                    file_path=str(file_path),
+                    line_number=0,
+                    issue_type="file_read_error",
+                    message=f"Could not read file: {e}",
+                    suggestion="Check file permissions and encoding",
+                )
+            ]
+
+        issues = []
+
+        # Parse AST for deeper analysis
+        try:
+            tree = ast.parse(content)
+            issues.extend(self._check_anti_patterns(tree, file_path))
+            issues.extend(self._check_code_smells(content, file_path))
+        except SyntaxError as e:
+            issues.append(
+                PatternIssue(
+                    category=Category.CODE_SMELL.value,
+                    severity=Severity.ERROR.value,
+                    file_path=str(file_path),
+                    line_number=e.lineno or 0,
+                    issue_type="syntax_error",
+                    message=f"Syntax error: {e.msg}",
+                    suggestion="Fix syntax error before running pattern validation",
+                )
+            )
+
+        return issues
+
+    # ==================== DRY VIOLATION DETECTION ====================
+
+    def _check_dry_violations(self, python_files: List[Path]) -> List[PatternIssue]:
+        """Check for DRY violations across multiple files"""
+        issues = []
+
+        # Extract all functions from all files
+        all_functions = []
+        for file_path in python_files:
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                tree = ast.parse(content)
+
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.FunctionDef):
+                        all_functions.append((file_path, node))
+            except:
+                continue
+
+        # Compare functions for similarity
+        for i, (file1, func1) in enumerate(all_functions):
+            for file2, func2 in all_functions[i + 1 :]:
+                similarity = self._calculate_function_similarity(func1, func2)
+
+                if similarity >= self.dry_similarity_threshold:
+                    issues.append(
+                        PatternIssue(
+                            category=Category.DRY_VIOLATION.value,
+                            severity=Severity.WARNING.value,
+                            file_path=str(file1),
+                            line_number=func1.lineno,
+                            issue_type="duplicate_function",
+                            message=f"Function '{func1.name}' is {similarity*100:.0f}% similar to '{func2.name}' in {file2}",
+                            suggestion="Consider extracting common logic into a shared function",
+                        )
+                    )
+
+        return issues
+
+    def _calculate_function_similarity(
+        self, func1: ast.FunctionDef, func2: ast.FunctionDef
+    ) -> float:
+        """Calculate similarity between two functions using AST comparison"""
+        # Get normalized AST dumps
+        dump1 = self._normalize_ast_for_comparison(func1)
+        dump2 = self._normalize_ast_for_comparison(func2)
+
+        dump1 = dump1.strip()
+        dump2 = dump2.strip()
+
+        if not dump1 or not dump2:
+            return 0.0
+
+        # Simple similarity based on normalized structure
+        common = len(set(dump1.split()) & set(dump2.split()))
+        total = len(set(dump1.split()) | set(dump2.split()))
+
+        return common / total if total > 0 else 0.0
+
+    def _normalize_ast_for_comparison(self, node: ast.AST) -> str:
+        """Normalize AST by removing variable names for comparison"""
+        # Get AST dump and replace variable names with VAR
+        dump = ast.dump(node)
+        # Replace specific identifiers with generic VAR
+        normalized = re.sub(r"id='[^']*'", "id='VAR'", dump)
+        normalized = re.sub(r's="[^"]*"', 's="STR"', normalized)
+        normalized = re.sub(r"n=\d+", "n=NUM", normalized)
+        return normalized
+
+    # ==================== ANTI-PATTERN DETECTION ====================
+
+    def _check_anti_patterns(
+        self, tree: ast.AST, file_path: Path
+    ) -> List[PatternIssue]:
+        """Check for common anti-patterns"""
+        issues = []
+
+        for node in ast.walk(tree):
+            # God Class detection
+            if isinstance(node, ast.ClassDef):
+                issues.extend(self._check_god_class(node, file_path))
+
+            # Long Method detection
+            elif isinstance(node, ast.FunctionDef):
+                issues.extend(self._check_long_method(node, file_path))
+                issues.extend(self._check_too_many_parameters(node, file_path))
+
+            # Deep nesting detection
+            if isinstance(node, (ast.If, ast.For, ast.While, ast.With)):
+                issues.extend(self._check_deep_nesting(node, file_path))
+
+        return issues
+
+    def _check_god_class(
+        self, node: ast.ClassDef, file_path: Path
+    ) -> List[PatternIssue]:
+        """Check for God Class anti-pattern (too large, too many responsibilities)"""
+        issues = []
+
+        # Count methods
+        methods = [n for n in node.body if isinstance(n, ast.FunctionDef)]
+        method_count = len(methods)
+
+        # Estimate lines of code
+        if hasattr(node, "end_lineno") and node.end_lineno:
+            loc = node.end_lineno - node.lineno
+        else:
+            loc = len(methods) * 10  # Rough estimate
+
+        if loc > self.max_class_lines:
+            issues.append(
+                PatternIssue(
+                    category=Category.ANTI_PATTERN.value,
+                    severity=Severity.WARNING.value,
+                    file_path=str(file_path),
+                    line_number=node.lineno,
+                    issue_type="god_class",
+                    message=f"Class '{node.name}' is too large ({loc} lines)",
+                    suggestion=f"Consider splitting into smaller classes (max {self.max_class_lines} lines)",
+                )
+            )
+
+        if method_count > self.max_method_count:
+            issues.append(
+                PatternIssue(
+                    category=Category.ANTI_PATTERN.value,
+                    severity=Severity.WARNING.value,
+                    file_path=str(file_path),
+                    line_number=node.lineno,
+                    issue_type="too_many_methods",
+                    message=f"Class '{node.name}' has too many methods ({method_count})",
+                    suggestion=f"Consider splitting responsibilities (max {self.max_method_count} methods)",
+                )
+            )
+
+        return issues
+
+    def _check_long_method(
+        self, node: ast.FunctionDef, file_path: Path
+    ) -> List[PatternIssue]:
+        """Check for Long Method anti-pattern"""
+        issues = []
+
+        if hasattr(node, "end_lineno") and node.end_lineno:
+            loc = node.end_lineno - node.lineno
+
+            if loc > self.max_function_lines:
+                issues.append(
+                    PatternIssue(
+                        category=Category.ANTI_PATTERN.value,
+                        severity=Severity.WARNING.value,
+                        file_path=str(file_path),
+                        line_number=node.lineno,
+                        issue_type="long_method",
+                        message=f"Function '{node.name}' is too long ({loc} lines)",
+                        suggestion=f"Break into smaller functions (max {self.max_function_lines} lines)",
+                    )
+                )
+
+        return issues
+
+    def _check_too_many_parameters(
+        self, node: ast.FunctionDef, file_path: Path
+    ) -> List[PatternIssue]:
+        """Check for too many function parameters"""
+        issues = []
+
+        param_count = len(node.args.args)
+        # Don't count 'self' or 'cls'
+        if param_count > 0 and node.args.args[0].arg in ("self", "cls"):
+            param_count -= 1
+
+        if param_count > self.max_parameters:
+            issues.append(
+                PatternIssue(
+                    category=Category.ANTI_PATTERN.value,
+                    severity=Severity.WARNING.value,
+                    file_path=str(file_path),
+                    line_number=node.lineno,
+                    issue_type="too_many_parameters",
+                    message=f"Function '{node.name}' has too many parameters ({param_count})",
+                    suggestion=f"Consider using a parameter object or builder pattern (max {self.max_parameters} params)",
+                )
+            )
+
+        return issues
+
+    def _check_deep_nesting(self, node: ast.AST, file_path: Path) -> List[PatternIssue]:
+        """Check for deeply nested code"""
+        issues = []
+
+        depth = self._calculate_nesting_depth(node)
+
+        if depth > self.max_nesting:
+            issues.append(
+                PatternIssue(
+                    category=Category.ANTI_PATTERN.value,
+                    severity=Severity.INFO.value,
+                    file_path=str(file_path),
+                    line_number=node.lineno,
+                    issue_type="deep_nesting",
+                    message=f"Deeply nested code (depth: {depth})",
+                    suggestion=f"Reduce nesting using early returns or extraction (max depth {self.max_nesting})",
+                )
+            )
+
+        return issues
+
+    def _calculate_nesting_depth(self, node: ast.AST, current_depth: int = 0) -> int:
+        """Calculate maximum nesting depth of a node"""
+        max_depth = current_depth
+
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.If, ast.For, ast.While, ast.With, ast.Try)):
+                child_depth = self._calculate_nesting_depth(child, current_depth + 1)
+                max_depth = max(max_depth, child_depth)
+
+        return max_depth
+
+    # ==================== CODE SMELL DETECTION ====================
+
+    def _check_code_smells(self, content: str, file_path: Path) -> List[PatternIssue]:
+        """Check for common code smells"""
+        issues = []
+        lines = content.split("\n")
+
+        for i, line in enumerate(lines, 1):
+            # Match any integer except -1, 0, 1, 2
+            if re.search(
+                r"\b(?!(?:-?1|0|2)\b)-?\d+\b", line
+            ) and not line.strip().startswith("#"):
+                issues.append(
+                    PatternIssue(
+                        category=Category.CODE_SMELL.value,
+                        severity=Severity.INFO.value,
+                        file_path=str(file_path),
+                        line_number=i,
+                        issue_type="magic_number",
+                        message="Magic number detected - consider using a named constant",
+                        suggestion="Replace with a descriptive constant name",
+                    )
+                )
+
+            # Empty except blocks
+            if re.search(r"except.*:\s*pass\s*$", line):
+                issues.append(
+                    PatternIssue(
+                        category=Category.CODE_SMELL.value,
+                        severity=Severity.WARNING.value,
+                        file_path=str(file_path),
+                        line_number=i,
+                        issue_type="empty_except",
+                        message="Empty except block - errors silently ignored",
+                        suggestion="Log the error or handle it explicitly",
+                    )
+                )
+
+            # Commented-out code (line starts with # and looks like code)
+            stripped = line.strip()
+            if stripped.startswith("#") and (
+                re.search(r"#\s*(def|class|import|from|if|for|while|return)\s+", line)
+                or re.search(r"#\s*\w+\s*=\s*", line)
+            ):
+                issues.append(
+                    PatternIssue(
+                        category=Category.CODE_SMELL.value,
+                        severity=Severity.INFO.value,
+                        file_path=str(file_path),
+                        line_number=i,
+                        issue_type="commented_code",
+                        message="Commented-out code detected",
+                        suggestion="Remove dead code or use version control",
+                    )
+                )
+
+            # TODO/FIXME markers
+            if re.search(r"#\s*(TODO|FIXME|XXX|HACK)", line, re.IGNORECASE):
+                marker = re.search(
+                    r"#\s*(TODO|FIXME|XXX|HACK)", line, re.IGNORECASE
+                ).group(1)
+                issues.append(
+                    PatternIssue(
+                        category=Category.CODE_SMELL.value,
+                        severity=Severity.INFO.value,
+                        file_path=str(file_path),
+                        line_number=i,
+                        issue_type="todo_marker",
+                        message=f"{marker} comment found",
+                        suggestion="Address or remove TODO markers before production",
+                    )
+                )
+
+        return issues
 
 
-def print_report(issues: List[PatternIssue], verbose: bool = False):
-    """Print validation report"""
-    if not issues:
-        print("✅ No design pattern issues found!")
-        return
+def load_config(config_path: Optional[Path]) -> Dict:
+    """Load configuration from JSON file"""
+    if not config_path or not config_path.exists():
+        return {}
 
-    # Group issues by severity
-    errors = [i for i in issues if i.severity == "error"]
-    warnings = [i for i in issues if i.severity == "warning"]
-    infos = [i for i in issues if i.severity == "info"]
-
-    print("\n🏗️ Design Pattern Validation Report")
-    print(f"{'='*50}")
-    print(
-        f"Total Issues: {len(issues)} (Errors: {len(errors)}, Warnings: {len(warnings)}, Info: {len(infos)})"
-    )
-
-    for severity, issue_list in [
-        ("ERROR", errors),
-        ("WARNING", warnings),
-        ("INFO", infos),
-    ]:
-        if not issue_list:
-            continue
-
-        print(f"\n{severity}S ({len(issue_list)}):")
-        print("-" * 20)
-
-        for issue in issue_list:
-            print(f"📁 {issue.file_path}:{issue.line_number}")
-            print(f"🏗️  Pattern: {issue.pattern.value.title()}")
-            print(f"⚠️  Issue: {issue.issue_type}")
-            print(f"📝 {issue.description}")
-            if verbose:
-                print(f"🔍 Severity: {issue.severity}")
-            print()
+    try:
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Warning: Could not load config file: {e}", file=sys.stderr)
+        return {}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Universal Design Pattern Validator")
-    parser.add_argument("src_path", help="Path to source code directory")
-    parser.add_argument(
-        "--language",
-        choices=[lang.value for lang in Language],
-        help="Programming language (auto-detected if not specified)",
+    parser = argparse.ArgumentParser(
+        description="Enhanced Pattern and Anti-Pattern Validator for Python"
     )
+    parser.add_argument("path", type=str, help="Path to directory or file to validate")
+    parser.add_argument("--config", type=str, help="Path to configuration file (JSON)")
+    parser.add_argument("--json", action="store_true", help="Output results as JSON")
     parser.add_argument(
-        "--patterns", help="Comma-separated list of patterns to check (default: all)"
-    )
-    parser.add_argument(
-        "--auto-detect",
-        action="store_true",
-        help="Auto-detect language from file extensions",
-    )
-    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
-    parser.add_argument(
-        "--exit-code",
-        action="store_true",
-        help="Exit with non-zero code if issues found",
+        "--severity",
+        type=str,
+        choices=["error", "warning", "info"],
+        help="Minimum severity to report",
     )
 
     args = parser.parse_args()
 
-    if not os.path.exists(args.src_path):
-        print(f"❌ Error: Source path '{args.src_path}' does not exist")
+    # Load configuration
+    config_path = Path(args.config) if args.config else None
+    config = load_config(config_path)
+
+    # Create validator
+    validator = PatternValidator(config=config)
+
+    # Validate path
+    path = Path(args.path)
+    if not path.exists():
+        print(f"Error: Path '{path}' does not exist", file=sys.stderr)
         sys.exit(1)
 
-    # Determine language
-    if args.language:
-        language = Language(args.language)
-    elif args.auto_detect:
-        language = detect_language(args.src_path)
-        if not language:
-            print("❌ Error: Could not auto-detect language")
-            sys.exit(1)
-        print(f"🔍 Auto-detected language: {language.value}")
+    # Run validation
+    if path.is_file():
+        issues = validator.validate_file(path)
     else:
-        print("❌ Error: Please specify --language or use --auto-detect")
-        sys.exit(1)
+        issues = validator.validate_directory(path)
 
-    # Get source files
-    source_files = get_source_files(args.src_path, language)
-    if not source_files:
-        print(f"❌ No source files found for language: {language.value}")
-        sys.exit(1)
+    # Filter by severity if specified
+    if args.severity:
+        severity_order = {"error": 3, "warning": 2, "info": 1}
+        min_level = severity_order.get(args.severity, 1)
+        issues = [
+            issue
+            for issue in issues
+            if severity_order.get(issue.severity, 1) >= min_level
+        ]
 
-    print(f"🔍 Analyzing {len(source_files)} {language.value} files...")
+    # Output results
+    if args.json:
+        output = {
+            "total_issues": len(issues),
+            "by_severity": {
+                "error": len([i for i in issues if i.severity == Severity.ERROR.value]),
+                "warning": len(
+                    [i for i in issues if i.severity == Severity.WARNING.value]
+                ),
+                "info": len([i for i in issues if i.severity == Severity.INFO.value]),
+            },
+            "by_category": {
+                "dry_violation": len(
+                    [i for i in issues if i.category == Category.DRY_VIOLATION.value]
+                ),
+                "anti_pattern": len(
+                    [i for i in issues if i.category == Category.ANTI_PATTERN.value]
+                ),
+                "code_smell": len(
+                    [i for i in issues if i.category == Category.CODE_SMELL.value]
+                ),
+                "design_pattern": len(
+                    [i for i in issues if i.category == Category.DESIGN_PATTERN.value]
+                ),
+            },
+            "issues": [issue.to_dict() for issue in issues],
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        # Human-readable output
+        if not issues:
+            print("✅ No pattern issues found!")
+        else:
+            print(f"\n🔍 Found {len(issues)} pattern issue(s):\n")
 
-    # Validate patterns
-    validator = PatternValidator(language)
-    all_issues = []
+            sev_order = {"error": 0, "warning": 1, "info": 2}
+            for issue in sorted(
+                issues,
+                key=lambda x: (
+                    sev_order.get(x.severity, 2),
+                    x.file_path,
+                    x.line_number,
+                ),
+            ):
+                severity_icon = {"error": "❌", "warning": "⚠️", "info": "ℹ️"}.get(
+                    issue.severity, "•"
+                )
 
-    for file_path in source_files:
-        try:
-            file_issues = validator.validate_file(file_path)
-            all_issues.extend(file_issues)
-        except Exception as e:
-            if args.verbose:
-                print(f"⚠️  Error analyzing {file_path}: {e}")
+                print(f"{severity_icon} {issue.file_path}:{issue.line_number}")
+                print(f"   [{issue.category}] {issue.issue_type}")
+                print(f"   {issue.message}")
+                if issue.suggestion:
+                    print(f"   💡 {issue.suggestion}")
+                print()
 
-    # Print report
-    print_report(all_issues, args.verbose)
-
-    # Exit with appropriate code
-    if args.exit_code and all_issues:
-        error_count = len([i for i in all_issues if i.severity == "error"])
-        sys.exit(1 if error_count > 0 else 0)
+    # Exit with error code if there are errors
+    error_count = len([i for i in issues if i.severity == Severity.ERROR.value])
+    sys.exit(1 if error_count > 0 else 0)
 
 
 if __name__ == "__main__":
