@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Refactor Validation Tool
+"""Refactor Validation Tool.
 
 A simple, focused tool to validate code safety after refactoring.
 Answers one question: "Is my code safe to deploy after this change?"
@@ -53,7 +52,7 @@ def _quote(path: str) -> str:
 
 # ANSI color codes for better readability
 class Colors:
-    """ANSI color codes for terminal output"""
+    """ANSI color codes for terminal output."""
 
     RESET = "\033[0m"
     BOLD = "\033[1m"
@@ -185,8 +184,8 @@ class ValidationSummary:
 
 
 def _shell_cmd(cmd: str) -> str:
-    """
-    Normalize a command string in a way that works on Windows and *nix.
+    """Normalize a command string in a way that works on Windows and *nix.
+
     - On Windows, keep as string (cmd.exe).
     - On POSIX, ensure it's a string but properly quoted when we inject variables.
     """
@@ -221,8 +220,9 @@ class RefactorValidator:
         return f"{self.python_cmd} -m pip"
 
     def _ensure_tool(self, tool: str, install_hint: str = "") -> Optional[str]:
-        """
-        Return None if tool exists. Otherwise return a human-readable message.
+        """Return None if tool exists.
+
+        Otherwise return a human-readable message.
         """
         if shutil.which(tool):
             return None
@@ -252,7 +252,10 @@ class RefactorValidator:
         )
 
     def _substitute_commands(self, command: str) -> str:
-        """Replace hardcoded commands with detected ones for terminal-agnostic execution."""
+        """Replace hardcoded commands with detected ones for terminal-agnostic.
+
+        execution.
+        """
         import re
 
         # Replace python module invocations
@@ -524,8 +527,7 @@ PY
 
         run_and_add_if_match(
             "Pre-commit Hooks",
-            f"""{self.python_cmd} -c "import os,sys,subprocess
-if not os.path.isdir('.git'):
+            f"""{self.python_cmd} -c "import os,sys,subprocess.if not os.path.isdir('.git'):
     print('Not a git repo; skipping pre-commit'); sys.exit(0)
 try:
     r=subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failure'])
@@ -623,7 +625,7 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
             if self._has_gitleaks():
                 secret_cmd = "gitleaks detect --no-banner --source . --report-format=json --redact"
             else:
-                secret_cmd = r"""git ls-files -z | xargs -0 grep -nEo '(AKIA[0-9A-Z]{16}|AWS_ACCESS_KEY_ID|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{48}|xox[baprs]-[A-Za-z0-9-]{10,}|BEGIN RSA PRIVATE KEY)' || true"""
+                secret_cmd = r"""git ls-files -z | xargs -0 grep -nEo '(AKIA[0-9A-Z]{16}|AWS_ACCESS_KEY_ID|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{48}|xox[baprs]-[A-Za-z0-9-]{10,}|BEGIN RSA PRIVATE KEY)' || true."""
 
             run_and_add_if_match(
                 "Secret Scan",
@@ -786,8 +788,7 @@ PY
         # 23) Environment parity - CI awareness (cross-platform, informational)
         run_and_add_if_match(
             "Tool Versions",
-            f"""{self.python_cmd} -c "import sys, platform, importlib
-print(f'Python: {{sys.version}}')
+            f"""{self.python_cmd} -c "import sys, platform, importlib.print(f'Python: {{sys.version}}')
 print(f'Platform: {{platform.platform()}}')
 for m in ['pytest','mypy','ruff']:
     try:
@@ -943,7 +944,8 @@ for m in ['pytest','mypy','ruff']:
         return None
 
     def validate_patterns(self) -> ValidationResult:
-        """Run design pattern validation using refactor_toolkit's validate_patterns.py."""
+        """Run design pattern validation using refactor_toolkit's
+        validate_patterns.py."""
         # Use the validate_patterns.py from refactor_toolkit
         toolkit_dir = Path(__file__).parent
         patterns_script = toolkit_dir / "validate_patterns.py"
@@ -1057,7 +1059,10 @@ for m in ['pytest','mypy','ruff']:
         return readiness
 
     def extract_actionable_errors(self, results: List[ValidationResult]) -> List[str]:
-        """Extract specific actionable errors from failed validation results."""
+        """Extract specific actionable errors from failed validation.
+
+        results.
+        """
         actionable_errors = []
         optional_errors = []
         seen_errors = set()  # Global deduplication across all results

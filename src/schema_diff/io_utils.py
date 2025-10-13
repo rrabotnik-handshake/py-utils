@@ -25,8 +25,7 @@ def set_force_download_context(force_download: bool) -> None:
 
 
 def resolve_file_path(path: str, force_download: bool | None = None) -> str:
-    """
-    Resolve a file path, downloading from GCS if necessary.
+    """Resolve a file path, downloading from GCS if necessary.
 
     Args:
         path: Local file path or GCS URI
@@ -75,8 +74,8 @@ class CommandError(Exception):
 
 
 def _run(args, cwd=None, env=None, check_untrusted=True):
-    """
-    Run a subprocess safely (no shell). Returns CompletedProcess or raises CommandError.
+    """Run a subprocess safely (no shell). Returns CompletedProcess or raises
+    CommandError.
 
     Parameters
     ----------
@@ -116,9 +115,8 @@ def _run(args, cwd=None, env=None, check_untrusted=True):
 
 
 def open_text(path: str) -> io.TextIOWrapper:
-    """
-    Open a path as text, auto-detecting gzip via magic bytes.
-    Supports GCS paths by downloading them first.
+    """Open a path as text, auto-detecting gzip via magic bytes. Supports GCS.    paths
+    by downloading them first.
 
     - Uses UTF-8 with BOM support (`utf-8-sig`)
     - Raises UnicodeDecodeError on invalid sequences (`errors='strict')
@@ -139,8 +137,8 @@ def open_text(path: str) -> io.TextIOWrapper:
 
 
 def open_binary(path: str):
-    """
-    Open a path as *binary*, auto-detecting gzip via magic bytes.
+    """Open a path as *binary*, auto-detecting gzip via magic bytes.
+
     Supports GCS paths by downloading them first.
     Useful for `ijson`, which prefers bytes streams.
     """
@@ -217,8 +215,9 @@ def iter_records(path: str) -> Iterator[Any]:
 
 
 def sample_records(path: str, k: int) -> list[Any]:
-    """
-    Reservoir-sample `k` records from the file without loading everything.
+    """Reservoir-sample `k` records from the file without loading.
+
+    everything.
     """
     import random
 
@@ -236,9 +235,7 @@ def sample_records(path: str, k: int) -> list[Any]:
 
 
 def nth_record(path: str, n: int) -> list[Any]:
-    """
-    Return the 1-based Nth record (as a single-item list), or [] if missing.
-    """
+    """Return the 1-based Nth record (as a single-item list), or [] if missing."""
     if n <= 0:
         return []
     for i, rec in enumerate(iter_records(path), 1):
@@ -248,8 +245,7 @@ def nth_record(path: str, n: int) -> list[Any]:
 
 
 def all_records(path: str, max_records: int | None = None) -> list[Any]:
-    """
-    Read ALL records from a file. Use with caution for large files.
+    """Read ALL records from a file. Use with caution for large files.
 
     Parameters
     ----------

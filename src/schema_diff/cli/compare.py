@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Compare command implementation for schema-diff CLI.
+"""Compare command implementation for schema-diff CLI.
 
 Handles schema comparison functionality with proper argument parsing and validation.
 """

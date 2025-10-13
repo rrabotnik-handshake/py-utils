@@ -1,6 +1,5 @@
-"""
-Loader utilities for turning *anything* (data files or schema files)
-into a unified (type_tree, required_paths, label) triple.
+"""Loader utilities for turning *anything* (data files or schema files) into a.unified
+(type_tree, required_paths, label) triple.
 
 Supported kinds:
 - data           : JSON / NDJSON (optionally gz), array-of-objects, or single JSON object
@@ -57,8 +56,8 @@ KIND_AUTO = "auto"
 
 
 def _sniff_json_kind(path: str) -> str | None:
-    """
-    Peek into a .json/.json.gz (or similar) and try to distinguish:
+    """Peek into a .json/.json.gz (or similar) and try to distinguish:
+
       - dbt manifest (nodes/sources/child_map or metadata.dbt_version)
       - JSON Schema (object with schema-like keys)
       - NDJSON
@@ -128,8 +127,8 @@ def _sniff_json_kind(path: str) -> str | None:
 
 
 def _sniff_sql_kind(path: str) -> str:
-    """
-    Distinguish between SQL DDL (CREATE TABLE) and dbt model (.sql with SELECT/Jinja).
+    """Distinguish between SQL DDL (CREATE TABLE) and dbt model (.sql with.
+    SELECT/Jinja).
 
     Returns KIND_SQL for DDL or KIND_DBT_MODEL for dbt models.
     """
@@ -180,8 +179,8 @@ def _sniff_sql_kind(path: str) -> str:
 
 
 def _guess_kind(path: str) -> str:
-    """
-    Best-effort kind detection from filename/contents.
+    """Best-effort kind detection from filename/contents.
+
     Prefers unambiguous extensions; uses JSON sniffing for .json/.gz.
     """
     p = path.lower()
@@ -255,9 +254,8 @@ def load_left_or_right(
     dbt_model: str | None = None,
     proto_message: str | None = None,
 ) -> tuple[Any, set[str], str]:
-    """
-    Load `path` as either a DATA source or a SCHEMA source and return:
-        (type_tree, required_paths, label)
+    """Load `path` as either a DATA source or a SCHEMA source and return: (type_tree,
+    required_paths, label)
 
     Parameters
     ----------

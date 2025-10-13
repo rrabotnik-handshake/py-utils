@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Main entry point for running schema-diff CLI as a module.
+"""Main entry point for running schema-diff CLI as a module.
 
 This allows running: python -m schema_diff.cli
 """

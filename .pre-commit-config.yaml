@@ -25,7 +25,7 @@ repos:
   # ========================
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.8.0
+    rev: v1.18.2
     hooks:
       - id: mypy
         args:
@@ -36,6 +36,13 @@ repos:
   # ========================
   # 📚 DOCUMENTATION QUALITY
   # ========================
+
+  - repo: https://github.com/PyCQA/docformatter
+    rev: v1.7.7
+    hooks:
+      - id: docformatter
+        args: [--in-place, --wrap-summaries=88, --wrap-descriptions=88]
+        files: ^(src|refactor_toolkit)/
 
   - repo: https://github.com/PyCQA/pydocstyle
     rev: 6.3.0
@@ -60,7 +67,7 @@ repos:
   # ========================
 
   - repo: https://github.com/jendrikseipp/vulture
-    rev: v2.10
+    rev: v2.14
     hooks:
       - id: vulture
         args: [--min-confidence, "80", src/]
@@ -70,7 +77,7 @@ repos:
   # ========================
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v6.0.0
     hooks:
       # Basic file checks
       - id: trailing-whitespace
@@ -105,7 +112,7 @@ repos:
   # ========================
 
   - repo: https://github.com/sqlfluff/sqlfluff
-    rev: 3.0.7
+    rev: 3.4.2
     hooks:
       - id: sqlfluff-lint
         args: [--dialect=bigquery]

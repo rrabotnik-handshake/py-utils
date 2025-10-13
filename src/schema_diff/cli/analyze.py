@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Analytics subcommand for schema-diff CLI.
+"""Analytics subcommand for schema-diff CLI.
 
 Provides advanced schema analysis capabilities.
 """

@@ -1,5 +1,4 @@
-"""
-Custom argparse help formatter.
+"""Custom argparse help formatter.
 
 This combines:
 - ArgumentDefaultsHelpFormatter → automatically appends default values to help text.
@@ -17,8 +16,7 @@ class ColorDefaultsFormatter(
     argparse.ArgumentDefaultsHelpFormatter,
     argparse.RawTextHelpFormatter,
 ):
-    """
-    Argparse help formatter with color-friendly alignment.
+    """Argparse help formatter with color-friendly alignment.
 
     - Shows default values for options.
     - Preserves line breaks in help descriptions.

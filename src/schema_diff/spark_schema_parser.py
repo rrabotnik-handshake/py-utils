@@ -1,5 +1,4 @@
-"""
-Spark schema (pretty-printed) → internal type tree with deep nested parsing.
+"""Spark schema (pretty-printed) → internal type tree with deep nested parsing.
 
 What this module does
 ---------------------
@@ -91,8 +90,7 @@ _NULLABLE_RE = re.compile(r"\bnullable\s*=\s*(true|false)\b", re.IGNORECASE)
 
 
 def _parse_scalar_type(tok: str) -> str:
-    """
-    Map a scalar/leaf Spark type token to an internal label.
+    """Map a scalar/leaf Spark type token to an internal label.
 
     - Strips any precision/length parentheses (e.g., "decimal(10,2)" → "decimal").
     - Returns one of: 'int' | 'float' | 'bool' | 'str' | 'date' | 'timestamp' | 'any'.
@@ -104,8 +102,7 @@ def _parse_scalar_type(tok: str) -> str:
 
 
 def _split_top_level_commas(s: str) -> list[str]:
-    """
-    Split by commas that are NOT inside angle brackets (for struct fields).
+    """Split by commas that are NOT inside angle brackets (for struct fields).
 
     Example
     -------
@@ -133,8 +130,7 @@ def _split_top_level_commas(s: str) -> list[str]:
 
 
 def _parse_dtype(dtype: str) -> Any:
-    """
-    Parse a Spark dtype string into the internal type tree.
+    """Parse a Spark dtype string into the internal type tree.
 
     Returns
     -------
@@ -185,8 +181,8 @@ def _parse_dtype(dtype: str) -> Any:
 
 
 def _parse_field_line(line: str) -> tuple[int, str, str, bool]:
-    """
-    Parse a single field line and extract indentation level, name, type, and nullability.
+    """Parse a single field line and extract indentation level, name, type, and.
+    nullability.
 
     Returns
     -------
@@ -221,8 +217,7 @@ def _parse_field_line(line: str) -> tuple[int, str, str, bool]:
 
 
 def _parse_hierarchical_structure(lines: list[str]) -> tuple[dict[str, Any], set[str]]:
-    """
-    Parse the hierarchical Spark schema structure into a nested type tree.
+    """Parse the hierarchical Spark schema structure into a nested type tree.
 
     This handles the indented structure like:
     |-- field: array
@@ -312,8 +307,7 @@ def _parse_hierarchical_structure(lines: list[str]) -> tuple[dict[str, Any], set
 def _parse_array_element_structure(
     lines: list[str], start_idx: int, element_indent: int, path_prefix: str
 ) -> tuple[Any, int, set[str]]:
-    """
-    Parse the structure of an array element starting from the 'element: struct' line.
+    """Parse the structure of an array element starting from the 'element: struct' line.
 
     Returns
     -------
@@ -384,8 +378,7 @@ def _parse_array_element_structure(
 def _parse_struct_fields(
     lines: list[str], start_idx: int, struct_indent: int, path_prefix: str
 ) -> tuple[dict[str, Any], int, set[str]]:
-    """
-    Parse struct fields starting from a struct declaration.
+    """Parse struct fields starting from a struct declaration.
 
     Returns
     -------
@@ -450,8 +443,7 @@ def _parse_struct_fields(
 @cache_expensive_operation
 @validate_and_time
 def schema_from_spark_schema_file(path: str) -> tuple[Any, set[str]]:
-    """
-    Parse a Spark schema text dump into (type_tree, required_paths).
+    """Parse a Spark schema text dump into (type_tree, required_paths).
 
     Parameters
     ----------
@@ -496,8 +488,7 @@ def schema_from_spark_schema_file(path: str) -> tuple[Any, set[str]]:
 
 
 def schema_from_spark_schema_file_unified(path: str):
-    """
-    Parse a Spark schema file and return unified Schema object.
+    """Parse a Spark schema file and return unified Schema object.
 
     Returns
     -------

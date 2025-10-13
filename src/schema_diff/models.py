@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""
-Unified internal schema representation for schema-diff.
+"""Unified internal schema representation for schema-diff.
 
-This module defines the canonical data structures used throughout the schema-diff
-system to represent schemas, fields, types, and constraints in a consistent way.
+This module defines the canonical data structures used throughout the schema-diff system
+to represent schemas, fields, types, and constraints in a consistent way.
 
 Using Pydantic for validation, serialization, and type safety.
 """
@@ -143,7 +142,8 @@ class Schema(BaseModel):
         return {field.path for field in self.fields}
 
     def to_legacy_format(self) -> tuple[Dict[str, Any], Set[str]]:
-        """Convert to legacy (tree, required_paths) format for backward compatibility."""
+        """Convert to legacy (tree, required_paths) format for backward
+        compatibility."""
         tree: Dict[str, Any] = {}
         required_paths = set()
 

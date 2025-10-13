@@ -1,5 +1,4 @@
-"""
-Lightweight value → type-name inference used when deriving schemas from DATA.
+"""Lightweight value → type-name inference used when deriving schemas from.DATA.
 
 Returned labels are the *atoms* expected by the rest of the pipeline:
 - Scalars: "int" | "float" | "bool" | "str" | "date" | "time" | "timestamp" | "missing"
@@ -30,8 +29,7 @@ ISO_TS_RE = re.compile(
 
 
 def tname(v: Any, cfg: Config) -> str:
-    """
-    Map a Python value to the internal atomic type label.
+    """Map a Python value to the internal atomic type label.
 
     Notes
     -----

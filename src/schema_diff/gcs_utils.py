@@ -1,8 +1,7 @@
-"""
-Google Cloud Storage utilities for schema-diff.
+"""Google Cloud Storage utilities for schema-diff.
 
-This module provides functionality to detect, download, and cache files from GCS
-for use with schema-diff operations.
+This module provides functionality to detect, download, and cache files from GCS for use
+with schema-diff operations.
 
 Enhanced with retry decorators for robust GCS operations.
 """
@@ -34,8 +33,7 @@ def is_gcs_path(path: str) -> bool:
 
 
 def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
-    """
-    Parse a GCS path into bucket and object components.
+    """Parse a GCS path into bucket and object components.
 
     Args:
         gcs_path: GCS URI like 'gs://bucket-name/path/to/file.json' or
@@ -81,8 +79,7 @@ def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
 
 
 def get_local_filename(gcs_path: str, data_dir: str = "data") -> str:
-    """
-    Generate a local filename for a GCS object.
+    """Generate a local filename for a GCS object.
 
     Args:
         gcs_path: GCS URI
@@ -108,8 +105,7 @@ def get_local_filename(gcs_path: str, data_dir: str = "data") -> str:
 def download_gcs_file(
     gcs_path: str, local_path: Optional[str] = None, force: bool = False
 ) -> str:
-    """
-    Download a file from GCS to local storage.
+    """Download a file from GCS to local storage.
 
     Args:
         gcs_path: GCS URI to download

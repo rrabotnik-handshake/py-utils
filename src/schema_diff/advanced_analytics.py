@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""
-Advanced schema analytics using the unified Schema format.
+"""Advanced schema analytics using the unified Schema format.
 
-This module provides sophisticated analysis capabilities that leverage
-the rich type system of the unified Schema objects.
+This module provides sophisticated analysis capabilities that leverage the rich type
+system of the unified Schema objects.
 """
 from __future__ import annotations
 
@@ -14,8 +13,7 @@ from .models import FieldConstraint, Schema
 
 
 def analyze_schema_complexity(schema: Schema) -> Dict[str, Any]:  # type: ignore[misc]
-    """
-    Analyze the complexity of a schema.
+    """Analyze the complexity of a schema.
 
     Returns metrics like nesting depth, field count, type diversity, etc.
     """
@@ -76,8 +74,7 @@ def analyze_schema_complexity(schema: Schema) -> Dict[str, Any]:  # type: ignore
 
 
 def find_schema_patterns(schema: Schema) -> Dict[str, List[str]]:
-    """
-    Find common patterns in schema structure.
+    """Find common patterns in schema structure.
 
     Returns patterns like repeated field names, common prefixes, etc.
     """
@@ -154,8 +151,7 @@ def find_schema_patterns(schema: Schema) -> Dict[str, List[str]]:
 
 
 def suggest_schema_improvements(schema: Schema) -> List[Dict[str, str]]:
-    """
-    Suggest improvements for schema design.
+    """Suggest improvements for schema design.
 
     Returns a list of suggestions with type, description, and affected fields.
     """
@@ -248,8 +244,7 @@ def suggest_schema_improvements(schema: Schema) -> List[Dict[str, str]]:
 def compare_schema_evolution_advanced(
     old_schema: Schema, new_schema: Schema
 ) -> Dict[str, Any]:
-    """
-    Advanced analysis of schema evolution between two versions.
+    """Advanced analysis of schema evolution between two versions.
 
     Combines basic evolution analysis with complexity and pattern changes.
     """
@@ -314,9 +309,7 @@ def compare_schema_evolution_advanced(
 
 
 def generate_schema_report(schema: Schema) -> str:
-    """
-    Generate a comprehensive text report about a schema.
-    """
+    """Generate a comprehensive text report about a schema."""
     if not isinstance(schema, Schema):
         raise ValueError("Schema must be a unified Schema object")
 

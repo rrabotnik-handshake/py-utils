@@ -1,5 +1,4 @@
-"""
-Schema comparison helpers.
+"""Schema comparison helpers.
 
 This module exposes two primary entry points:
 
@@ -63,8 +62,8 @@ def compare_trees(
     left_source_type: str | None = None,
     right_source_type: str | None = None,
 ) -> dict | None:
-    """
-    Compare two *type trees* (schemas) and print a human-friendly diff with enhanced presence injection.
+    """Compare two *type trees* (schemas) and print a human-friendly diff with. enhanced
+    presence injection.
 
     Parameters
     ----------
@@ -216,8 +215,7 @@ def compare_schemas_unified(
     left_label: str | None = None,
     right_label: str | None = None,
 ) -> dict | None:
-    """
-    Compare two Schema objects (unified format) and return comparison results.
+    """Compare two Schema objects (unified format) and return comparison.    results.
 
     Parameters
     ----------
@@ -283,8 +281,7 @@ def compare_schemas_unified(
 
 
 def analyze_schema_evolution(old_schema, new_schema) -> dict:
-    """
-    Analyze schema evolution between two Schema objects.
+    """Analyze schema evolution between two Schema objects.
 
     Returns detailed analysis of changes, additions, removals, and migrations.
     """

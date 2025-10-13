@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""
-Logging configuration for schema-diff.
+"""Logging configuration for schema-diff.
 
-This module provides centralized logging configuration with support for
-different log levels, formatters, and output destinations.
+This module provides centralized logging configuration with support for different log
+levels, formatters, and output destinations.
 """
 from __future__ import annotations
 
@@ -62,8 +61,7 @@ class SchemaDiffLogger:
         max_file_size: int = MAX_LOG_FILE_SIZE * 1024 * 1024,  # Convert MB to bytes
         backup_count: int = LOG_FILE_BACKUP_COUNT,
     ) -> None:
-        """
-        Configure logging for schema-diff operations.
+        """Configure logging for schema-diff operations.
 
         Args:
             level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -138,8 +136,7 @@ class SchemaDiffLogger:
 
     @classmethod
     def get_logger(cls, name: str) -> logging.Logger:
-        """
-        Get a logger instance for the given module name.
+        """Get a logger instance for the given module name.
 
         Args:
             name: Logger name (typically __name__ from the calling module)
@@ -165,8 +162,7 @@ class SchemaDiffLogger:
 
     @classmethod
     def set_level(cls, level: Union[str, int]) -> None:
-        """
-        Change the logging level for all schema-diff loggers.
+        """Change the logging level for all schema-diff loggers.
 
         Args:
             level: New logging level
@@ -188,8 +184,7 @@ class SchemaDiffLogger:
         level: Optional[Union[str, int]] = None,
         format_string: Optional[str] = None,
     ) -> None:
-        """
-        Add an additional file handler to the logger.
+        """Add an additional file handler to the logger.
 
         Args:
             log_file: Path to the log file
@@ -235,8 +230,7 @@ class SchemaDiffLogger:
 
 # Convenience functions for common logging operations
 def get_logger(name: str) -> logging.Logger:
-    """
-    Get a logger instance for the given module.
+    """Get a logger instance for the given module.
 
     This is the primary function that modules should use to get their logger.
 
@@ -258,8 +252,7 @@ def setup_logging(
     log_file: Optional[Union[str, Path]] = None,
     **kwargs,
 ) -> None:
-    """
-    Setup logging configuration.
+    """Setup logging configuration.
 
     Args:
         level: Logging level
@@ -270,8 +263,7 @@ def setup_logging(
 
 
 def log_function_call(func):
-    """
-    Decorator to log function entry and exit.
+    """Decorator to log function entry and exit.
 
     This decorator automatically logs when a function is called and when it returns,
     including the function arguments and return value (for debugging).
@@ -308,8 +300,7 @@ def log_function_call(func):
 
 
 def log_performance(func):
-    """
-    Decorator to log function performance metrics.
+    """Decorator to log function performance metrics.
 
     This decorator logs the execution time of functions, which is useful
     for identifying performance bottlenecks.

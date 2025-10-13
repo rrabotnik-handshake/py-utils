@@ -1,5 +1,4 @@
-"""
-dbt schema parsers.
+"""Dbt schema parsers.
 
 This module exposes two entry points:
 
@@ -91,8 +90,7 @@ ARRAY_ANGLE_RE = re.compile(r"^array\s*<\s*([^>]+)\s*>$")
 
 
 def _normalize_dtype(dtype: str) -> str | list[str]:
-    """
-    Map a dbt/adapter dtype string to internal type label.
+    """Map a dbt/adapter dtype string to internal type label.
 
     Returns:
       - scalar: 'int'|'float'|'bool'|'str'|'date'|'time'|'timestamp'|'any'
@@ -120,8 +118,7 @@ def _normalize_dtype(dtype: str) -> str | list[str]:
 
 
 def _iter_test_names(tests_field: Any) -> list[str]:
-    """
-    Normalize dbt 'tests' lists that may contain strings or dicts.
+    """Normalize dbt 'tests' lists that may contain strings or dicts.
 
     Examples:
       ["not_null", {"unique": {...}}, "accepted_values"]
@@ -144,8 +141,7 @@ def _iter_test_names(tests_field: Any) -> list[str]:
 def schema_from_dbt_manifest(
     path: str, model: str | None = None
 ) -> tuple[dict[str, Any], set[str]]:
-    """
-    Parse dbt target/manifest.json, pull column `data_type` for the target model.
+    """Parse dbt target/manifest.json, pull column `data_type` for the target.    model.
 
     Args:
       path: path to manifest.json.
@@ -208,10 +204,9 @@ def schema_from_dbt_manifest(
 def schema_from_dbt_schema_yml(
     path: str, model: str | None = None
 ) -> tuple[dict[str, Any], set[str]]:
-    """
-    Parse a dbt schema.yml (v2). Uses tests for presence (not_null).
-    Types are often not present, so columns default to "any" unless a custom
-    'data_type' (or meta.type) is provided.
+    """Parse a dbt schema.yml (v2). Uses tests for presence (not_null). Types.    are
+    often not present, so columns default to "any" unless a custom 'data_type' (or
+    meta.type) is provided.
 
     Args:
       path: path to schema.yml
@@ -268,8 +263,8 @@ def schema_from_dbt_schema_yml(
 def schema_from_dbt_model(
     path: str, model: str | None = None
 ) -> tuple[dict[str, Any], set[str]]:
-    """
-    Parse a dbt model .sql file and extract field information from SELECT statements.
+    """Parse a dbt model .sql file and extract field information from SELECT.
+    statements.
 
     Args:
         path: path to the dbt model .sql file.
@@ -348,8 +343,7 @@ def schema_from_dbt_model(
 
 
 def schema_from_dbt_manifest_unified(path: str, model: str | None = None):
-    """
-    Parse dbt manifest and return unified Schema object.
+    """Parse dbt manifest and return unified Schema object.
 
     Returns
     -------
@@ -363,8 +357,7 @@ def schema_from_dbt_manifest_unified(path: str, model: str | None = None):
 
 
 def schema_from_dbt_schema_yml_unified(path: str, model: str | None = None):
-    """
-    Parse dbt schema.yml and return unified Schema object.
+    """Parse dbt schema.yml and return unified Schema object.
 
     Returns
     -------
@@ -378,8 +371,7 @@ def schema_from_dbt_schema_yml_unified(path: str, model: str | None = None):
 
 
 def schema_from_dbt_model_unified(path: str):
-    """
-    Parse dbt model and return unified Schema object.
+    """Parse dbt model and return unified Schema object.
 
     Returns
     -------

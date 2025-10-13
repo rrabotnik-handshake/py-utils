@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Unit tests for validate_patterns.py
-"""
+"""Unit tests for validate_patterns.py."""
 
 import tempfile
 import unittest
@@ -18,13 +16,13 @@ from validate_patterns import (
 
 
 class TestPatternValidator(unittest.TestCase):
-    """Test the PatternValidator class"""
+    """Test the PatternValidator class."""
 
     def setUp(self):
         self.validator = PatternValidator(Language.PYTHON)
 
     def test_factory_pattern_detection(self):
-        """Test factory pattern issue detection"""
+        """Test factory pattern issue detection."""
         content = """
 class UserFactory:
     def create_user(self):
@@ -36,7 +34,7 @@ class UserFactory:
         self.assertEqual(issues[0].issue_type, "concrete_return")
 
     def test_builder_pattern_detection(self):
-        """Test builder pattern issue detection"""
+        """Test builder pattern issue detection."""
         content = """
 class QueryBuilder:
     def select(self, fields):
@@ -48,7 +46,7 @@ class QueryBuilder:
         # Should detect missing method chaining and missing build method
 
     def test_decorator_pattern_detection(self):
-        """Test decorator pattern issue detection"""
+        """Test decorator pattern issue detection."""
         content = """
 class LoggingDecorator:
     def __init__(self, component):
@@ -63,7 +61,7 @@ class LoggingDecorator:
         self.assertEqual(issues[0].issue_type, "no_delegation")
 
     def test_observer_pattern_detection(self):
-        """Test observer pattern issue detection"""
+        """Test observer pattern issue detection."""
         content = """
 class EventSubject:
     def __init__(self):
@@ -76,10 +74,10 @@ class EventSubject:
 
 
 class TestLanguageDetection(unittest.TestCase):
-    """Test language auto-detection"""
+    """Test language auto-detection."""
 
     def test_python_detection(self):
-        """Test Python language detection"""
+        """Test Python language detection."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create Python files
             (Path(tmpdir) / "test1.py").write_text("print('hello')")
@@ -89,7 +87,7 @@ class TestLanguageDetection(unittest.TestCase):
             self.assertEqual(language, Language.PYTHON)
 
     def test_java_detection(self):
-        """Test Java language detection"""
+        """Test Java language detection."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create Java files
             (Path(tmpdir) / "Test.java").write_text("public class Test {}")
@@ -98,7 +96,7 @@ class TestLanguageDetection(unittest.TestCase):
             self.assertEqual(language, Language.JAVA)
 
     def test_javascript_detection(self):
-        """Test JavaScript language detection"""
+        """Test JavaScript language detection."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create JavaScript files
             (Path(tmpdir) / "test.js").write_text("console.log('hello');")
@@ -107,7 +105,7 @@ class TestLanguageDetection(unittest.TestCase):
             self.assertEqual(language, Language.JAVASCRIPT)
 
     def test_no_language_detection(self):
-        """Test when no language can be detected"""
+        """Test when no language can be detected."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create non-source files
             (Path(tmpdir) / "readme.txt").write_text("Hello world")
@@ -117,10 +115,10 @@ class TestLanguageDetection(unittest.TestCase):
 
 
 class TestSourceFileCollection(unittest.TestCase):
-    """Test source file collection"""
+    """Test source file collection."""
 
     def test_python_file_collection(self):
-        """Test collecting Python source files"""
+        """Test collecting Python source files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create Python files
             (Path(tmpdir) / "test1.py").write_text("print('hello')")
@@ -133,7 +131,7 @@ class TestSourceFileCollection(unittest.TestCase):
             self.assertEqual(len(py_files), 2)
 
     def test_directory_filtering(self):
-        """Test that common non-source directories are filtered"""
+        """Test that common non-source directories are filtered."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create source file
             (Path(tmpdir) / "test.py").write_text("print('hello')")
@@ -154,10 +152,10 @@ class TestSourceFileCollection(unittest.TestCase):
 
 
 class TestPatternIssue(unittest.TestCase):
-    """Test PatternIssue data structure"""
+    """Test PatternIssue data structure."""
 
     def test_pattern_issue_creation(self):
-        """Test creating a PatternIssue"""
+        """Test creating a PatternIssue."""
         issue = PatternIssue(
             pattern=PatternType.FACTORY,
             file_path="test.py",
@@ -175,10 +173,10 @@ class TestPatternIssue(unittest.TestCase):
 
 
 class TestIntegration(unittest.TestCase):
-    """Integration tests for the complete workflow"""
+    """Integration tests for the complete workflow."""
 
     def test_end_to_end_validation(self):
-        """Test complete validation workflow"""
+        """Test complete validation workflow."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a Python file with pattern issues
             test_file = Path(tmpdir) / "test.py"

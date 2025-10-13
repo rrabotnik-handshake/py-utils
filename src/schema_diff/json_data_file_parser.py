@@ -1,6 +1,5 @@
-"""
-Turn JSON data (objects/arrays) into a compact *type tree* and merge multiple
-samples into a single schema.
+"""Turn JSON data (objects/arrays) into a compact *type tree* and merge.multiple samples
+into a single schema.
 
 Conventions
 -----------
@@ -35,8 +34,7 @@ BASE_OF_EMPTY = {
 
 
 def to_schema(o: Any, cfg: Config) -> Any:
-    """
-    Convert a single JSON value into a *type tree*.
+    """Convert a single JSON value into a *type tree*.
 
     Notes
     -----
@@ -60,8 +58,7 @@ def to_schema(o: Any, cfg: Config) -> Any:
 
 
 def union_types(a: str, b: str) -> str:
-    """
-    Union two scalar/union type strings into a normalized "union(...)" form.
+    """Union two scalar/union type strings into a normalized "union(...)" form.
 
     - Sorts atoms and deduplicates.
     - If 'any' is present alongside other atoms, drops 'any' (the others are more specific).
@@ -80,8 +77,7 @@ def union_types(a: str, b: str) -> str:
 
 
 def merge_schema(a: Any, b: Any) -> Any:
-    """
-    Merge two *type trees* produced by `to_schema`.
+    """Merge two *type trees* produced by `to_schema`.
 
     Rules
     -----
@@ -139,8 +135,8 @@ def merge_schema(a: Any, b: Any) -> Any:
 
 
 def merged_schema_from_samples(recs: list[Any], cfg: Config) -> Any:
-    """
-    Merge a list of JSON records into a single schema tree.
+    """Merge a list of JSON records into a single schema tree.
+
     Returns "missing" if `recs` is empty.
     """
     sch: Any | None = None

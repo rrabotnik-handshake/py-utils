@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Migration analysis generator for schema-diff.
+"""Migration analysis generator for schema-diff.
 
 Generates structured migration analysis reports based purely on schema differences,
 providing generic impact assessment and recommendations.
@@ -48,8 +47,7 @@ def analyze_migration_impact(
     commands_used: Optional[list[str]] = None,
     full_diff_output: Optional[str] = None,
 ) -> MigrationAnalysis:
-    """
-    Analyze migration impact from schema diff report.
+    """Analyze migration impact from schema diff report.
 
     Args:
         diff_report: Report from build_report_struct()
@@ -290,8 +288,7 @@ def _analyze_path_changes(
 def generate_migration_report(
     analysis: MigrationAnalysis, format: str = "markdown"
 ) -> str:
-    """
-    Generate a formatted migration analysis report.
+    """Generate a formatted migration analysis report.
 
     Args:
         analysis: MigrationAnalysis results
@@ -510,7 +507,10 @@ def _generate_markdown_report(analysis: MigrationAnalysis) -> str:
 
 
 def _format_console_output_for_markdown(diff_output: str) -> str:
-    """Format console output as enhanced markdown with collapsible sections and color coding."""
+    """Format console output as enhanced markdown with collapsible sections and.
+
+    color coding.
+    """
     if not diff_output.strip():
         return "No differences found."
 

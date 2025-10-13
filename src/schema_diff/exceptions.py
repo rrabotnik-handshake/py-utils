@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""
-Exception hierarchy for schema-diff operations.
+"""Exception hierarchy for schema-diff operations.
 
-This module defines a comprehensive exception hierarchy that provides
-structured error handling throughout the schema-diff system.
+This module defines a comprehensive exception hierarchy that provides structured error
+handling throughout the schema-diff system.
 """
 from __future__ import annotations
 
@@ -12,11 +11,10 @@ from typing import Any, Dict, List, Optional
 
 
 class SchemaDiffError(Exception):
-    """
-    Base exception for all schema-diff operations.
+    """Base exception for all schema-diff operations.
 
-    All schema-diff specific exceptions should inherit from this class
-    to provide a consistent error handling interface.
+    All schema-diff specific exceptions should inherit from this class to provide a
+    consistent error handling interface.
     """
 
     def __init__(
@@ -429,8 +427,7 @@ def wrap_exception(
     exception_class: type[SchemaDiffError] = SchemaDiffError,
     **kwargs,
 ) -> SchemaDiffError:
-    """
-    Wrap a generic exception in a schema-diff specific exception.
+    """Wrap a generic exception in a schema-diff specific exception.
 
     Args:
         exc: The original exception to wrap
@@ -449,11 +446,10 @@ def wrap_exception(
 
 
 def handle_known_exceptions(func):
-    """
-    Decorator to convert known exceptions to schema-diff exceptions.
+    """Decorator to convert known exceptions to schema-diff exceptions.
 
-    This decorator catches common exceptions and converts them to
-    appropriate schema-diff exceptions with better error messages.
+    This decorator catches common exceptions and converts them to appropriate schema-
+    diff exceptions with better error messages.
     """
 
     def wrapper(*args, **kwargs):

@@ -1,5 +1,4 @@
-"""
-JSON Schema → internal type tree.
+"""JSON Schema → internal type tree.
 
 - Produces a *pure* type tree (no presence injected).
 - Returns (tree, required_paths) where required_paths is a dotted-path set
@@ -43,9 +42,9 @@ TYPE_MAP: dict[str, str] = {
 
 
 def _map_string_with_format(node: dict[str, Any]) -> str:
-    """
-    Map JSON Schema {type:"string", format:...} to a specific internal scalar
-    when format is date/time-like; otherwise "str".
+    """Map JSON Schema {type:"string", format:...} to a specific internal.
+
+    scalar when format is date/time-like; otherwise "str".
     """
     fmt = node.get("format", "")
     fmt = fmt.lower() if isinstance(fmt, str) else ""
@@ -59,8 +58,8 @@ def _map_string_with_format(node: dict[str, Any]) -> str:
 
 
 def _literal_tname_for_enum(v: Any) -> str:
-    """
-    A minimal, config-free classifier for JSON-literal enum values.
+    """A minimal, config-free classifier for JSON-literal enum values.
+
     (Do NOT use the DATA-side infer.tname here; it requires Config.)
     """
     if v is None:
@@ -84,8 +83,7 @@ def _literal_tname_for_enum(v: Any) -> str:
 
 
 def _schema_from_js(node: Any, *, _optional: bool) -> Any:
-    """
-    Build the internal *type tree* from a JSON Schema node.
+    """Build the internal *type tree* from a JSON Schema node.
 
     NOTE: This function purposely does NOT inject '|missing' for optional fields.
           Presence is tracked separately via `_collect_required_paths_json`.
@@ -183,8 +181,7 @@ def _schema_from_js(node: Any, *, _optional: bool) -> Any:
 
 
 def _collect_required_paths_json(node: Any, prefix: str = "") -> set[str]:
-    """
-    Collect dotted paths from JSON Schema "required" lists.
+    """Collect dotted paths from JSON Schema "required" lists.
 
     Rules
     -----
@@ -225,8 +222,7 @@ def load_json_schema(path: str) -> Any:
 
 
 def schema_from_json_schema_file(path: str) -> tuple[Any, set[str]]:
-    """
-    Parse a JSON Schema file.
+    """Parse a JSON Schema file.
 
     Returns
     -------
@@ -241,8 +237,7 @@ def schema_from_json_schema_file(path: str) -> tuple[Any, set[str]]:
 
 
 def schema_from_json_schema_file_unified(path: str):
-    """
-    Parse a JSON Schema file and return unified Schema object.
+    """Parse a JSON Schema file and return unified Schema object.
 
     Returns
     -------

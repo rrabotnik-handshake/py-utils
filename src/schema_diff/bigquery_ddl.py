@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-BigQuery DDL generator with live table schema extraction.
+"""BigQuery DDL generator with live table schema extraction.
 
 This module provides:
 - Live BigQuery table schema extraction
@@ -138,8 +137,8 @@ def _fallback_color_sql(sql: str) -> str:
 
 
 def colorize_sql(sql: str, mode: str = "auto") -> str:
-    """
-    Colorize SQL.
+    """Colorize SQL.
+
     mode: 'auto' | 'always' | 'never'
     'auto' colors only when stdout is a TTY and NO_COLOR is not set.
     """
@@ -238,7 +237,10 @@ ORDER BY table_name, constraint_type, constraint_name
 def get_constraints(
     client: bigquery.Client, project_id: str, dataset_id: str, table_id: str
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    """Retrieve PK and FK constraints using INFORMATION_SCHEMA with parameters."""
+    """Retrieve PK and FK constraints using INFORMATION_SCHEMA with.
+
+    parameters.
+    """
     try:
         job = client.query(
             PK_SQL.format(project=project_id, dataset=dataset_id),
@@ -383,8 +385,8 @@ def _render_struct_type(fields: list[SchemaField], level: int) -> str:
 
 
 def _render_array_of_struct_type(field: SchemaField, level: int) -> str:
-    """
-    ARRAY<STRUCT<...>> with multiline STRUCT payload:
+    """ARRAY<STRUCT<...>> with multiline STRUCT payload:
+
     ARRAY<STRUCT<
       ...
     >>
@@ -394,7 +396,10 @@ def _render_array_of_struct_type(field: SchemaField, level: int) -> str:
 
 
 def _render_type_for_field(field: SchemaField, level: int) -> str:
-    """Return the type string for a SchemaField, possibly multiline for nested types."""
+    """Return the type string for a SchemaField, possibly multiline for nested.
+
+    types.
+    """
     if field.field_type == "RECORD":
         if field.mode == "REPEATED":
             return _render_array_of_struct_type(field, level)
@@ -407,8 +412,8 @@ def _render_type_for_field(field: SchemaField, level: int) -> str:
 
 
 def _render_column(field: SchemaField, level: int) -> str:
-    """
-    Render a single top-level column, expanding nested types cleanly.
+    """Render a single top-level column, expanding nested types cleanly.
+
     Example:
       `payload` STRUCT<
         `a` INT64,
@@ -627,8 +632,7 @@ def generate_dataset_ddl(
 def bigquery_schema_to_internal(
     schema: list[SchemaField],
 ) -> tuple[dict[str, Any], set[str]]:
-    """
-    Convert BigQuery schema to internal schema-diff format.
+    """Convert BigQuery schema to internal schema-diff format.
 
     Returns:
         (schema_tree, required_paths)
@@ -693,8 +697,8 @@ def bigquery_schema_to_internal(
 
 
 def _normalize_bigquery_arrays(tree: Any) -> Any:
-    """
-    Normalize BigQuery array wrapper patterns like {'list': [{'element': ...}]} to [...].
+    """Normalize BigQuery array wrapper patterns like {'list': [{'element': ...}]} to
+    [...].
 
     This removes the BigQuery-specific array wrapper structure to match the cleaner
     array notation used elsewhere in schema-diff.
@@ -755,8 +759,7 @@ def _map_bq_type_to_internal(bq_type: str) -> str:
 def get_live_table_schema(
     project_id: str, dataset_id: str, table_id: str
 ) -> tuple[dict[str, Any], set[str]]:
-    """
-    Get live BigQuery table schema in schema-diff internal format.
+    """Get live BigQuery table schema in schema-diff internal format.
 
     Returns:
         (schema_tree, required_paths)

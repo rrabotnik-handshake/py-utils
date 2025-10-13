@@ -1,5 +1,4 @@
-"""
-Protobuf schema parser → internal “type tree”.
+"""Protobuf schema parser → internal “type tree”.
 
 Entry points
 -----------
@@ -89,15 +88,18 @@ BLOCK_CLOSE_RE = re.compile(r"^\s*\}\s*$")
 
 
 def _strip_comments(text: str) -> str:
-    """Remove /* ... */ block comments and // line comments."""
+    """Remove /* ...
+
+    */ block comments and // line comments.
+    """
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
     text = re.sub(r"//.*?$", "", text, flags=re.M)
     return text
 
 
 def _map_type(t: str) -> str:
-    """
-    Map a protobuf type token to our internal scalar/wkt label.
+    """Map a protobuf type token to our internal scalar/wkt label.
+
     Unknown/complex types are treated as 'object'.
     """
     t = t.strip()
@@ -116,8 +118,7 @@ def _resolve_ref(
     package: str | None,
     known_msgs: set[str],
 ) -> str | None:
-    """
-    Resolve a message/enum type token to a known message/enum FQN.
+    """Resolve a message/enum type token to a known message/enum FQN.
 
     Resolution order:
       1) Absolute (leading '.') → exact match
@@ -146,8 +147,8 @@ def _resolve_ref(
 
 
 def list_protobuf_messages(path: str) -> list[str]:
-    """
-    Return fully-qualified names of all message definitions in a .proto file.
+    """Return fully-qualified names of all message definitions in a .proto.    file.
+
     Enums and oneofs are ignored; only messages are returned.
     """
     with open(path, encoding="utf-8") as f:
@@ -208,8 +209,8 @@ def _build_message_tree(
     package: str | None,
     children: dict[str, list[str]],
 ) -> dict[str, Any]:
-    """
-    Recursively inline a message definition into a JSON-like type tree.
+    """Recursively inline a message definition into a JSON-like type tree.
+
     - message fields → nested dict
     - enum fields   → 'str'
     - map fields    → 'object'
@@ -265,8 +266,8 @@ def _parse_proto_structure(
     # children: parent message FQN -> [child message FQNs]
     dict[str, list[str]],
 ]:
-    """
-    Lightweight parser for .proto structure.
+    """Lightweight parser for .proto structure.
+
     Produces:
       - msgs: fields per message FQN (with coarse kind: scalar|enum|message|map)
       - enums: enum FQNs
@@ -297,7 +298,10 @@ def _parse_proto_structure(
     enum_short_names: set[str] = set()
 
     def _is_enum_token(t: str) -> bool:
-        """Return True if type token refers to a known enum (FQN, absolute, or suffix)."""
+        """Return True if type token refers to a known enum (FQN, absolute, or.
+
+        suffix).
+        """
         if t in enums or (t.startswith(".") and t[1:] in enums):
             return True
         last = t.rsplit(".", 1)[-1]
@@ -401,10 +405,8 @@ def _collect_required_paths_proto(
     package: str | None,
     children: dict[str, list[str]],
 ) -> set[str]:
-    """
-    Collect dotted required paths by walking required fields recursively through
-    referenced messages and nested definitions.
-    """
+    """Collect dotted required paths by walking required fields recursively through
+    referenced messages and nested definitions."""
     required: set[str] = set()
     known_msgs = set(msgs.keys())
 
@@ -444,8 +446,8 @@ def _collect_required_paths_proto(
 def schema_from_protobuf_file(
     path: str, message: str | None = None
 ) -> tuple[dict[str, Any], set[str], str]:
-    """
-    Parse a .proto file and produce:
+    """Parse a .proto file and produce:
+
       - tree: inlined type tree for the chosen message
       - required paths: dotted paths for required fields
       - chosen_fqn: fully-qualified name of the resolved message
@@ -490,8 +492,7 @@ def schema_from_protobuf_file(
 
 
 def schema_from_protobuf_file_unified(path: str, message: str | None = None):
-    """
-    Parse a Protobuf file and return unified Schema object.
+    """Parse a Protobuf file and return unified Schema object.
 
     Returns
     -------

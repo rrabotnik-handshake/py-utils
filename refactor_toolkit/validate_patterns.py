@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Enhanced Pattern and Anti-Pattern Validator for Python
+"""Enhanced Pattern and Anti-Pattern Validator for Python.
 
 Detects DRY violations, anti-patterns, code smells, and design pattern issues.
 Provides JSON output compatible with validate.py.
@@ -26,7 +25,7 @@ __version__ = "1.1.0"
 
 
 class Severity(Enum):
-    """Issue severity levels"""
+    """Issue severity levels."""
 
     ERROR = "error"
     WARNING = "warning"
@@ -34,7 +33,7 @@ class Severity(Enum):
 
 
 class Category(Enum):
-    """Issue categories"""
+    """Issue categories."""
 
     DRY_VIOLATION = "dry_violation"
     ANTI_PATTERN = "anti_pattern"
@@ -44,7 +43,7 @@ class Category(Enum):
 
 @dataclass
 class PatternIssue:
-    """Represents a detected pattern issue"""
+    """Represents a detected pattern issue."""
 
     category: str
     severity: str
@@ -56,7 +55,7 @@ class PatternIssue:
     rule_id: Optional[str] = None
 
     def to_dict(self):
-        """Convert to dictionary for JSON output"""
+        """Convert to dictionary for JSON output."""
         return asdict(self)
 
 
@@ -77,7 +76,7 @@ NEST_NODES = (
 
 
 def _looks_like_test_file(p: Path) -> bool:
-    """Check if file appears to be a test file"""
+    """Check if file appears to be a test file."""
     s = str(p)
     return (
         any(part in ("tests", "test") for part in p.parts)
@@ -99,7 +98,7 @@ def _is_meaningful_stmt(s: ast.stmt) -> bool:
 
 
 def _normalize_args(args: ast.arguments) -> ast.arguments:
-    """Normalize function arguments for fingerprinting"""
+    """Normalize function arguments for fingerprinting."""
 
     def blank(args_list):
         return [
@@ -118,7 +117,7 @@ def _normalize_args(args: ast.arguments) -> ast.arguments:
 
 
 class _Normalizer(ast.NodeTransformer):
-    """Normalize AST for fingerprinting"""
+    """Normalize AST for fingerprinting."""
 
     def visit_FunctionDef(self, node):
         return self._normalize_fn(node)
@@ -176,7 +175,10 @@ class _Normalizer(ast.NodeTransformer):
 
 
 def function_fingerprint(fn: ast.AST) -> str:
-    """Create a normalized fingerprint of a function for duplicate detection"""
+    """Create a normalized fingerprint of a function for duplicate.
+
+    detection.
+    """
     # Create a copy to avoid mutating the original
     fn_copy = ast.parse(ast.unparse(fn)).body[0] if hasattr(ast, "unparse") else fn
     norm = _Normalizer().visit(fn_copy)
@@ -186,7 +188,7 @@ def function_fingerprint(fn: ast.AST) -> str:
 
 
 def _param_count(fn: ast.FunctionDef) -> int:
-    """Count total parameters including kwonly, *args, **kwargs"""
+    """Count total parameters including kwonly, *args, **kwargs."""
     a = fn.args
     count = len(getattr(a, "posonlyargs", [])) + len(a.args) + len(a.kwonlyargs)
     count += 1 if a.vararg else 0
@@ -207,7 +209,7 @@ def _param_count(fn: ast.FunctionDef) -> int:
 
 
 def _loc(node: ast.AST, source: str = "") -> int:
-    """Calculate lines of code for a node"""
+    """Calculate lines of code for a node."""
     if getattr(node, "end_lineno", None):
         return node.end_lineno - node.lineno + 1
 
@@ -237,7 +239,7 @@ def _children_body(n: ast.AST) -> List[ast.stmt]:
 
 
 def _max_nesting_in_body(body: List[ast.stmt], depth: int = 0) -> int:
-    """Calculate maximum nesting depth in a body of statements"""
+    """Calculate maximum nesting depth in a body of statements."""
     best = depth
     for n in body:
         if isinstance(n, NEST_NODES):
@@ -254,7 +256,10 @@ def _match_any(path: Path, globs: List[str]) -> bool:
 
 
 class PatternValidator:
-    """Main validator for patterns, anti-patterns, and code quality in Python"""
+    """Main validator for patterns, anti-patterns, and code quality in.
+
+    Python.
+    """
 
     def __init__(self, config: Optional[Dict] = None):
         self.config = config or {}
@@ -273,7 +278,7 @@ class PatternValidator:
         include_globs: Optional[List[str]] = None,
         exclude_globs: Optional[List[str]] = None,
     ) -> List[PatternIssue]:
-        """Validate all Python files in a directory"""
+        """Validate all Python files in a directory."""
         python_files = list(directory.rglob("*.py"))
 
         # Filter out virtual environments and common exclusions
@@ -333,7 +338,7 @@ class PatternValidator:
         return all_issues
 
     def validate_file(self, file_path: Path) -> List[PatternIssue]:
-        """Validate a single Python file"""
+        """Validate a single Python file."""
         if not file_path.exists():
             return []
 
@@ -442,7 +447,7 @@ class PatternValidator:
     def _check_anti_patterns(
         self, tree: ast.AST, file_path: Path, content: str = ""
     ) -> List[PatternIssue]:
-        """Check for common anti-patterns"""
+        """Check for common anti-patterns."""
         issues = []
 
         for node in ast.walk(tree):
@@ -510,7 +515,7 @@ class PatternValidator:
     def _check_long_method(
         self, node: ast.FunctionDef, file_path: Path, content: str = ""
     ) -> List[PatternIssue]:
-        """Check for Long Method anti-pattern"""
+        """Check for Long Method anti-pattern."""
         issues = []
 
         loc = _loc(node, content)
@@ -533,7 +538,7 @@ class PatternValidator:
     def _check_too_many_parameters(
         self, node: ast.FunctionDef, file_path: Path
     ) -> List[PatternIssue]:
-        """Check for too many function parameters"""
+        """Check for too many function parameters."""
         issues = []
 
         param_count = _param_count(node)
@@ -557,7 +562,7 @@ class PatternValidator:
     def _check_deep_nesting_in_function(
         self, node: ast.FunctionDef, file_path: Path
     ) -> List[PatternIssue]:
-        """Check for deeply nested code in a function"""
+        """Check for deeply nested code in a function."""
         issues = []
 
         depth = _max_nesting_in_body(node.body)
@@ -579,7 +584,7 @@ class PatternValidator:
         return issues
 
     def _check_empty_except(self, tree: ast.AST, file_path: Path) -> List[PatternIssue]:
-        """Check for empty except blocks using AST"""
+        """Check for empty except blocks using AST."""
         issues = []
         for h in [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]:
             if not any(_is_meaningful_stmt(b) for b in h.body):
@@ -668,7 +673,7 @@ class PatternValidator:
         ALLOW = {-1, 0, 1, 2}
 
         def _is_constant_assignment(parent_stack) -> bool:
-            """Check if number is assigned to ALL_CAPS constant"""
+            """Check if number is assigned to ALL_CAPS constant."""
             for i in range(len(parent_stack) - 1):
                 n = parent_stack[i]
                 ch = parent_stack[i + 1]
@@ -717,7 +722,7 @@ class PatternValidator:
 
 
 def load_config(config_path: Optional[Path]) -> Dict:
-    """Load configuration from JSON file"""
+    """Load configuration from JSON file."""
     if not config_path or not config_path.exists():
         return {}
 

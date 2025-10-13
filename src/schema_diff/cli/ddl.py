@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-DDL generation command implementation for schema-diff CLI.
+"""DDL generation command implementation for schema-diff CLI.
 
 Handles BigQuery DDL generation from live tables with proper argument parsing.
 """

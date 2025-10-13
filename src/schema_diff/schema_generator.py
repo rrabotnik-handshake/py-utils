@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Schema generation module for schema-diff.
+"""Schema generation module for schema-diff.
 
 Generates schemas in various formats from data files:
 - JSON Schema (draft-07)
@@ -280,8 +279,7 @@ def validate_openapi_schema(schema_str: str) -> Tuple[bool, Optional[str]]:
 def validate_schema(
     output: str, format_type: str, validate: bool = True
 ) -> Tuple[str, bool, Optional[str]]:
-    """
-    Validate generated schema based on format type.
+    """Validate generated schema based on format type.
 
     Returns:
         Tuple of (output, is_valid, error_message)
@@ -315,8 +313,7 @@ def generate_schema_from_data(
     required_fields: Optional[Set[str]] = None,
     validate: bool = True,
 ) -> str:
-    """
-    Generate a schema in the specified format from data records.
+    """Generate a schema in the specified format from data records.
 
     Args:
         records: List of data records to analyze
@@ -481,7 +478,8 @@ def _generate_json_schema(
         return result
 
     def convert_type_value(value: Any, field_name: str = "") -> Dict[str, Any]:
-        """Convert a value (which might be string, list, dict, etc.) to JSON Schema type."""
+        """Convert a value (which might be string, list, dict, etc.) to JSON Schema
+        type."""
         if isinstance(value, str):
             return convert_type(value, field_name)
         elif isinstance(value, list):
@@ -555,7 +553,10 @@ def _generate_sql_ddl(
         return type_mapping.get(field_type, "TEXT")
 
     def escape_sql_identifier(name: str) -> str:
-        """Escape SQL identifiers that are reserved keywords or contain special characters."""
+        """Escape SQL identifiers that are reserved keywords or contain special.
+
+        characters.
+        """
         # SQL reserved keywords (common across most SQL databases)
         reserved_keywords = {
             "SELECT",
@@ -718,8 +719,7 @@ def _generate_sql_ddl(
     for i in range(len(columns) - 1):
         columns[i] += ","
 
-    ddl = f"""CREATE TABLE {table_name} (
-{chr(10).join(columns)}
+    ddl = f"""CREATE TABLE {table_name} (.{chr(10).join(columns)}
 );"""
 
     return ddl
@@ -764,7 +764,8 @@ def _generate_bigquery_ddl(
         return f"ARRAY<{base_type}>" if is_repeated else base_type
 
     def escape_bq_identifier(name: str) -> str:
-        """Escape BigQuery identifiers that are reserved keywords or contain special characters."""
+        """Escape BigQuery identifiers that are reserved keywords or contain special
+        characters."""
         # BigQuery reserved keywords (partial list of common ones)
         reserved_keywords = {
             "ALL",
@@ -1010,7 +1011,8 @@ def _generate_spark_schema(schema: Dict[str, Any]) -> str:
         return type_mapping.get(field_type, "string")
 
     def escape_spark_identifier(name: str) -> str:
-        """Escape Spark/SQL identifiers that are reserved keywords or contain special characters."""
+        """Escape Spark/SQL identifiers that are reserved keywords or contain special
+        characters."""
         # Spark SQL reserved keywords
         reserved_keywords = {
             "SELECT",

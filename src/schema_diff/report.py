@@ -1,5 +1,4 @@
-"""
-Human-friendly diff report helpers with enhanced output formatting.
+"""Human-friendly diff report helpers with enhanced output formatting.
 
 This module turns a DeepDiff (computed elsewhere) into:
   - a stable, JSON-serializable report structure, and
@@ -30,8 +29,7 @@ from .utils import clean_deepdiff_path, fmt_dot_path
 
 
 def fmt_presence_type(type_repr: str, is_schema_source: bool = False) -> str:
-    """
-    Format type representation for presence issues with clear terminology.
+    """Format type representation for presence issues with clear terminology.
 
     Args:
         type_repr: Raw type representation like 'str', 'missing', 'union(missing|str)'
@@ -82,10 +80,9 @@ _ROOT_KEYS = {"root", "root['root']", "root['__root__']", ""}
 
 
 def _root_dict_value_change_fallback(diff) -> tuple[list[str], list[str]]:
-    """
-    Fallback for the case where DeepDiff reports a single `values_changed` entry
-    at the root and both sides are dicts. In that situation we reconstruct the
-    "only in left/right" sets by comparing top-level keys.
+    """Fallback for the case where DeepDiff reports a single `values_changed` entry at
+    the root and both sides are dicts. In that situation we reconstruct the "only in
+    left/right" sets by comparing top-level keys.
 
     Parameters
     ----------
@@ -113,8 +110,7 @@ def _root_dict_value_change_fallback(diff) -> tuple[list[str], list[str]]:
 
 
 def _root_list_value_change_fallback(diff) -> tuple[list[str], list[str]]:
-    """
-    Fallback for "whole-root changed" when the root is a *list of fields*, e.g.
+    """Fallback for "whole-root changed" when the root is a *list of fields*, e.g.
     Spark/BigQuery/Protobuf-like shapes:
 
         [{'name': 'id', 'type': ...}, ...]           # case 1
@@ -163,8 +159,7 @@ def _root_list_value_change_fallback(diff) -> tuple[list[str], list[str]]:
 def build_report_struct(
     diff, f1: str, f2: str, include_presence: bool
 ) -> dict[str, Any]:
-    """
-    Convert a DeepDiff into a stable, JSON-serializable report structure.
+    """Convert a DeepDiff into a stable, JSON-serializable report structure.
 
     The structure contains:
       - meta.direction
@@ -388,8 +383,7 @@ def print_report_text(
     left_source_type: str = "data",
     right_source_type: str = "data",
 ) -> None:
-    """
-    Pretty-print a report structure returned by `build_report_struct`.
+    """Pretty-print a report structure returned by `build_report_struct`.
 
     Parameters
     ----------
@@ -488,8 +482,8 @@ def print_common_fields(
     sch2n: Any,
     colors: tuple[str, str, str, str, str],
 ) -> None:
-    """
-    Print the intersection of field paths (including nested fields) when both roots are objects.
+    """Print the intersection of field paths (including nested fields) when.    both
+    roots are objects.
 
     Parameters
     ----------
@@ -503,7 +497,10 @@ def print_common_fields(
     RED, GRN, YEL, CYN, RST = colors
 
     def _as_field_dict(x: Any) -> dict:
-        """Return a dict of fields if root is a dict; otherwise empty (for non-object roots)."""
+        """Return a dict of fields if root is a dict; otherwise empty (for non-.
+
+        object roots).
+        """
         return x if isinstance(x, dict) else {}
 
     d1 = _as_field_dict(sch1n)
@@ -531,9 +528,8 @@ def print_path_changes(
     *,
     colors: tuple[str, str, str, str, str],
 ) -> None:
-    """
-    Print a list of "path changes": same field name appearing at different paths
-    on the left vs right tree.
+    """Print a list of "path changes": same field name appearing at different paths on
+    the left vs right tree.
 
     Uses a clear 3-section structure for each field:
     1. "Shared field locations and/or field paths:" - paths common to both sides

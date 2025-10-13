@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Decorators for schema-diff operations.
+"""Decorators for schema-diff operations.
 
 Provides caching, retry, and other cross-cutting concerns as decorators.
 """
@@ -96,8 +95,7 @@ def cache_results(
     memory_only: bool = False,
     cache_key_func: Optional[Callable] = None,
 ) -> Callable[[F], F]:
-    """
-    Decorator to cache function results.
+    """Decorator to cache function results.
 
     Args:
         ttl_seconds: Time-to-live for cache entries (None = no expiration) [TODO: Not implemented yet]
@@ -139,8 +137,7 @@ def retry_on_failure(
     backoff_multiplier: float = 2.0,
     exceptions: tuple = (Exception,),
 ) -> Callable[[F], F]:
-    """
-    Decorator to retry function calls on failure.
+    """Decorator to retry function calls on failure.
 
     Args:
         max_attempts: Maximum number of attempts

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Generate command implementation for schema-diff CLI.
+"""Generate command implementation for schema-diff CLI.
 
 Handles schema generation from data files with proper argument parsing.
 """

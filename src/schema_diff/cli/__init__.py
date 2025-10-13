@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""
-Modular CLI for schema-diff with proper separation of responsibilities.
+"""Modular CLI for schema-diff with proper separation of responsibilities.
 
-This package contains the command-line interface implementation split into
-separate modules for better maintainability and separation of concerns.
+This package contains the command-line interface implementation split into separate
+modules for better maintainability and separation of concerns.
 """
 from __future__ import annotations
 

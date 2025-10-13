@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Config command implementation for schema-diff CLI.
+"""Config command implementation for schema-diff CLI.
 
 Handles configuration management and system information display.
 """

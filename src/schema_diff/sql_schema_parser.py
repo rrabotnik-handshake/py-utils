@@ -1,5 +1,4 @@
-"""
-SQL DDL schema parser with comprehensive BigQuery support.
+"""SQL DDL schema parser with comprehensive BigQuery support.
 
 This module extracts a **pure type tree** and a set of **presence-required** paths
 from SQL `CREATE TABLE` statements with full support for complex nested types.
@@ -145,7 +144,10 @@ _DTYPE_TRAILERS_RE = re.compile(
 
 
 def _strip_sql_comments(s: str) -> str:
-    """Remove /* ... */ block comments and -- line comments from SQL text."""
+    """Remove /* ...
+
+    */ block comments and -- line comments from SQL text.
+    """
     s = SQL_BLOCK_COMMENT_RE.sub(" ", s)
     s = SQL_LINE_COMMENT_RE.sub("", s)
     return s
@@ -161,10 +163,10 @@ def _clean_dtype_token(dt: str) -> str:
 
 
 def _balanced_inner(s: str, start: int) -> tuple[str, int] | tuple[None, int]:
-    """
-    Return (inner, end_index_after_closing_gt) for the angle-bracket segment
-    starting at `start`, handling nested angle brackets. If unbalanced, return
-    (None, start).
+    """Return (inner, end_index_after_closing_gt) for the angle-bracket segment starting
+    at `start`, handling nested angle brackets.
+
+    If unbalanced, return (None, start).
     """
     if start >= len(s) or s[start] != "<":
         return None, start
@@ -190,8 +192,7 @@ def _balanced_inner(s: str, start: int) -> tuple[str, int] | tuple[None, int]:
 
 
 def _parse_struct_type(struct_type: str) -> dict[str, Any] | str:
-    """
-    Parse BigQuery STRUCT<...> syntax into a nested type tree.
+    """Parse BigQuery STRUCT<...> syntax into a nested type tree.
 
     Example:
         STRUCT<name STRING, age INTEGER, tags ARRAY<STRING>>
@@ -215,8 +216,7 @@ def _parse_struct_type(struct_type: str) -> dict[str, Any] | str:
 
 
 def _split_struct_fields(fields_str: str) -> list[str]:
-    """
-    Split comma-separated field definitions, respecting nested angle brackets.
+    """Split comma-separated field definitions, respecting nested angle.    brackets.
 
     Example: "name STRING, tags ARRAY<STRING>, profile STRUCT<bio STRING>"
     -> ["name STRING", "tags ARRAY<STRING>", "profile STRUCT<bio STRING>"]
@@ -253,8 +253,7 @@ def _split_struct_fields(fields_str: str) -> list[str]:
 
 
 def _parse_struct_field(field_def: str) -> tuple[str, str]:
-    """
-    Parse a single field definition like "name STRING" or "tags ARRAY<STRING>".
+    """Parse a single field definition like "name STRING" or "tags.    ARRAY<STRING>".
 
     Returns: (field_name, field_type)
     """
@@ -287,8 +286,7 @@ def _parse_struct_field(field_def: str) -> tuple[str, str]:
 
 
 def _sql_dtype_to_internal(dtype_raw: str) -> Any:
-    """
-    Normalize an SQL dtype token to the internal type label/tree.
+    """Normalize an SQL dtype token to the internal type label/tree.
 
     Returns:
         - scalar label: 'int'|'float'|'bool'|'str'|'date'|'time'|'timestamp'|'any'
@@ -324,8 +322,7 @@ def _sql_dtype_to_internal(dtype_raw: str) -> Any:
 
 
 def _normalize_bigquery_arrays(schema: Any) -> Any:
-    """
-    Normalize BigQuery's list[0].element array wrapper pattern to standard arrays.
+    """Normalize BigQuery's list[0].element array wrapper pattern to standard. arrays.
 
     Converts: {'list': [{'element': {...}}]}
     To: [{...}]
@@ -366,8 +363,8 @@ def _normalize_bigquery_arrays(schema: Any) -> Any:
 
 
 def _as_pure_type(mapped: Any) -> Any:
-    """
-    Convert a mapper result (scalar or [elem]) into a consistent "pure type".
+    """Convert a mapper result (scalar or [elem]) into a consistent "pure.    type".
+
     Ensures arrays normalize to ['any'] instead of ['any', ...] or [].
     Then applies BigQuery normalization.
     """
@@ -382,8 +379,7 @@ def _as_pure_type(mapped: Any) -> Any:
 
 
 def _reconstruct_multiline_structs(text: str) -> str:
-    """
-    Reconstruct multi-line BigQuery STRUCT definitions into single lines.
+    """Reconstruct multi-line BigQuery STRUCT definitions into single lines.
 
     Converts:
         `activity` STRUCT<
@@ -425,8 +421,9 @@ def _reconstruct_multiline_structs(text: str) -> str:
 
 
 def _collect_multiline_definition(lines: list[str], start_idx: int) -> str:
-    """
-    Collect a multi-line STRUCT/ARRAY definition and flatten it to one line.
+    """Collect a multi-line STRUCT/ARRAY definition and flatten it to one.
+
+    line.
     """
     if start_idx >= len(lines):
         return ""
@@ -458,9 +455,7 @@ def _collect_multiline_definition(lines: list[str], start_idx: int) -> str:
 
 
 def _find_definition_end(lines: list[str], start_idx: int) -> int:
-    """
-    Find the line index where a multi-line STRUCT/ARRAY definition ends.
-    """
+    """Find the line index where a multi-line STRUCT/ARRAY definition ends."""
     depth = 0
     definition_started = False
 
@@ -481,8 +476,7 @@ def _find_definition_end(lines: list[str], start_idx: int) -> int:
 
 
 def _extract_complete_type(line: str) -> str:
-    """
-    Extract the complete type definition from a line, handling nested STRUCT/ARRAY.
+    """Extract the complete type definition from a line, handling nested. STRUCT/ARRAY.
 
     For lines like: `col` STRUCT<...nested...> NOT NULL,
     Returns: STRUCT<...nested...>
@@ -535,8 +529,7 @@ def _extract_complete_type(line: str) -> str:
 def schema_from_sql_schema_file(
     path: str, table: str | None = None
 ) -> tuple[dict[str, Any], set[str]]:
-    """
-    Parse SQL schema content from `path`.
+    """Parse SQL schema content from `path`.
 
     Args:
         path: File with SQL DDL (or loose column list).
@@ -740,8 +733,7 @@ def schema_from_sql_schema_file(
 
 
 def schema_from_sql_schema_file_unified(path: str, table: str | None = None):
-    """
-    Parse SQL schema file and return unified Schema object.
+    """Parse SQL schema file and return unified Schema object.
 
     Returns
     -------

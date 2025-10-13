@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""
-Parser Factory for schema-diff.
+"""Parser Factory for schema-diff.
 
-Provides an explicit factory pattern for creating schema parsers,
-improving extensibility, type safety, and error handling.
+Provides an explicit factory pattern for creating schema parsers, improving
+extensibility, type safety, and error handling.
 """
 from __future__ import annotations
 

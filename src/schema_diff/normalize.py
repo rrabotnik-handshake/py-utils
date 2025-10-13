@@ -1,5 +1,4 @@
-"""
-Tree normalization utilities.
+"""Tree normalization utilities.
 
 This module converts heterogeneous, partially-specified type trees into a
 stable, comparable representation used across the diff pipeline.
@@ -57,8 +56,7 @@ def _union_parts(s: str) -> list[str]:
 
 
 def normalize_union(s: Any) -> Any:
-    """
-    Canonicalize a union string or scalar.
+    """Canonicalize a union string or scalar.
 
     - Dedup and sort members.
     - Collapse 'empty_*' members to base kind.
@@ -76,8 +74,7 @@ def normalize_union(s: Any) -> Any:
 
 
 def walk_normalize(x: Any) -> Any:
-    """
-    Recursively normalize a schema/tree.
+    """Recursively normalize a schema/tree.
 
     Objects (dict):
         Normalize values recursively.
@@ -107,8 +104,7 @@ def walk_normalize(x: Any) -> Any:
 
 
 def _has_any(x: Any) -> bool:
-    """
-    Return True if `x` is (or contains) the 'any' type.
+    """Return True if `x` is (or contains) the 'any' type.
 
     Cases:
       - "any"

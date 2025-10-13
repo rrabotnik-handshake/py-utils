@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""
-Unified schema loader that can return either legacy or unified format.
+"""Unified schema loader that can return either legacy or unified format.
 
-This module provides a single interface for loading schemas from any supported
-format and returning them in either the legacy (tree, required_paths) format
-or the new unified Schema object format.
+This module provides a single interface for loading schemas from any supported format
+and returning them in either the legacy (tree, required_paths) format or the new unified
+Schema object format.
 """
 from __future__ import annotations
 
@@ -19,8 +18,7 @@ def load_schema_unified(
     model: str | None = None,
     message: str | None = None,
 ) -> Schema:
-    """
-    Load a schema from any supported format in unified Schema format.
+    """Load a schema from any supported format in unified Schema format.
 
     Parameters
     ----------

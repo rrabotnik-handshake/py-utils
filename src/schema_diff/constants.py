@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""
-Constants for schema-diff operations.
+"""Constants for schema-diff operations.
 
-This module centralizes all magic numbers, default values, and configuration
-constants used throughout the schema-diff codebase.
+This module centralizes all magic numbers, default values, and configuration constants
+used throughout the schema-diff codebase.
 """
 from __future__ import annotations
 

@@ -1,8 +1,7 @@
-"""
-Type analysis utilities for schema comparison.
+"""Type analysis utilities for schema comparison.
 
-This module provides centralized logic for analyzing type representations,
-separating base types from nullability, and determining the nature of type changes.
+This module provides centralized logic for analyzing type representations, separating
+base types from nullability, and determining the nature of type changes.
 """
 
 from __future__ import annotations
@@ -11,8 +10,7 @@ from typing import Any
 
 
 def extract_base_type_and_nullability(type_repr: str) -> tuple[str, bool]:
-    """
-    Extract base type and nullability from a type representation.
+    """Extract base type and nullability from a type representation.
 
     Args:
         type_repr: Type representation like 'str', 'union(str|missing)', etc.
@@ -60,8 +58,8 @@ def extract_base_type_and_nullability(type_repr: str) -> tuple[str, bool]:
 
 
 def analyze_type_change(old_type: str, new_type: str) -> dict[str, Any]:
-    """
-    Analyze a type change to determine if it's a type mismatch, nullability change, or both.
+    """Analyze a type change to determine if it's a type mismatch, nullability. change,
+    or both.
 
     Args:
         old_type: The old type representation
@@ -110,8 +108,8 @@ def analyze_type_change(old_type: str, new_type: str) -> dict[str, Any]:
 
 
 def is_presence_issue(old_type: str, new_type: str) -> bool:
-    """
-    Determine if a type change is primarily about presence/optionality rather than type.
+    """Determine if a type change is primarily about presence/optionality.    rather
+    than type.
 
     This is a convenience function that wraps analyze_type_change for backward compatibility.
 

@@ -1,5 +1,4 @@
-"""
-Shared schema utilities for type trees, paths, and field operations.
+"""Shared schema utilities for type trees, paths, and field operations.
 
 This module collects reusable helpers that operate on our internal
 "type tree" representation, providing comprehensive support for:
@@ -49,8 +48,8 @@ __all__ = [
 
 
 def coerce_root_to_field_dict(tree: Any) -> Any:
-    """
-    If the *root* is a list-of-fields, convert to {name: type}.
+    """If the *root* is a list-of-fields, convert to {name: type}.
+
     Supports two common shapes:
       1) [{'name': 'id', 'type': ...}, ...]
       2) [{'id': 'int'}, {'name': 'str'}, ...]
@@ -81,8 +80,7 @@ def coerce_root_to_field_dict(tree: Any) -> Any:
 
 
 def wrap_optional(t: Any) -> Any:
-    """
-    Wrap a scalar or array type with union(...|missing) if not already wrapped.
+    """Wrap a scalar or array type with union(...|missing) if not already.    wrapped.
 
     - Scalars: "str" -> "union(str|missing)"
                "union(int|float)" -> "union(float|int|missing)"
@@ -103,8 +101,7 @@ def wrap_optional(t: Any) -> Any:
 
 
 def inject_presence_for_diff(tree: Any, required_paths: Iterable[str] | None) -> Any:
-    """
-    Apply presence constraints to a *pure* type tree by wrapping optional leaves
+    """Apply presence constraints to a *pure* type tree by wrapping optional.    leaves
     with '|missing', so it aligns with the data-derived schema.
 
     Parameters
@@ -149,11 +146,10 @@ def inject_presence_for_diff(tree: Any, required_paths: Iterable[str] | None) ->
 
 
 def flatten_paths(tree: Any, prefix: str = "") -> list[str]:
-    """
-    Return a list of dotted paths for all *leaf* fields in the schema tree.
+    """Return a list of dotted paths for all *leaf* fields in the schema tree.
 
-    We recurse into dicts (objects) and arrays (lists with dict elements).
-    Arrays are represented with [0] notation for element access.
+    We recurse into dicts (objects) and arrays (lists with dict elements). Arrays are
+    represented with [0] notation for element access.
     """
     out: list[str] = []
     if isinstance(tree, dict):
@@ -180,8 +176,8 @@ def flatten_paths(tree: Any, prefix: str = "") -> list[str]:
 
 
 def paths_by_name(paths: list[str]) -> dict[str, set[str]]:
-    """
-    Group full dotted paths by leaf name (final segment).
+    """Group full dotted paths by leaf name (final segment).
+
     Example: 'a.b.c' -> grouped under key 'c'.
     """
     by_name: dict[str, set[str]] = {}
@@ -192,9 +188,8 @@ def paths_by_name(paths: list[str]) -> dict[str, set[str]]:
 
 
 def compute_path_changes(left_tree: Any, right_tree: Any) -> list[dict[str, Any]]:
-    """
-    Detect fields that share the same *name* but live in different *paths*
-    between left and right schemas.
+    """Detect fields that share the same *name* but live in different *paths* between
+    left and right schemas.
 
     Returns a list of dicts like:
       {"name": "foo", "left": ["foo"], "right": ["bar.foo"]}
@@ -263,8 +258,7 @@ def clean_deepdiff_path(path: str) -> str:
 
 
 def fmt_dot_path(p: str) -> str:
-    """
-    Clean up field paths for display with consistent array notation.
+    """Clean up field paths for display with consistent array notation.
 
     Parameters
     ----------
@@ -297,8 +291,8 @@ def fmt_dot_path(p: str) -> str:
 
 
 def filter_schema_by_fields(schema: Any, fields: list[str]) -> Any:
-    """
-    Filter a schema tree to include only specific fields with comprehensive path support.
+    """Filter a schema tree to include only specific fields with comprehensive.    path
+    support.
 
     Parameters
     ----------

@@ -1,6 +1,4 @@
-"""
-Shared utilities for consistent file output across schema-diff tools.
-"""
+"""Shared utilities for consistent file output across schema-diff tools."""
 
 from __future__ import annotations
 
@@ -9,8 +7,7 @@ from typing import Optional
 
 
 def ensure_output_dir(subdir: Optional[str] = None) -> Path:
-    """
-    Ensure the output directory exists and return the path.
+    """Ensure the output directory exists and return the path.
 
     Args:
         subdir: Optional subdirectory within ./output
@@ -30,8 +27,7 @@ def ensure_output_dir(subdir: Optional[str] = None) -> Path:
 def write_output_file(
     content: str, filename: str, subdir: Optional[str] = None
 ) -> Path:
-    """
-    Write content to a file in the output directory.
+    """Write content to a file in the output directory.
 
     Args:
         content: Content to write
@@ -51,8 +47,7 @@ def write_output_file(
 
 
 def print_output_success(output_path: Path, description: str = "File") -> None:
-    """
-    Print a standardized success message for file output.
+    """Print a standardized success message for file output.
 
     Args:
         output_path: Path to the written file
