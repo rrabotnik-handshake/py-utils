@@ -58,7 +58,7 @@ def extract_base_type_and_nullability(type_repr: str) -> tuple[str, bool]:
 
 
 def analyze_type_change(old_type: str, new_type: str) -> dict[str, Any]:
-    """Analyze a type change to determine if it's a type mismatch, nullability. change,
+    """Analyze a type change to determine if it's a type mismatch, nullability change,
     or both.
 
     Args:
@@ -93,9 +93,34 @@ def analyze_type_change(old_type: str, new_type: str) -> dict[str, Any]:
             'old_nullable': False,
             'new_nullable': False
         }
+        >>> analyze_type_change("missing", "int")
+        {
+            'has_type_change': False,
+            'has_nullability_change': True,
+            'old_base_type': 'missing',
+            'new_base_type': 'int',
+            'old_nullable': True,
+            'new_nullable': False
+        }
     """
     old_base, old_nullable = extract_base_type_and_nullability(old_type)
     new_base, new_nullable = extract_base_type_and_nullability(new_type)
+
+    # Special case: if one side is purely "missing" (or union(missing)),
+    # this is a presence issue, not a type change
+    # "missing" means the field doesn't exist at all
+    is_old_missing = old_base == "missing" or old_base == "union(missing)"
+    is_new_missing = new_base == "missing" or new_base == "union(missing)"
+
+    if is_old_missing or is_new_missing:
+        return {
+            "has_type_change": False,
+            "has_nullability_change": True,  # Field presence is a nullability concern
+            "old_base_type": old_base,
+            "new_base_type": new_base,
+            "old_nullable": old_nullable,
+            "new_nullable": new_nullable,
+        }
 
     return {
         "has_type_change": old_base != new_base,

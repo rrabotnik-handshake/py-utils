@@ -101,6 +101,10 @@ def get_local_filename(gcs_path: str, data_dir: str = "data") -> str:
     return os.path.join(data_dir, filename)
 
 
+# Track which files we've already notified about to avoid duplicate messages
+_notified_cached_files = set()
+
+
 @retry_gcs_operation
 def download_gcs_file(
     gcs_path: str, local_path: Optional[str] = None, force: bool = False
@@ -134,7 +138,10 @@ def download_gcs_file(
 
     # Check if file already exists and force is not set
     if os.path.exists(local_path) and not force:
-        print(f"📁 Using cached file: {local_path}")
+        # Only print the message once per file per session
+        if local_path not in _notified_cached_files:
+            print(f"📁 Using cached file: {local_path}")
+            _notified_cached_files.add(local_path)
         return local_path
 
     # Parse GCS path

@@ -90,6 +90,11 @@ def add_compare_subcommand(subparsers) -> None:
         help="Show common fields in addition to differences",
     )
     compare_parser.add_argument(
+        "--only-common",
+        action="store_true",
+        help="Show only common fields (hide differences)",
+    )
+    compare_parser.add_argument(
         "--fields",
         nargs="*",
         help="Compare only specific fields (space-separated list)",
@@ -279,6 +284,7 @@ def cmd_compare(args) -> None:
                 right_required=set(),
                 cfg=cfg,
                 show_common=args.show_common,
+                only_common=args.only_common,
                 left_source_type="data",
                 right_source_type="data",
                 json_out=args.json_out,
@@ -335,6 +341,7 @@ def cmd_compare(args) -> None:
                 right_schema,
                 cfg=cfg,
                 show_common=args.show_common,
+                only_common=args.only_common,
                 left_label=args.file1,
                 right_label=args.file2,
                 title_suffix=sampling_info,
@@ -360,6 +367,7 @@ def cmd_compare(args) -> None:
                 right_schema,
                 cfg=cfg,
                 show_common=args.show_common,
+                only_common=args.only_common,
                 left_label=args.file1,
                 right_label=args.file2,
             )

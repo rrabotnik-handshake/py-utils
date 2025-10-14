@@ -59,6 +59,7 @@ def compare_trees(
     json_out: str | None = None,
     title_suffix: str = "",
     show_common: bool = False,
+    only_common: bool = False,
     left_source_type: str | None = None,
     right_source_type: str | None = None,
 ) -> dict | None:
@@ -131,9 +132,6 @@ def compare_trees(
     sch1n = coerce_root_to_field_dict(sch1n)
     sch2n = coerce_root_to_field_dict(sch2n)
 
-    if show_common:
-        print_common_fields(left_label, right_label, sch1n, sch2n, cfg.colors())
-
     diff = DeepDiff(sch1n, sch2n, ignore_order=True)
 
     direction = f"{left_label} -> {right_label}"
@@ -181,11 +179,17 @@ def compare_trees(
         title_suffix=title_suffix,
         left_source_type=left_source_type or "data",
         right_source_type=right_source_type or "data",
+        only_common=only_common,
     )
 
-    # Path changes on normalized/coerced trees
-    path_changes = compute_path_changes(sch1n, sch2n)
-    print_path_changes(left_label, right_label, path_changes, colors=cfg.colors())
+    # Show common fields when only_common or show_common is True
+    if only_common or show_common:
+        print_common_fields(left_label, right_label, sch1n, sch2n, colors=cfg.colors())
+
+    # Path changes on normalized/coerced trees (skip when only_common is True)
+    if not only_common:
+        path_changes = compute_path_changes(sch1n, sch2n)
+        print_path_changes(left_label, right_label, path_changes, colors=cfg.colors())
 
     if dump_schemas:
         with open(dump_schemas, "w", encoding="utf-8") as fh:
@@ -212,6 +216,7 @@ def compare_schemas_unified(
     json_out: str | None = None,
     title_suffix: str = "",
     show_common: bool = False,
+    only_common: bool = False,
     left_label: str | None = None,
     right_label: str | None = None,
 ) -> dict | None:
@@ -275,6 +280,7 @@ def compare_schemas_unified(
         json_out=json_out,
         title_suffix=title_suffix,
         show_common=show_common,
+        only_common=only_common,
         left_source_type=left_source_type,
         right_source_type=right_source_type,
     )

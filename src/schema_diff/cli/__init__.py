@@ -17,8 +17,18 @@ from .generate import cmd_generate
 def main() -> int:
     """Main entry point for modular CLI."""
     import argparse
+    import warnings
 
     from ..helpfmt import ColorDefaultsFormatter
+
+    # Suppress Google Cloud SDK authentication warnings
+    # These are informational warnings about quota projects that don't affect functionality
+    warnings.filterwarnings(
+        "ignore",
+        message="Your application has authenticated using end user credentials.*",
+        category=UserWarning,
+        module="google.auth._default",
+    )
 
     parser = argparse.ArgumentParser(
         prog="schema-diff",

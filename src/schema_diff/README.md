@@ -147,6 +147,9 @@ schema-diff compare file1.json file2.json --output
 # Single table DDL
 schema-diff ddl table my-project:dataset.table
 
+# Real-world example
+schema-diff ddl table 'handshake-production:coresignal.linkedin_member_us_snapshot'
+
 # Batch DDL generation
 schema-diff ddl batch my-project:dataset.table1 my-project:dataset.table2
 
@@ -262,6 +265,20 @@ Differences in field optionality and nullability constraints (e.g., `required �
 ### Path Changes
 
 Fields that appear in different locations or structures between schemas, useful for understanding structural changes.
+
+### When is Presence/Nullability Shown?
+
+The "Presence mismatches (NULL/required)" section is **only displayed** for **schema-to-schema** comparisons where nullability constraints are explicitly defined and meaningful.
+
+**Automatically skipped for:**
+
+- ✅ **Data-to-data** comparisons - Nullability depends on which records were sampled, making it unreliable noise
+- ✅ **Data-to-schema** comparisons - Data files don't have explicit nullability declarations, only actual data presence
+
+**Shown for:**
+
+- ✅ **Schema-to-schema** comparisons - Both sides have explicit `NULL`/`NOT NULL` or `required`/`optional` declarations
+- Examples: SQL → SQL, BigQuery → BigQuery, JSON Schema → JSON Schema, dbt → dbt
 
 ---
 
@@ -479,6 +496,16 @@ schema-diff ddl table [OPTIONS] table_ref
 
 - `--output` - Save DDL to ./output directory
 
+**Examples:**
+
+```bash
+# Generate DDL to stdout
+schema-diff ddl table 'handshake-production:coresignal.linkedin_member_us_snapshot'
+
+# Save to file
+schema-diff ddl table 'my-project:analytics.users' --output
+```
+
 ##### `ddl batch` - Multiple Tables DDL
 
 Generate DDL for multiple tables.
@@ -495,6 +522,16 @@ schema-diff ddl batch [OPTIONS] table_ref [table_ref ...]
 
 - `--output` - Save DDL files to ./output directory
 
+**Examples:**
+
+```bash
+# Generate DDL for multiple tables
+schema-diff ddl batch 'my-project:dataset.users' 'my-project:dataset.orders' 'my-project:dataset.products'
+
+# Save all to files
+schema-diff ddl batch 'my-project:dataset.table1' 'my-project:dataset.table2' --output
+```
+
 ##### `ddl dataset` - Dataset DDL
 
 Generate DDL for all tables in a BigQuery dataset.
@@ -510,6 +547,16 @@ schema-diff ddl dataset [OPTIONS] dataset_ref
 **Options:**
 
 - `--output` - Save DDL files to ./output directory
+
+**Examples:**
+
+```bash
+# Generate DDL for all tables in a dataset
+schema-diff ddl dataset 'my-project:analytics'
+
+# Save all table DDLs to files
+schema-diff ddl dataset 'handshake-production:coresignal' --output
+```
 
 ### Subcommand: `config`
 

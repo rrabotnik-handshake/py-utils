@@ -382,6 +382,7 @@ def print_report_text(
     title_suffix: str = "",
     left_source_type: str = "data",
     right_source_type: str = "data",
+    only_common: bool = False,
 ) -> None:
     """Pretty-print a report structure returned by `build_report_struct`.
 
@@ -399,18 +400,27 @@ def print_report_text(
         Optional extra detail shown in the header (e.g., “; record #1”).
     """
     RED, GRN, YEL, CYN, RST = colors
-    print(f"\n{CYN}=== Schema diff (types only, {f1} → {f2}{title_suffix}) ==={RST}")
 
-    only1, only2 = report["only_in_file1"], report["only_in_file2"]
-    print(f"\n{YEL}-- Only in {f1} -- ({len(only1)}){RST}")
-    for p in only1:
-        print(f"  {RED}{fmt_dot_path(p)}{RST}")
-    print(f"\n{YEL}-- Only in {f2} -- ({len(only2)}){RST}")
-    for p in only2:
-        print(f"  {GRN}{fmt_dot_path(p)}{RST}")
+    # Adjust title based on only_common flag
+    if only_common:
+        print(f"\n{CYN}=== Common fields only ({f1} ∩ {f2}{title_suffix}) ==={RST}")
+    else:
+        print(
+            f"\n{CYN}=== Schema diff (types only, {f1} → {f2}{title_suffix}) ==={RST}"
+        )
 
-    # Always show presence section if enabled, even if empty
-    if show_presence:
+    # Skip differences when only_common is True
+    if not only_common:
+        only1, only2 = report["only_in_file1"], report["only_in_file2"]
+        print(f"\n{YEL}-- Only in {f1} -- ({len(only1)}){RST}")
+        for p in only1:
+            print(f"  {RED}{fmt_dot_path(p)}{RST}")
+        print(f"\n{YEL}-- Only in {f2} -- ({len(only2)}){RST}")
+        for p in only2:
+            print(f"  {GRN}{fmt_dot_path(p)}{RST}")
+
+    # Always show presence section if enabled, even if empty (but skip if only_common)
+    if show_presence and not only_common:
         pres = report.get("presence_issues", [])
 
         # Determine which sides are schema sources for proper terminology
@@ -428,12 +438,13 @@ def print_report_text(
         left_is_schema = left_source_type in SCHEMA_SOURCES
         right_is_schema = right_source_type in SCHEMA_SOURCES
 
-        # Skip presence issues for data-to-schema comparisons to reduce noise
+        # Skip presence issues for data-to-schema and data-to-data comparisons
         # Data files don't have meaningful nullability constraints, so presence differences
-        # between data (always "present") and schema (nullable/required) are not useful
+        # are only meaningful when comparing schema-to-schema
         is_data_to_schema = (left_source_type == "data" and right_is_schema) or (
             right_source_type == "data" and left_is_schema
         )
+        is_data_to_data = left_source_type == "data" and right_source_type == "data"
 
         actual_presence_issues: list[Tuple[Dict[str, Any], str, str]] = []
 
@@ -442,6 +453,12 @@ def print_report_text(
             print(f"\n{YEL}-- Presence mismatches (NULL/required) -- (0){RST}")
             print(
                 f"  {CYN}Skipped for data-to-schema comparison{RST} (data files don't have explicit nullability)"
+            )
+        elif is_data_to_data:
+            # For data-to-data comparisons, nullability is just sampling noise
+            print(f"\n{YEL}-- Presence mismatches (NULL/required) -- (0){RST}")
+            print(
+                f"  {CYN}Skipped for data-to-data comparison{RST} (nullability depends on data samples)"
             )
         else:
             # Filter out items where both sides are identical after formatting
@@ -466,13 +483,15 @@ def print_report_text(
                     f"  {CYN}{fmt_dot_path(e['path'])}{RST}: {left_formatted} → {right_formatted}"
                 )
 
-    mism = report["schema_mismatches"]
-    print(f"\n{YEL}-- Type mismatches -- ({len(mism)}){RST}")
-    for e in mism:
-        print(
-            f"  {CYN}{fmt_dot_path(e['path'])}{RST}: "
-            f"{RED}{e['file1']}{RST} → {GRN}{e['file2']}{RST}"
-        )
+    # Skip type mismatches when only_common is True
+    if not only_common:
+        mism = report["schema_mismatches"]
+        print(f"\n{YEL}-- Type mismatches -- ({len(mism)}){RST}")
+        for e in mism:
+            print(
+                f"  {CYN}{fmt_dot_path(e['path'])}{RST}: "
+                f"{RED}{e['file1']}{RST} → {GRN}{e['file2']}{RST}"
+            )
 
 
 def print_common_fields(

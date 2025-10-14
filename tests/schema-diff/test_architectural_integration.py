@@ -33,6 +33,24 @@ class TestComparisonPaths:
         assert "Schema diff" in result.stdout
         assert "No differences" in result.stdout  # Same schema structure
 
+    def test_data_to_data_skips_presence(self, tmp_path, run_cli):
+        """Test that data-to-data comparisons skip presence mismatches."""
+        file1 = tmp_path / "data1.json"
+        file2 = tmp_path / "data2.json"
+
+        # Create data with different nullability patterns
+        # In data1, 'age' is always present, 'email' is sometimes null
+        # In data2, 'age' is sometimes null, 'email' is always present
+        file1.write_text('{"name": "Alice", "age": 30, "email": null}\n')
+        file2.write_text('{"name": "Bob", "age": null, "email": "bob@example.com"}\n')
+
+        result = run_cli([str(file1), str(file2), "--no-color"])
+        
+        assert result.returncode == 0
+        # Should skip presence mismatches for data-to-data
+        assert "Skipped for data-to-data comparison" in result.stdout
+        assert "nullability depends on data samples" in result.stdout
+
     def test_data_to_data_with_explicit_flags(self, tmp_path, run_cli):
         """Test data-to-data comparisons with explicit --left data --right data."""
         file1 = tmp_path / "data1.json"
