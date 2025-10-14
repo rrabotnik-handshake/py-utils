@@ -692,7 +692,8 @@ class PatternValidator:
     def _check_magic_numbers(
         self, tree: ast.AST, file_path: Path
     ) -> List[PatternIssue]:
-        """Check for magic numbers using AST (handles negatives & common benign contexts)."""
+        """Check for magic numbers using AST (handles negatives & common benign
+        contexts)."""
         # Skip test files
         if _looks_like_test_file(file_path):
             return []
@@ -701,7 +702,8 @@ class PatternValidator:
         allowed = set(self.config.get("magic_numbers_allow", [-1, 0, 1, 2]))
 
         def _is_constant_assignment(parent_stack) -> bool:
-            """Is this number being assigned to an ALL_CAPS constant (module/class scope)?"""
+            """Is this number being assigned to an ALL_CAPS constant (module/class
+            scope)?"""
             for i in range(len(parent_stack) - 1):
                 n = parent_stack[i]
                 ch = parent_stack[i + 1]
