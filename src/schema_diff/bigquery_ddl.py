@@ -23,8 +23,8 @@ from google.cloud.bigquery.schema import SchemaField
 
 def get_default_project() -> str:
     """Get the default BigQuery project from environment or client."""
-    # Try environment variable first
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    # Try environment variables first (both common variants)
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT")
     if project:
         return project
 
@@ -185,51 +185,134 @@ ORDER BY tc.constraint_name
 """
 
 FK_SQL = """
+-- Accurate FK mapping using REFERENTIAL_CONSTRAINTS to handle composite keys
+WITH
+  fk_cols AS (
+    SELECT
+      k.table_schema,
+      k.table_name,
+      k.constraint_name,
+      k.column_name AS fk_column,
+      k.ordinal_position
+    FROM `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
+    WHERE k.table_name = @table_name
+      AND k.table_schema = @dataset_name
+  ),
+  fk_to_pk AS (
+    SELECT
+      rc.constraint_schema,
+      rc.constraint_name,
+      rc.unique_constraint_schema AS pk_schema,
+      rc.unique_constraint_name    AS pk_constraint_name
+    FROM `{project}.{dataset}.INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS` rc
+    WHERE rc.constraint_schema = @dataset_name
+  ),
+  pk_cols AS (
+    SELECT
+      k.constraint_schema,
+      k.constraint_name,
+      k.column_name AS pk_column,
+      k.table_schema AS pk_table_schema,
+      k.table_name   AS pk_table_name,
+      k.ordinal_position
+    FROM `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
+  )
 SELECT
-  tc.constraint_name,
-  kcu.column_name AS column_name,
-  ccu.table_schema AS referenced_dataset,
-  ccu.table_name   AS referenced_table,
-  ccu.column_name  AS referenced_column,
-  kcu.ordinal_position
-FROM `{project}.{dataset}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS` tc
-JOIN `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` kcu
-  ON tc.constraint_name = kcu.constraint_name
- AND tc.table_name     = kcu.table_name
- AND tc.table_schema   = kcu.table_schema
-JOIN `{project}.{dataset}.INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE` ccu
-  ON tc.constraint_name = ccu.constraint_name
-WHERE tc.table_name   = @table_name
-  AND tc.table_schema = @dataset_name
-  AND tc.constraint_type = 'FOREIGN KEY'
-ORDER BY tc.constraint_name, kcu.ordinal_position
+  f.constraint_name,
+  f.fk_column               AS column_name,
+  p.pk_table_schema         AS referenced_dataset,
+  p.pk_table_name           AS referenced_table,
+  p.pk_column               AS referenced_column,
+  f.ordinal_position
+FROM fk_cols f
+JOIN fk_to_pk m
+  ON f.constraint_name   = m.constraint_name
+ AND f.table_schema      = m.constraint_schema
+JOIN pk_cols p
+  ON p.constraint_name   = m.pk_constraint_name
+ AND p.constraint_schema = m.pk_schema
+ AND p.ordinal_position  = f.ordinal_position
+ORDER BY f.constraint_name, f.ordinal_position
 """
 
-# Batch query for multiple tables
+# Batch query for multiple tables - uses REFERENTIAL_CONSTRAINTS for accurate FK mapping
 BATCH_CONSTRAINTS_SQL = """
-WITH all_constraints AS (
-  SELECT
-    tc.table_name,
-    tc.constraint_name,
-    tc.constraint_type,
-    ARRAY_AGG(kcu.column_name ORDER BY kcu.ordinal_position) AS columns,
-    ARRAY_AGG(STRUCT(
-      ccu.table_schema AS referenced_dataset,
-      ccu.table_name AS referenced_table,
-      ccu.column_name AS referenced_column
-    ) ORDER BY kcu.ordinal_position) AS references
-  FROM `{project}.{dataset}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS` tc
-  JOIN `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` kcu
-    ON tc.constraint_name = kcu.constraint_name
-   AND tc.table_name = kcu.table_name
-   AND tc.table_schema = kcu.table_schema
-  LEFT JOIN `{project}.{dataset}.INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE` ccu
-    ON tc.constraint_name = ccu.constraint_name
-  WHERE tc.table_name IN UNNEST(@table_names)
-    AND tc.table_schema = @dataset_name
-    AND tc.constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY')
-  GROUP BY tc.table_name, tc.constraint_name, tc.constraint_type
-)
+WITH
+  fk_cols AS (
+    SELECT
+      k.table_name,
+      k.constraint_name,
+      k.column_name AS fk_column,
+      k.table_schema,
+      k.ordinal_position
+    FROM `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
+    WHERE k.table_name IN UNNEST(@table_names)
+      AND k.table_schema = @dataset_name
+  ),
+  fk_to_pk AS (
+    SELECT
+      rc.constraint_schema,
+      rc.constraint_name,
+      rc.unique_constraint_schema AS pk_schema,
+      rc.unique_constraint_name    AS pk_constraint_name
+    FROM `{project}.{dataset}.INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS` rc
+    WHERE rc.constraint_schema = @dataset_name
+  ),
+  pk_cols AS (
+    SELECT
+      k.constraint_schema,
+      k.constraint_name,
+      k.column_name AS pk_column,
+      k.table_schema AS pk_table_schema,
+      k.table_name   AS pk_table_name,
+      k.ordinal_position
+    FROM `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
+  ),
+  resolved_fks AS (
+    SELECT
+      f.table_name,
+      f.constraint_name,
+      ARRAY_AGG(f.fk_column ORDER BY f.ordinal_position) AS fk_columns,
+      ARRAY_AGG(STRUCT(
+        p.pk_table_schema AS referenced_dataset,
+        p.pk_table_name   AS referenced_table,
+        p.pk_column       AS referenced_column
+      ) ORDER BY f.ordinal_position) AS refs
+    FROM fk_cols f
+    JOIN fk_to_pk m
+      ON f.constraint_name   = m.constraint_name
+     AND f.table_schema      = m.constraint_schema
+    JOIN pk_cols p
+      ON p.constraint_name   = m.pk_constraint_name
+     AND p.constraint_schema = m.pk_schema
+     AND p.ordinal_position  = f.ordinal_position
+    GROUP BY f.table_name, f.constraint_name
+  ),
+  all_constraints AS (
+    SELECT
+      r.table_name,
+      r.constraint_name,
+      'FOREIGN KEY' AS constraint_type,
+      r.fk_columns  AS columns,
+      r.refs        AS references
+    FROM resolved_fks r
+    UNION ALL
+    SELECT
+      tc.table_name,
+      tc.constraint_name,
+      'PRIMARY KEY' AS constraint_type,
+      ARRAY_AGG(k.column_name ORDER BY k.ordinal_position) AS columns,
+      ARRAY<STRUCT<referenced_dataset STRING, referenced_table STRING, referenced_column STRING>>[] AS references
+    FROM `{project}.{dataset}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS` tc
+    JOIN `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
+      ON tc.constraint_name = k.constraint_name
+     AND tc.table_name      = k.table_name
+     AND tc.table_schema    = k.table_schema
+    WHERE tc.table_name IN UNNEST(@table_names)
+      AND tc.table_schema = @dataset_name
+      AND tc.constraint_type = 'PRIMARY KEY'
+    GROUP BY tc.table_name, tc.constraint_name
+  )
 SELECT * FROM all_constraints
 ORDER BY table_name, constraint_type, constraint_name
 """
@@ -816,6 +899,24 @@ def get_live_table_schema(
 # =========================
 
 
+def _canon_type(field_type: str) -> str:
+    """Normalize BigQuery type aliases to canonical forms.
+
+    Args:
+        field_type: BigQuery field type (e.g., "INTEGER", "INT64", "FLOAT")
+
+    Returns:
+        Canonical type name (e.g., "INT64", "FLOAT64", "BOOLEAN")
+    """
+    t = (field_type or "").upper()
+    return {
+        "INTEGER": "INT64",
+        "FLOAT": "FLOAT64",
+        "BOOL": "BOOLEAN",
+        "BIGNUMERIC": "BIGNUMERIC",
+    }.get(t, t)
+
+
 def detect_bigquery_antipatterns(
     schema: list[SchemaField],
 ) -> list[dict[str, Any]]:
@@ -895,7 +996,8 @@ def detect_bigquery_antipatterns(
                     )
 
         # Anti-pattern 3: Boolean stored as INTEGER
-        if field.field_type == "INTEGER":
+        ft = _canon_type(field.field_type)
+        if ft == "INT64":
             name_lower = field.name.lower()
             if any(
                 name_lower.startswith(prefix)
@@ -1172,7 +1274,7 @@ def detect_bigquery_antipatterns(
     # Anti-pattern 13: Redundant/duplicate structures
     # Find RECORD fields with IDENTICAL structures at the TOP level only
     # This is conservative - only flags true duplicates that likely represent the same entity
-    top_level_struct_signatures = {}
+    top_level_struct_signatures: dict[tuple, list[str]] = {}
 
     def collect_top_level_struct_signatures(field: SchemaField) -> None:
         """Collect signatures of top-level RECORD fields only."""
@@ -1948,7 +2050,7 @@ def detect_bigquery_antipatterns(
         check_string_abuse(field)
 
     if string_abuse_fields:
-        by_type = {}
+        by_type: dict[str, list[str]] = {}
         for field_path, suggested_type in string_abuse_fields:
             by_type.setdefault(suggested_type, []).append(field_path)
 
@@ -1968,7 +2070,7 @@ def detect_bigquery_antipatterns(
     # Anti-pattern 26: Type inconsistency (mixed types for similar fields)
     def check_type_consistency() -> None:
         """Check for inconsistent types across similar fields."""
-        id_fields_by_type = {}
+        id_fields_by_type: dict[str, list[str]] = {}
 
         def collect_id_types(field: SchemaField, path: str = "") -> None:
             field_path = f"{path}.{field.name}" if path else field.name
@@ -2013,8 +2115,9 @@ def detect_bigquery_antipatterns(
         """Check for FLOAT64 fields used for money."""
         field_path = f"{path}.{field.name}" if path else field.name
         name_lower = field.name.lower()
+        ft = _canon_type(field.field_type)
 
-        if field.field_type == "FLOAT":
+        if ft == "FLOAT64":
             money_keywords = [
                 "price",
                 "cost",
@@ -2400,7 +2503,7 @@ def detect_bigquery_antipatterns(
             return
 
         # Find most common prefix
-        prefixes = {}
+        prefixes: dict[str, int] = {}
         for field in schema:
             parts = field.name.lower().split("_")
             if len(parts) > 1:
@@ -2431,7 +2534,7 @@ def detect_bigquery_antipatterns(
     # Anti-pattern 37: Denormalization abuse
     def check_denormalization() -> None:
         """Check for excessive denormalization."""
-        field_prefixes = {}
+        field_prefixes: dict[str, int] = {}
 
         for field in schema:
             parts = field.name.lower().split("_")
@@ -2576,7 +2679,7 @@ def detect_bigquery_antipatterns(
         )
 
     # Anti-pattern 41: Inconsistent date granularity
-    date_fields_by_type = {}
+    date_fields_by_type: dict[str, list[str]] = {}
 
     def collect_date_types(field: SchemaField, path: str = "") -> None:
         """Collect date fields by type."""
@@ -2645,7 +2748,7 @@ def detect_bigquery_antipatterns(
     check_null_representation()
 
     # Anti-pattern 43: Inconsistent boolean representation
-    boolean_fields_by_type = {}
+    boolean_fields_by_type: dict[str, list[str]] = {}
 
     def collect_boolean_types(field: SchemaField, path: str = "") -> None:
         """Collect boolean-semantic fields by type."""

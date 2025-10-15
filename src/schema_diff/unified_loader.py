@@ -119,8 +119,8 @@ def _load_unified_schema(
         # Get raw BigQuery schema for anti-pattern detection
         client = bigquery.Client(project=project_id)
         table_ref = f"{project_id}.{dataset_id}.{table_id}"
-        table = client.get_table(table_ref)
-        raw_bq_schema = table.schema
+        bq_table = client.get_table(table_ref)
+        raw_bq_schema = bq_table.schema
 
         # Convert to internal format (this flattens unnecessary wrappers)
         tree, required = bigquery_schema_to_internal(raw_bq_schema)

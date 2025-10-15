@@ -6,10 +6,46 @@ system of the unified Schema objects.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import Any, Dict, List
 
 from .models import FieldConstraint, Schema
+
+
+# Helper functions for JSON-safe returns and robust pattern detection
+def _to_plain(obj: Any) -> Any:
+    """Recursively convert defaultdicts/sets to JSON-friendly plain types."""
+    if isinstance(obj, defaultdict):
+        return {k: _to_plain(v) for k, v in obj.items()}
+    if isinstance(obj, dict):
+        return {k: _to_plain(v) for k, v in obj.items()}
+    if isinstance(obj, set):
+        return sorted(_to_plain(x) for x in obj)
+    if isinstance(obj, list):
+        return [_to_plain(x) for x in obj]
+    return obj
+
+
+_EMAIL_RE = re.compile(r"\b(e[-_ ]?mail)\b", re.IGNORECASE)
+
+
+def _is_array_of_objects(field) -> bool:
+    """Prefer structural type info if available; fallback to string repr."""
+    t = getattr(field, "type", None)
+    is_arr = getattr(t, "is_array", False)
+    elem = getattr(t, "items", None) or getattr(t, "element", None)
+    is_obj = getattr(elem, "is_object", False) or (
+        "{" in str(elem) if elem is not None else False
+    )
+    if is_arr:
+        return bool(is_obj)
+    s = str(t)
+    return (
+        s.startswith("[")
+        and s not in ["[str]", "[int]", "[float]", "[bool]"]
+        and "{" in s
+    )
 
 
 def analyze_schema_complexity(schema: Schema) -> Dict[str, Any]:  # type: ignore[misc]
@@ -71,9 +107,10 @@ def analyze_schema_complexity(schema: Schema) -> Dict[str, Any]:  # type: ignore
         if all_depths:
             total_depth = sum(depth for _, depth in all_depths)
             analysis["avg_nesting_depth"] = total_depth / len(all_depths)  # type: ignore[operator]
-            for field_name, depth in all_depths[
-                :100
-            ]:  # Limit to first 100 for performance
+            # keep the deepest 100 paths (most actionable)
+            for field_name, depth in sorted(
+                all_depths, key=lambda x: x[1], reverse=True
+            )[:100]:
                 analysis["field_paths_by_depth"][depth].append(field_name)  # type: ignore[index]
     else:
         # Fallback to unified schema field paths
@@ -116,7 +153,8 @@ def analyze_schema_complexity(schema: Schema) -> Dict[str, Any]:  # type: ignore
         else:
             analysis["scalar_fields"] += 1  # type: ignore[operator]
 
-    return dict(analysis)
+    # JSON-friendly result
+    return _to_plain(analysis)  # type: ignore[no-any-return]
 
 
 def find_schema_patterns(schema: Schema) -> Dict[str, List[str]]:
@@ -177,7 +215,7 @@ def find_schema_patterns(schema: Schema) -> Dict[str, List[str]]:
             patterns["timestamp_fields"].append(field.path)
 
         # Email fields
-        if "email" in field_name_lower or "mail" in field_name_lower:
+        if _EMAIL_RE.search(field.name):
             patterns["email_fields"].append(field.path)
 
         # Nested objects
@@ -185,14 +223,12 @@ def find_schema_patterns(schema: Schema) -> Dict[str, List[str]]:
             patterns["nested_objects"].append(field.path)
 
         # Array of objects
-        if field_type_str.startswith("[") and field_type_str not in [
-            "[str]",
-            "[int]",
-            "[float]",
-            "[bool]",
-        ]:
+        if _is_array_of_objects(field):
             patterns["array_of_objects"].append(field.path)
 
+    # tidy: de-dupe and sort for stable output
+    for k in patterns:
+        patterns[k] = sorted(set(patterns[k]))
     return patterns
 
 
@@ -295,7 +331,7 @@ def suggest_schema_improvements(schema: Schema) -> List[Dict[str, str]]:
 
             if antipatterns:
                 # Group by category and pattern
-                pattern_groups = {}
+                pattern_groups: dict[str, list[dict[str, Any]]] = {}
                 for ap in antipatterns:
                     pattern = ap["pattern"]
                     if pattern not in pattern_groups:
@@ -654,6 +690,17 @@ def suggest_schema_improvements(schema: Schema) -> List[Dict[str, str]]:
             # If detection fails, skip silently
             pass
 
+    # --- post-process suggestions for readability ---
+    for s in suggestions:
+        if "affected_fields" in s and isinstance(s["affected_fields"], list):
+            # de-dupe, keep stable order, and cap to 25
+            seen = set()
+            dedup = []
+            for f in s["affected_fields"]:
+                if f not in seen:
+                    dedup.append(f)
+                    seen.add(f)
+            s["affected_fields"] = dedup[:25]
     return suggestions  # type: ignore[return-value]
 
 
@@ -701,14 +748,14 @@ def compare_schema_evolution_advanced(
         "migration_complexity": "low",  # Will be calculated below
     }
 
-    # Calculate migration complexity
+    # Calculate migration complexity (robust to missing keys)
     complexity_score = 0
-    complexity_score += len(basic_evolution["breaking_changes"]) * 3
-    complexity_score += len(basic_evolution["type_changes"]) * 2
+    complexity_score += len(basic_evolution.get("breaking_changes", [])) * 3
+    complexity_score += len(basic_evolution.get("type_changes", [])) * 2
     complexity_score += (
         abs(advanced_analysis["complexity_changes"]["nesting_depth_change"]) * 2
     )
-    complexity_score += len(basic_evolution["removed_fields"])
+    complexity_score += len(basic_evolution.get("removed_fields", []))
 
     if complexity_score == 0:
         advanced_analysis["migration_complexity"] = "trivial"
@@ -749,7 +796,10 @@ def generate_schema_report(schema: Schema) -> str:
 
     # Type distribution
     report.append("## Type Distribution")
-    for type_name, count in sorted(complexity["type_distribution"].items()):
+    for type_name, count in sorted(
+        complexity["type_distribution"].items(),
+        key=lambda kv: (str(kv[0]), -int(kv[1])),
+    ):
         report.append(f"- **{type_name}**: {count} fields")
     report.append("")
 
