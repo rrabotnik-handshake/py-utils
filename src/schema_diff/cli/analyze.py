@@ -10,14 +10,48 @@ from typing import Any
 
 def add_analyze_subcommand(subparsers):
     """Add the analyze subcommand to the CLI."""
+    from ..helpfmt import ColorDefaultsFormatter
+    from .colors import BLUE, BOLD, CYAN, GREEN, RESET, YELLOW
+
     analyze_parser = subparsers.add_parser(
         "analyze",
         help="Perform advanced schema analysis",
-        description="Analyze schema complexity, patterns, and provide improvement suggestions",
+        formatter_class=ColorDefaultsFormatter,
+        description=f"""
+Analyze schema complexity, detect patterns, and get optimization suggestions.
+
+{BOLD}{YELLOW}ANALYSIS TYPES:{RESET}
+  {BLUE}--complexity{RESET}    Nesting depth, field counts, type distribution
+  {BLUE}--patterns{RESET}      Repeated structures, naming conventions, semantic patterns
+  {BLUE}--suggestions{RESET}   Denormalization opportunities, index recommendations
+  {BLUE}--report{RESET}        Comprehensive report with all sections
+  {BLUE}--all{RESET}           All of the above
+
+{BOLD}{YELLOW}OUTPUT FORMATS:{RESET}
+  {BLUE}text{RESET}       Human-readable (default)
+  {BLUE}json{RESET}       Machine-readable
+  {BLUE}markdown{RESET}   Documentation-ready
+
+{BOLD}{CYAN}EXAMPLES:{RESET}
+  {GREEN}# Basic analysis{RESET}
+  schema-diff analyze schema.json
+
+  {GREEN}# Specific analyses{RESET}
+  schema-diff analyze data.json --complexity --patterns
+
+  {GREEN}# SQL schema with table selection{RESET}
+  schema-diff analyze schema.sql --type sql --table users --all
+
+  {GREEN}# BigQuery table with output{RESET}
+  schema-diff analyze project:dataset.table --type bigquery --output
+        """,
     )
 
     # Positional arguments
-    analyze_parser.add_argument("schema_file", help="Schema file to analyze")
+    analyze_parser.add_argument(
+        "schema_file",
+        help="Schema or data file to analyze (supports all schema-diff formats)",
+    )
 
     # Schema type options
     analyze_parser.add_argument(
@@ -41,47 +75,54 @@ def add_analyze_subcommand(subparsers):
     analyze_parser.add_argument(
         "--complexity",
         action="store_true",
-        help="Show complexity analysis (nesting depth, type distribution, etc.)",
+        help="Show complexity metrics: nesting depth, field counts, type distribution, array usage",
     )
     analyze_parser.add_argument(
         "--patterns",
         action="store_true",
-        help="Show pattern analysis (repeated fields, semantic patterns, etc.)",
+        help="Show pattern analysis: repeated structures, semantic patterns, naming conventions",
     )
     analyze_parser.add_argument(
         "--suggestions",
         action="store_true",
-        help="Show improvement suggestions",
+        help="Show improvement suggestions: denormalization, indexing, type optimizations",
     )
     analyze_parser.add_argument(
         "--report",
         action="store_true",
-        help="Generate comprehensive analysis report",
+        help="Generate comprehensive analysis report with all sections",
     )
     analyze_parser.add_argument(
         "--all",
         action="store_true",
-        help="Show all analysis types (equivalent to --complexity --patterns --suggestions --report)",
+        help="Show all analysis types (complexity + patterns + suggestions + report)",
     )
 
     # Output options
     analyze_parser.add_argument(
         "--output",
         action="store_true",
-        help="Save analysis to output directory",
+        help="Save analysis to ./output/analysis/ directory",
     )
     analyze_parser.add_argument(
         "--format",
         choices=["text", "json", "markdown"],
         default="text",
-        help="Output format (default: text)",
+        help="Output format: text (human-readable), json (machine-readable), markdown (documentation)",
     )
 
     # Schema-specific options
-    analyze_parser.add_argument("--table", help="BigQuery table name (for SQL schemas)")
-    analyze_parser.add_argument("--model", help="dbt model name (for dbt schemas)")
     analyze_parser.add_argument(
-        "--message", help="Protobuf message name (for protobuf schemas)"
+        "--table",
+        help="BigQuery/SQL table name to extract from multi-table schemas",
+    )
+    analyze_parser.add_argument(
+        "--model",
+        help="dbt model name to extract from manifest.json or schema.yml",
+    )
+    analyze_parser.add_argument(
+        "--message",
+        help="Protobuf message name to analyze from .proto files",
     )
 
     # Data sampling options (for data files)
@@ -241,106 +282,420 @@ def _prepare_for_json(results):
 
 
 def _format_as_text(results, schema):
-    """Format results as plain text."""
+    """Format results as plain text with color coding."""
+    from .colors import BLUE, BOLD, CYAN, GREEN, RED, RESET, YELLOW
+
     output = []
-    output.append(f"📊 Schema Analysis: {schema.source_type or 'Unknown'}")
-    output.append("=" * 50)
+    output.append(
+        f"\n{BOLD}{CYAN}📊 Schema Analysis: {schema.source_type or 'Unknown'}{RESET}"
+    )
+    output.append("═" * 70)
     output.append("")
 
-    if "complexity" in results:
-        complexity = results["complexity"]
-        output.append("🔍 COMPLEXITY ANALYSIS")
-        output.append("-" * 25)
-        output.append(f"Total Fields: {complexity['total_fields']}")
-        output.append(f"Required Fields: {complexity['required_fields']}")
-        output.append(f"Optional Fields: {complexity['optional_fields']}")
-        output.append(f"Max Nesting Depth: {complexity['max_nesting_depth']}")
-        output.append(f"Average Nesting Depth: {complexity['avg_nesting_depth']:.2f}")
-        output.append("")
-
-        output.append("Field Categories:")
-        output.append(f"  • Scalar: {complexity['scalar_fields']}")
-        output.append(f"  • Array: {complexity['array_fields']}")
-        output.append(f"  • Object: {complexity['object_fields']}")
-        output.append(f"  • Union: {complexity['union_fields']}")
-        output.append("")
-
-    if "patterns" in results:
-        patterns = results["patterns"]
-        output.append("🔍 PATTERN ANALYSIS")
-        output.append("-" * 20)
-
-        if patterns["id_fields"]:
-            output.append(f"ID Fields: {', '.join(patterns['id_fields'])}")
-        if patterns["timestamp_fields"]:
-            output.append(
-                f"Timestamp Fields: {', '.join(patterns['timestamp_fields'])}"
-            )
-        if patterns["email_fields"]:
-            output.append(f"Email Fields: {', '.join(patterns['email_fields'])}")
-        if patterns["repeated_field_names"]:
-            output.append(
-                f"Repeated Field Names: {', '.join(patterns['repeated_field_names'])}"
-            )
-        if patterns["array_of_objects"]:
-            output.append(
-                f"Array of Objects: {', '.join(patterns['array_of_objects'])}"
-            )
-        output.append("")
-
+    # LEAD WITH SUGGESTIONS - most actionable information first
     if "suggestions" in results:
         suggestions = results["suggestions"]
-        output.append("💡 IMPROVEMENT SUGGESTIONS")
-        output.append("-" * 30)
+        output.append(f"{BOLD}{YELLOW}💡 KEY RECOMMENDATIONS{RESET}")
+        output.append("─" * 70)
 
         if not suggestions:
-            output.append("No suggestions - schema looks good! ✅")
+            output.append(f"{GREEN}✅ No issues found - schema looks good!{RESET}")
         else:
-            for i, suggestion in enumerate(suggestions, 1):
-                severity_icon = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(
-                    suggestion["severity"], "📝"
-                )
-                output.append(f"{i}. {severity_icon} {suggestion['type'].upper()}")
-                output.append(f"   {suggestion['description']}")
-                if suggestion["affected_fields"]:
-                    fields_str = ", ".join(suggestion["affected_fields"][:3])
-                    if len(suggestion["affected_fields"]) > 3:
-                        fields_str += (
-                            f" (and {len(suggestion['affected_fields']) - 3} more)"
+            # Group by severity
+            errors = [s for s in suggestions if s["severity"] == "error"]
+            warnings = [s for s in suggestions if s["severity"] == "warning"]
+            infos = [s for s in suggestions if s["severity"] == "info"]
+
+            for group, icon, color, suggestions_list in [
+                ("CRITICAL", "❌", RED, errors),
+                ("WARNINGS", "⚠️", YELLOW, warnings),
+                ("SUGGESTIONS", "ℹ️", BLUE, infos),
+            ]:
+                if suggestions_list:
+                    output.append(
+                        f"\n{color}{icon} {group} ({len(suggestions_list)}){RESET}"
+                    )
+
+                    # Group by category
+                    by_category = {}
+                    for suggestion in suggestions_list:
+                        category = suggestion["type"]
+                        by_category.setdefault(category, []).append(suggestion)
+
+                    # Sort categories alphabetically
+                    for category in sorted(by_category.keys()):
+                        category_suggestions = by_category[category]
+                        output.append(
+                            f"\n  {BOLD}{CYAN}{category.replace('_', ' ').title()}{RESET}"
                         )
-                    output.append(f"   Affected: {fields_str}")
-                output.append("")
+
+                        for suggestion in category_suggestions:
+                            # Wrap long descriptions
+                            desc = suggestion["description"]
+                            if len(desc) > 80:
+                                # Word wrap at 80 characters
+                                words = desc.split()
+                                lines = []
+                                current_line = []
+                                current_length = 0
+
+                                for word in words:
+                                    if current_length + len(word) + 1 > 80:
+                                        lines.append(" ".join(current_line))
+                                        current_line = [word]
+                                        current_length = len(word)
+                                    else:
+                                        current_line.append(word)
+                                        current_length += len(word) + 1
+
+                                if current_line:
+                                    lines.append(" ".join(current_line))
+
+                                # Output wrapped lines
+                                output.append(f"    • {lines[0]}")
+                                for line in lines[1:]:
+                                    output.append(f"      {line}")
+                            else:
+                                output.append(f"    • {desc}")
+
+                            if suggestion["affected_fields"]:
+                                count = len(suggestion["affected_fields"])
+                                fields_str = ", ".join(
+                                    suggestion["affected_fields"][:5]
+                                )
+                                if count > 5:
+                                    fields_str += f" ... +{count - 5} more"
+                                output.append(f"      {CYAN}→{RESET} {fields_str}")
+
+                            # Add blank line between bullet items
+                            output.append("")
+        output.append("\n" + "─" * 70)
+        output.append("")
+
+    # SCHEMA OVERVIEW - concise summary
+    if "complexity" in results:
+        from .colors import BLUE, BOLD, CYAN, GREEN, RESET, YELLOW
+
+        complexity = results["complexity"]
+        output.append(f"{BOLD}{GREEN}📈 SCHEMA OVERVIEW{RESET}")
+        output.append("─" * 70)
+
+        # Single-line summary
+        total = complexity["total_fields"]
+        required = complexity["required_fields"]
+        optional = complexity["optional_fields"]
+        depth = complexity["max_nesting_depth"]
+
+        output.append(
+            f"  {CYAN}Fields:{RESET} {BOLD}{total}{RESET} total  •  {GREEN}{required}{RESET} required  •  {YELLOW}{optional}{RESET} optional"
+        )
+        output.append(
+            f"  {CYAN}Nesting:{RESET} {BOLD}{depth}{RESET} max depth  •  {complexity['avg_nesting_depth']:.1f} avg depth"
+        )
+        output.append("")
+
+        # Field composition (horizontal bar)
+        scalar = complexity["scalar_fields"]
+        array = complexity["array_fields"]
+        obj = complexity["object_fields"]
+        union = complexity["union_fields"]
+
+        output.append(
+            f"  {CYAN}Composition:{RESET} {scalar} scalar  •  {array} arrays  •  {obj} objects  •  {union} unions"
+        )
+        output.append("")
+
+    # PATTERN SUMMARY - categorized and concise
+    if "patterns" in results:
+        from .colors import BLUE, BOLD, CYAN, RESET
+
+        patterns = results["patterns"]
+        output.append(f"{BOLD}{BLUE}🔍 DETECTED PATTERNS{RESET}")
+        output.append("─" * 70)
+
+        has_patterns = False
+
+        # Identifiers
+        id_patterns = []
+        if patterns["id_fields"]:
+            id_patterns.append(
+                f"ID fields ({len(patterns['id_fields'])}): {', '.join(patterns['id_fields'][:5])}"
+            )
+            if len(patterns["id_fields"]) > 5:
+                id_patterns[-1] += f" ... +{len(patterns['id_fields']) - 5} more"
+
+        # Temporal
+        time_patterns = []
+        if patterns["timestamp_fields"]:
+            time_patterns.append(
+                f"Timestamps ({len(patterns['timestamp_fields'])}): {', '.join(patterns['timestamp_fields'][:5])}"
+            )
+            if len(patterns["timestamp_fields"]) > 5:
+                time_patterns[
+                    -1
+                ] += f" ... +{len(patterns['timestamp_fields']) - 5} more"
+
+        # Contact/Personal
+        contact_patterns = []
+        if patterns["email_fields"]:
+            contact_patterns.append(
+                f"Email fields ({len(patterns['email_fields'])}): {', '.join(patterns['email_fields'][:5])}"
+            )
+            if len(patterns["email_fields"]) > 5:
+                contact_patterns[
+                    -1
+                ] += f" ... +{len(patterns['email_fields']) - 5} more"
+
+        # Structural
+        struct_patterns = []
+        if patterns["array_of_objects"]:
+            count = len(patterns["array_of_objects"])
+            struct_patterns.append(
+                f"Array-of-objects fields ({count}): {', '.join(patterns['array_of_objects'][:5])}"
+            )
+            if count > 5:
+                struct_patterns[-1] += f" ... +{count - 5} more"
+        if patterns["repeated_field_names"]:
+            count = len(patterns["repeated_field_names"])
+            struct_patterns.append(
+                f"Repeated names ({count}): {', '.join(patterns['repeated_field_names'][:5])}"
+            )
+            if count > 5:
+                struct_patterns[-1] += f" ... +{count - 5} more"
+
+        for category, items in [
+            ("Identifiers", id_patterns),
+            ("Temporal", time_patterns),
+            ("Contact/Personal", contact_patterns),
+            ("Structural", struct_patterns),
+        ]:
+            if items:
+                has_patterns = True
+                output.append(f"\n  {CYAN}{category}:{RESET}")
+                for item in items:
+                    output.append(f"    • {item}")
+
+        if not has_patterns:
+            output.append("  No common patterns detected")
+
+        output.append("")
 
     if "report" in results:
-        output.append("📋 COMPREHENSIVE REPORT")
-        output.append("-" * 25)
+        output.append("\n📋 DETAILED REPORT")
+        output.append("─" * 70)
         output.append(results["report"])
 
     return "\n".join(output)
 
 
 def _format_as_markdown(results, schema):
-    """Format results as markdown."""
+    """Format results as comprehensive markdown report."""
     if "report" in results:
         return results["report"]  # The report is already in markdown format
-    else:
-        # Convert text format to markdown
-        text_output = _format_as_text(results, schema)
-        # Simple conversion: add # to headers
-        lines = text_output.split("\n")
-        markdown_lines = []
-        for line in lines:
-            if line.endswith("=" * len(line.rstrip("="))):
-                # Main header
-                prev_line = markdown_lines[-1] if markdown_lines else ""
-                markdown_lines[-1] = f"# {prev_line}"
-            elif line.endswith("-" * len(line.rstrip("-"))):
-                # Sub header
-                prev_line = markdown_lines[-1] if markdown_lines else ""
-                markdown_lines[-1] = f"## {prev_line}"
-            else:
-                markdown_lines.append(line)
-        return "\n".join(markdown_lines)
+
+    output = []
+
+    # Title and metadata
+    output.append("# 📊 Schema Analysis Report")
+    output.append(f"\n**Schema Type:** `{schema.source_type or 'Unknown'}`")
+
+    from datetime import datetime
+
+    output.append(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    output.append("\n---\n")
+
+    # Table of Contents
+    sections = []
+    if "suggestions" in results and results["suggestions"]:
+        sections.append("[Key Recommendations](#key-recommendations)")
+    if "complexity" in results:
+        sections.append("[Schema Overview](#schema-overview)")
+    if "patterns" in results:
+        sections.append("[Detected Patterns](#detected-patterns)")
+
+    if sections:
+        output.append("## 📑 Table of Contents\n")
+        for section in sections:
+            output.append(f"- {section}")
+        output.append("\n---\n")
+
+    # LEAD WITH SUGGESTIONS
+    if "suggestions" in results:
+        suggestions = results["suggestions"]
+        output.append("## 💡 Key Recommendations\n")
+
+        if not suggestions:
+            output.append("✅ **No issues found** - schema looks good!\n")
+        else:
+            # Group by severity
+            errors = [s for s in suggestions if s["severity"] == "error"]
+            warnings = [s for s in suggestions if s["severity"] == "warning"]
+            infos = [s for s in suggestions if s["severity"] == "info"]
+
+            # Summary table
+            if errors or warnings or infos:
+                output.append("### Summary\n")
+                output.append("| Severity | Count |")
+                output.append("|----------|-------|")
+                if errors:
+                    output.append(f"| 🔴 **Critical** | {len(errors)} |")
+                if warnings:
+                    output.append(f"| 🟡 **Warnings** | {len(warnings)} |")
+                if infos:
+                    output.append(f"| 🔵 **Suggestions** | {len(infos)} |")
+                output.append("")
+
+            # Detailed recommendations - grouped by category
+            for group, icon, suggestions_list in [
+                ("Critical Issues", "🔴", errors),
+                ("Warnings", "🟡", warnings),
+                ("Suggestions", "🔵", infos),
+            ]:
+                if suggestions_list:
+                    output.append(f"### {icon} {group}\n")
+
+                    # Group by category
+                    by_category = {}
+                    for suggestion in suggestions_list:
+                        category = suggestion["type"]
+                        by_category.setdefault(category, []).append(suggestion)
+
+                    # Sort categories alphabetically
+                    for category in sorted(by_category.keys()):
+                        category_suggestions = by_category[category]
+                        output.append(f"#### {category.replace('_', ' ').title()}\n")
+
+                        for suggestion in category_suggestions:
+                            output.append(f"- **Issue:** {suggestion['description']}\n")
+
+                            if suggestion["affected_fields"]:
+                                count = len(suggestion["affected_fields"])
+                                output.append(f"  **Affected Fields ({count}):**")
+                                output.append("  ```")
+                                for field in suggestion["affected_fields"][:10]:
+                                    output.append(f"  {field}")
+                                if count > 10:
+                                    output.append(f"  ... +{count - 10} more")
+                                output.append("  ```\n")
+
+        output.append("---\n")
+
+    # SCHEMA OVERVIEW
+    if "complexity" in results:
+        complexity = results["complexity"]
+        output.append("## 📈 Schema Overview\n")
+
+        # Key metrics table
+        output.append("### Key Metrics\n")
+        output.append("| Metric | Value |")
+        output.append("|--------|-------|")
+        output.append(f"| Total Fields | **{complexity['total_fields']}** |")
+        output.append(f"| Required Fields | {complexity['required_fields']} |")
+        output.append(f"| Optional Fields | {complexity['optional_fields']} |")
+        output.append(f"| Max Nesting Depth | {complexity['max_nesting_depth']} |")
+        output.append(f"| Avg Nesting Depth | {complexity['avg_nesting_depth']:.1f} |")
+        output.append("")
+
+        # Field composition
+        output.append("### Field Composition\n")
+        output.append("| Type | Count |")
+        output.append("|------|-------|")
+        output.append(f"| Scalar | {complexity['scalar_fields']} |")
+        output.append(f"| Arrays | {complexity['array_fields']} |")
+        output.append(f"| Objects | {complexity['object_fields']} |")
+        output.append(f"| Unions | {complexity['union_fields']} |")
+        output.append("")
+
+        # Type distribution
+        if complexity.get("type_counts"):
+            output.append("### Type Distribution\n")
+            output.append("| Type | Count |")
+            output.append("|------|-------|")
+            for type_name, count in sorted(
+                complexity["type_counts"].items(), key=lambda x: x[1], reverse=True
+            )[:10]:
+                output.append(f"| `{type_name}` | {count} |")
+            output.append("")
+
+        output.append("---\n")
+
+    # DETECTED PATTERNS
+    if "patterns" in results:
+        patterns = results["patterns"]
+        output.append("## 🔍 Detected Patterns\n")
+
+        has_patterns = False
+
+        # Identifiers
+        if patterns["id_fields"]:
+            has_patterns = True
+            output.append(f"### 🔑 Identifiers ({len(patterns['id_fields'])} fields)\n")
+            output.append("```")
+            for field in patterns["id_fields"][:15]:
+                output.append(f"  {field}")
+            if len(patterns["id_fields"]) > 15:
+                output.append(f"  ... +{len(patterns['id_fields']) - 15} more")
+            output.append("```\n")
+
+        # Temporal
+        if patterns["timestamp_fields"]:
+            has_patterns = True
+            output.append(
+                f"### 🕐 Temporal Fields ({len(patterns['timestamp_fields'])} fields)\n"
+            )
+            output.append("```")
+            for field in patterns["timestamp_fields"][:15]:
+                output.append(f"  {field}")
+            if len(patterns["timestamp_fields"]) > 15:
+                output.append(f"  ... +{len(patterns['timestamp_fields']) - 15} more")
+            output.append("```\n")
+
+        # Contact/Personal
+        if patterns["email_fields"]:
+            has_patterns = True
+            output.append(
+                f"### 📧 Contact Fields ({len(patterns['email_fields'])} fields)\n"
+            )
+            output.append("```")
+            for field in patterns["email_fields"][:15]:
+                output.append(f"  {field}")
+            if len(patterns["email_fields"]) > 15:
+                output.append(f"  ... +{len(patterns['email_fields']) - 15} more")
+            output.append("```\n")
+
+        # Structural
+        if patterns["array_of_objects"]:
+            has_patterns = True
+            count = len(patterns["array_of_objects"])
+            output.append(f"### 📦 Array-of-Objects Fields ({count} fields)\n")
+            output.append("```")
+            for field in patterns["array_of_objects"][:15]:
+                output.append(f"  {field}")
+            if count > 15:
+                output.append(f"  ... +{count - 15} more")
+            output.append("```\n")
+
+        if patterns["repeated_field_names"]:
+            has_patterns = True
+            count = len(patterns["repeated_field_names"])
+            output.append(f"### 🔄 Repeated Field Names ({count} names)\n")
+            output.append("```")
+            for field in patterns["repeated_field_names"][:15]:
+                output.append(f"  {field}")
+            if count > 15:
+                output.append(f"  ... +{count - 15} more")
+            output.append("```\n")
+
+        if not has_patterns:
+            output.append("_No common patterns detected_\n")
+
+        output.append("---\n")
+
+    # Footer
+    output.append("\n---")
+    output.append("\n*Generated by schema-diff analyze*")
+
+    return "\n".join(output)
 
 
 __all__ = ["add_analyze_subcommand", "cmd_analyze"]

@@ -37,6 +37,56 @@ def analyze_schema_complexity(schema: Schema) -> Dict[str, Any]:  # type: ignore
 
     total_depth = 0
 
+    # For BigQuery schemas, use raw schema for accurate nesting depth
+    if "raw_bq_schema" in schema.metadata:
+        from google.cloud.bigquery import SchemaField
+
+        raw_bq_schema = schema.metadata["raw_bq_schema"]
+
+        def calc_bq_nesting_depth(
+            field: SchemaField, current_depth: int = 1
+        ) -> tuple[int, List[tuple[str, int]]]:
+            """Calculate nesting depth for BigQuery field recursively."""
+            max_depth = current_depth
+            depth_list = [(field.name, current_depth)]
+
+            if field.field_type == "RECORD":
+                for sub_field in field.fields:
+                    sub_max, sub_list = calc_bq_nesting_depth(
+                        sub_field, current_depth + 1
+                    )
+                    max_depth = max(max_depth, sub_max)
+                    depth_list.extend(
+                        [(f"{field.name}.{name}", depth) for name, depth in sub_list]
+                    )
+
+            return max_depth, depth_list
+
+        all_depths = []
+        for field in raw_bq_schema:
+            max_depth, depth_list = calc_bq_nesting_depth(field)
+            all_depths.extend(depth_list)
+            analysis["max_nesting_depth"] = max(analysis["max_nesting_depth"], max_depth)  # type: ignore[call-overload]
+
+        if all_depths:
+            total_depth = sum(depth for _, depth in all_depths)
+            analysis["avg_nesting_depth"] = total_depth / len(all_depths)  # type: ignore[operator]
+            for field_name, depth in all_depths[
+                :100
+            ]:  # Limit to first 100 for performance
+                analysis["field_paths_by_depth"][depth].append(field_name)  # type: ignore[index]
+    else:
+        # Fallback to unified schema field paths
+        for field in schema.fields:
+            depth = field.path.count(".") + 1
+            analysis["max_nesting_depth"] = max(analysis["max_nesting_depth"], depth)  # type: ignore[call-overload]
+            total_depth += depth
+            analysis["field_paths_by_depth"][depth].append(field.path)  # type: ignore[index]
+
+        if analysis["total_fields"] > 0:  # type: ignore[operator]
+            analysis["avg_nesting_depth"] = total_depth / analysis["total_fields"]  # type: ignore[operator]
+
+    # Analyze field constraints and types from unified schema
     for field in schema.fields:
         # Count constraints
         if FieldConstraint.REQUIRED in field.constraints:
@@ -47,28 +97,24 @@ def analyze_schema_complexity(schema: Schema) -> Dict[str, Any]:  # type: ignore
         for constraint in field.constraints:
             analysis["constraint_distribution"][constraint.value] += 1  # type: ignore[index]
 
-        # Analyze nesting depth
-        depth = field.path.count(".") + 1
-        analysis["max_nesting_depth"] = max(analysis["max_nesting_depth"], depth)  # type: ignore[call-overload]
-        total_depth += depth
-        analysis["field_paths_by_depth"][depth].append(field.path)  # type: ignore[index]
-
         # Analyze field type
         field_type_str = str(field.type)
         analysis["type_distribution"][field_type_str] += 1  # type: ignore[index]
 
         # Categorize field types
         if field_type_str.startswith("[") and field_type_str.endswith("]"):
-            analysis["array_fields"] += 1  # type: ignore[operator]
+            # Check if it's an array of objects/structs (contains {}) or scalars
+            if "{" in field_type_str:
+                analysis["array_fields"] += 1  # type: ignore[operator]
+                analysis["object_fields"] += 1  # type: ignore[operator]  # Also count the struct inside
+            else:
+                analysis["array_fields"] += 1  # type: ignore[operator]
         elif "union(" in field_type_str:
             analysis["union_fields"] += 1  # type: ignore[operator]
-        elif field_type_str in ["object", "any"]:
+        elif field_type_str in ["object", "any"] or "{" in field_type_str:
             analysis["object_fields"] += 1  # type: ignore[operator]
         else:
             analysis["scalar_fields"] += 1  # type: ignore[operator]
-
-    if analysis["total_fields"] > 0:  # type: ignore[operator]
-        analysis["avg_nesting_depth"] = total_depth / analysis["total_fields"]  # type: ignore[operator]
 
     return dict(analysis)
 
@@ -237,6 +283,376 @@ def suggest_schema_improvements(schema: Schema) -> List[Dict[str, str]]:
                 "affected_fields": any_fields,
             }
         )
+
+    # Check for BigQuery-specific anti-patterns
+    # This requires analyzing the raw BigQuery schema before it's flattened
+    if schema.source_type == "bigquery" and schema.metadata.get("raw_bq_schema"):
+        try:
+            from .bigquery_ddl import detect_bigquery_antipatterns
+
+            raw_schema = schema.metadata["raw_bq_schema"]
+            antipatterns = detect_bigquery_antipatterns(raw_schema)
+
+            if antipatterns:
+                # Group by category and pattern
+                pattern_groups = {}
+                for ap in antipatterns:
+                    pattern = ap["pattern"]
+                    if pattern not in pattern_groups:
+                        pattern_groups[pattern] = []
+                    pattern_groups[pattern].append(ap)
+
+                # STRUCT wrapper issues - consolidate both patterns into one suggestion
+                struct_wrapper_issues = pattern_groups.get(
+                    "unnecessary_struct_wrapper", []
+                )
+                element_wrapper_issues = pattern_groups.get(
+                    "unnecessary_element_wrapper", []
+                )
+
+                if struct_wrapper_issues or element_wrapper_issues:
+                    # The full pattern is STRUCT<list ARRAY<STRUCT<element>>>
+                    # The element_wrapper is nested within struct_wrapper, so only show struct_wrapper
+                    # to avoid duplication
+                    if struct_wrapper_issues:
+                        affected = [ap["field_name"] for ap in struct_wrapper_issues]
+                        suggestions.append(
+                            {
+                                "type": "schema_design",
+                                "severity": "warning",
+                                "description": f"Unnecessary STRUCT wrappers for arrays ({len(affected)} fields). Use ARRAY<STRUCT<...>> directly instead of the nested wrapper pattern. Simplifies queries and removes unnecessary nesting levels.",
+                                "affected_fields": affected,
+                            }
+                        )
+
+                # Boolean as INTEGER
+                if "boolean_as_integer" in pattern_groups:
+                    issues = pattern_groups["boolean_as_integer"]
+                    affected = [ap["field_name"] for ap in issues]
+                    suggestions.append(
+                        {
+                            "type": "type_optimization",
+                            "severity": "info",
+                            "description": f"Boolean fields stored as INTEGER ({len(issues)} fields). Use BOOLEAN type for is_*/has_*/can_* fields. Saves space and improves semantics.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Deep nesting
+                if "deep_nesting" in pattern_groups:
+                    issues = pattern_groups["deep_nesting"]
+                    affected = [ap["field_name"] for ap in issues]
+                    max_depth = max(ap.get("depth", 0) for ap in issues)
+                    suggestions.append(
+                        {
+                            "type": "complexity",
+                            "severity": "warning",
+                            "description": f"Deeply nested fields ({len(issues)} fields, max depth: {max_depth}). Consider flattening for better query performance and readability.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Overall deep nesting
+                if "overall_deep_nesting" in pattern_groups:
+                    issue = pattern_groups["overall_deep_nesting"][0]
+                    suggestions.append(
+                        {
+                            "type": "complexity",
+                            "severity": "warning",
+                            "description": issue["suggestion"],
+                            "affected_fields": [],
+                        }
+                    )
+
+                # Missing array ordering
+                if "missing_array_ordering" in pattern_groups:
+                    issues = pattern_groups["missing_array_ordering"]
+                    affected = [ap["field_name"] for ap in issues]
+                    suggestions.append(
+                        {
+                            "type": "data_quality",
+                            "severity": "info",
+                            "description": f"REPEATED fields without ordering ({len(issues)} fields). Add order_in_profile/sequence field to ensure consistent array order across queries.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Generic field names
+                if "generic_field_name" in pattern_groups:
+                    issues = pattern_groups["generic_field_name"]
+                    affected = [ap["field_name"] for ap in issues]
+                    suggestions.append(
+                        {
+                            "type": "naming",
+                            "severity": "info",
+                            "description": f"Generic field names detected ({len(issues)} fields). Use descriptive names instead of 'data', 'value', 'info', etc.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Missing descriptions
+                if "missing_description" in pattern_groups:
+                    issues = pattern_groups["missing_description"]
+                    affected = [ap["field_name"] for ap in issues]
+                    suggestions.append(
+                        {
+                            "type": "documentation",
+                            "severity": "info",
+                            "description": f"Complex fields without descriptions ({len(issues)} fields). Add field descriptions to improve schema documentation.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Inconsistent naming
+                if "inconsistent_naming" in pattern_groups:
+                    issue = pattern_groups["inconsistent_naming"][0]
+                    suggestions.append(
+                        {
+                            "type": "naming",
+                            "severity": "info",
+                            "description": issue["suggestion"],
+                            "affected_fields": [],
+                        }
+                    )
+
+                # Wide tables
+                if "wide_table" in pattern_groups:
+                    issue = pattern_groups["wide_table"][0]
+                    suggestions.append(
+                        {
+                            "type": "complexity",
+                            "severity": issue["severity"],
+                            "description": issue["suggestion"],
+                            "affected_fields": [],
+                        }
+                    )
+
+                # Inconsistent timestamps
+                if "inconsistent_timestamps" in pattern_groups:
+                    issue = pattern_groups["inconsistent_timestamps"][0]
+                    string_dates = issue.get("string_dates", [])
+                    desc = f"Mix of STRING date fields and TIMESTAMP types. STRING dates: {', '.join(string_dates[:3])}{'...' if len(string_dates) > 3 else ''}. Use TIMESTAMP/DATE for better performance and type safety."
+                    suggestions.append(
+                        {
+                            "type": "type_consistency",
+                            "severity": "warning",
+                            "description": desc,
+                            "affected_fields": string_dates,
+                        }
+                    )
+
+                # Nullable foreign keys
+                if "nullable_foreign_keys" in pattern_groups:
+                    issue = pattern_groups["nullable_foreign_keys"][0]
+                    affected = issue.get("affected_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "data_integrity",
+                            "severity": "info",
+                            "description": f"Foreign key fields are nullable ({len(affected)} fields). Make REQUIRED or add explicit null handling to prevent orphaned references.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Redundant structures
+                if "redundant_structures" in pattern_groups:
+                    issue = pattern_groups["redundant_structures"][0]
+                    affected = issue.get("affected_fields", [])
+                    field_count = issue.get("field_count", 0)
+                    suggestions.append(
+                        {
+                            "type": "normalization",
+                            "severity": "info",
+                            "description": f"Duplicate structure ({field_count} fields) found in {len(affected)} places. Consider extracting to a shared type or normalizing into a separate table.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Cryptic names
+                if "cryptic_names" in pattern_groups:
+                    issue = pattern_groups["cryptic_names"][0]
+                    affected = issue.get("affected_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "naming",
+                            "severity": "info",
+                            "description": f"Cryptic or abbreviated field names ({len(affected)} fields). Use descriptive names (e.g., 'usr' → 'user', 'cnt' → 'count', avoid Hungarian notation).",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Missing audit columns
+                if "missing_audit_columns" in pattern_groups:
+                    issue = pattern_groups["missing_audit_columns"][0]
+                    missing = issue.get("missing_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "data_quality",
+                            "severity": "info",
+                            "description": f"Missing audit columns: {', '.join(missing)}. Add these timestamp fields for data lineage and debugging.",
+                            "affected_fields": [],
+                        }
+                    )
+
+                # Inconsistent casing
+                if "inconsistent_casing" in pattern_groups:
+                    issue = pattern_groups["inconsistent_casing"][0]
+                    suggestions.append(
+                        {
+                            "type": "naming",
+                            "severity": "info",
+                            "description": issue["suggestion"],
+                            "affected_fields": [],
+                        }
+                    )
+
+                # JSON/STRING blobs
+                if "json_string_blobs" in pattern_groups:
+                    issue = pattern_groups["json_string_blobs"][0]
+                    affected = issue.get("affected_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "schema_design",
+                            "severity": "warning",
+                            "description": f"STRING fields containing JSON/structured data ({len(affected)} fields). Use RECORD/STRUCT for type safety, better compression, and column-level access.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Nullable ID fields
+                if "nullable_id_fields" in pattern_groups:
+                    issue = pattern_groups["nullable_id_fields"][0]
+                    affected = issue.get("affected_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "data_integrity",
+                            "severity": "warning",
+                            "description": f"Primary/identifier fields are nullable ({len(affected)} fields). IDs should be REQUIRED to ensure data integrity.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Reserved keywords
+                if "reserved_keywords" in pattern_groups:
+                    issue = pattern_groups["reserved_keywords"][0]
+                    affected = issue.get("affected_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "naming",
+                            "severity": "warning",
+                            "description": f"Field names use SQL reserved keywords ({len(affected)} fields). Requires backticks in queries. Rename: `select` → `selection`, `order` → `sort_order`.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Overly granular timestamps
+                if "overly_granular_timestamps" in pattern_groups:
+                    issue = pattern_groups["overly_granular_timestamps"][0]
+                    affected = issue.get("affected_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "type_optimization",
+                            "severity": "info",
+                            "description": f"TIMESTAMP fields with date-only semantics ({len(affected)} fields). Use DATE type for birth_date, hire_date, etc. Saves 8 bytes per row.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Expensive unnest
+                if "expensive_unnest" in pattern_groups:
+                    issue = pattern_groups["expensive_unnest"][0]
+                    affected = issue.get("affected_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "performance",
+                            "severity": "info",
+                            "description": f"Complex ARRAY<STRUCT> fields ({len(affected)} arrays). UNNEST on wide structs is expensive. Consider denormalizing or reducing struct width.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Negative booleans
+                if "negative_booleans" in pattern_groups:
+                    issue = pattern_groups["negative_booleans"][0]
+                    affected = issue.get("affected_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "naming",
+                            "severity": "info",
+                            "description": f"Negative boolean names ({len(affected)} fields). Creates double negatives. Use positive: `is_not_active` → `is_active`.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Overly long names
+                if "overly_long_names" in pattern_groups:
+                    issue = pattern_groups["overly_long_names"][0]
+                    affected = issue.get("affected_fields", [])
+                    suggestions.append(
+                        {
+                            "type": "naming",
+                            "severity": "info",
+                            "description": f"Overly long field names ({len(affected)} fields). Keep names concise (<50 chars). Use descriptions for details.",
+                            "affected_fields": affected,
+                        }
+                    )
+
+                # Poor field ordering
+                if "poor_field_ordering" in pattern_groups:
+                    issue = pattern_groups["poor_field_ordering"][0]
+                    suggestions.append(
+                        {
+                            "type": "schema_design",
+                            "severity": "info",
+                            "description": issue["suggestion"],
+                            "affected_fields": [],
+                        }
+                    )
+
+                # ============================================================================
+                # PHASE 1 & 2: Auto-handle all remaining patterns (22 new patterns)
+                # ============================================================================
+                # Map of patterns to their display types
+                remaining_patterns = {
+                    "string_type_abuse": "type_optimization",
+                    "inconsistent_id_types": "type_consistency",
+                    "float_for_money": "type_optimization",
+                    "god_table": "schema_design",
+                    "array_without_id": "data_quality",
+                    "unmarked_pii": "security",
+                    "plaintext_secrets": "security",
+                    "unstructured_address": "data_quality",
+                    "undocumented_enum": "documentation",
+                    "plural_singular_confusion": "naming",
+                    "type_in_name": "naming",
+                    "redundant_prefix": "naming",
+                    "denormalization_abuse": "normalization",
+                    "eav_antipattern": "schema_design",
+                    "string_for_binary": "type_optimization",
+                    "missing_soft_delete": "data_quality",
+                    "inconsistent_date_granularity": "type_consistency",
+                    "mixed_null_representation": "data_quality",
+                    "inconsistent_boolean_type": "type_consistency",
+                    "nullable_partition_field": "performance",
+                    "over_structuring": "schema_design",
+                }
+
+                for pattern_name, display_type in remaining_patterns.items():
+                    if pattern_name in pattern_groups:
+                        issues_list = pattern_groups[pattern_name]
+                        for issue in issues_list:
+                            suggestions.append(
+                                {
+                                    "type": display_type,
+                                    "severity": issue["severity"],
+                                    "description": issue["suggestion"],
+                                    "affected_fields": issue.get("affected_fields", []),
+                                }
+                            )
+
+        except Exception:
+            # If detection fails, skip silently
+            pass
 
     return suggestions  # type: ignore[return-value]
 

@@ -9,10 +9,11 @@
 - [📊 Example Output](#-example-output)
 - [🔧 Advanced Usage](#-advanced-usage)
 - [📦 Supported Formats](#-supported-formats)
-- [🔧 Command Reference](#-command-reference)
+- [🔧 Quick Reference](#-quick-reference)
+- [🛠️ Configuration](#️-configuration)
 - [📊 Output Sections](#-output-sections)
 - [🔄 Migration Analysis](#-migration-analysis)
-- [🛠️ Configuration](#️-configuration)
+- [🔧 Command Reference](#-command-reference)
 - [🔍 Troubleshooting](#-troubleshooting)
 
 ## 🚀 Quick Start
@@ -134,6 +135,12 @@ schema-diff compare file1.json file2.json --all-records
 # Compare only specific fields
 schema-diff compare file1.json file2.json --fields headline full_name industry
 
+# Show only common fields (hide differences)
+schema-diff compare file1.json file2.json --only-common
+
+# Show both differences and common fields
+schema-diff compare file1.json file2.json --show-common
+
 # Show sampled records
 schema-diff compare file1.json file2.json -k 5 --show-samples
 
@@ -192,7 +199,7 @@ schema-diff ddl dataset my-project:dataset --output
 
 ---
 
-## 🔧 Command Reference
+## 🔧 Quick Reference
 
 ### Main Commands
 
@@ -213,7 +220,9 @@ schema-diff compare [OPTIONS] file1 file2
 - `--first-record` - Compare only the first record
 - `--all-records` - Process all records (no sampling)
 - `--fields [FIELDS ...]` - Compare only specific fields
-- `--left/--right {data,json_schema,spark,sql,bigquery,protobuf,dbt-manifest}` - Specify file types
+- `--show-common` - Show common fields in addition to differences
+- `--only-common` - Show only common fields (hide differences)
+- `--left/--right {data,json_schema,spark,sql,bigquery,protobuf,dbt-manifest,dbt-yml,dbt-model}` - Specify file types
 - `--output` - Save results to file
 
 ### Generate Command
@@ -224,9 +233,10 @@ schema-diff generate [OPTIONS] data_file
 
 **Key Options:**
 
-- `--format {json_schema,sql_ddl,bigquery_ddl,spark}` - Output format
+- `--format {json_schema,sql_ddl,bigquery_ddl,spark,bigquery_json,openapi}` - Output format
 - `--table-name TABLE_NAME` - Table name for DDL formats
 - `--required-fields [FIELDS ...]` - Mark fields as required
+- `--output` - Save schema to output directory
 
 ### DDL Command
 
@@ -239,6 +249,21 @@ schema-diff ddl {table,batch,dataset} [OPTIONS] ...
 - `schema-diff ddl table my-project:dataset.table`
 - `schema-diff ddl batch table1 table2 table3`
 - `schema-diff ddl dataset my-project:dataset`
+
+### Analyze Command
+
+```bash
+schema-diff analyze [OPTIONS] schema_file
+```
+
+**Key Options:**
+
+- `--complexity` - Show complexity analysis
+- `--patterns` - Show pattern analysis
+- `--suggestions` - Show improvement suggestions
+- `--all` - Show all analysis types
+- `--format {text,json,markdown}` - Output format
+- `--output` - Save analysis to file
 
 ---
 
@@ -409,7 +434,8 @@ schema-diff compare [OPTIONS] file1 file2
 #### Output Control
 
 - `--no-color` - Disable ANSI colors
-- `--show-common` - Print the sorted list of fields that appear in both sides
+- `--show-common` - Show common fields in addition to differences
+- `--only-common` - Show only common fields (hide differences)
 - `--fields [FIELDS ...]` - Compare only specific fields (space-separated list)
 
 #### Export Options
@@ -432,22 +458,6 @@ schema-diff compare [OPTIONS] file1 file2
 - `--table TABLE` - BigQuery table name (for BigQuery live table comparisons)
 - `--right-table RIGHT_TABLE` - Table name for right-side SQL schema (alias for --table)
 - `--model MODEL` - dbt model name (for dbt manifest/yml comparisons)
-- `--right-message RIGHT_MESSAGE` - Protobuf message to use for file2
-
-#### Direct Schema Options
-
-- `--json-schema JSON_SCHEMA.json` - Compare DATA file1 vs a JSON Schema file
-- `--spark-schema SPARK_SCHEMA.txt` - Compare DATA file1 vs a Spark-style schema text
-- `--sql-schema SCHEMA.sql` - Compare DATA file1 vs a SQL schema
-- `--sql-table TABLE` - Table name to select if --sql-schema has multiple tables
-
-#### Inference Options
-
-- `--infer-datetimes` - Treat ISO-like strings as timestamp/date/time on the DATA side
-
-#### Google Cloud Storage (GCS) Options
-
-- `--force-download` - Re-download GCS files even if they exist locally (default: use cached files)
 
 ### Subcommand: `generate`
 
@@ -560,43 +570,29 @@ schema-diff ddl dataset 'handshake-production:coresignal' --output
 
 ### Subcommand: `config`
 
-Configuration management and GCS utilities.
+Configuration management, system information, and GCS utilities.
 
 ```bash
-schema-diff config {show,init} [OPTIONS] ...
+schema-diff config [OPTIONS]
 ```
 
-#### Config Subcommands
+#### Options
 
-##### `config show` - Display Configuration
+- `--show-info` - Show system and dependency information
+- `--check-deps` - Check optional dependencies
+- `--version` - Show version information
+- `--gcs-info GCS_INFO` - Show GCS file information for the specified path
 
-Display current configuration values from files and environment.
-
-```bash
-schema-diff config show
-```
-
-##### `config init` - Create Configuration
-
-Create a new configuration file with default values.
+#### Examples
 
 ```bash
-schema-diff config init [OPTIONS] [config_path]
-```
+# Show system information
+schema-diff config --show-info
 
-**Arguments:**
+# Check which optional dependencies are installed
+schema-diff config --check-deps
 
-- `config_path` - Path for new config file (default: schema-diff.yml)
-
-**Options:**
-
-- `--force` - Overwrite existing config file
-
-#### GCS Information
-
-Get metadata about Google Cloud Storage objects:
-
-```bash
+# Get GCS file metadata
 schema-diff config --gcs-info gs://bucket/file.json
 schema-diff config --gcs-info https://storage.cloud.google.com/bucket/file.json
 ```
@@ -659,35 +655,9 @@ schema-diff analyze my_table.sql --type sql --table users --suggestions
 
 ---
 
-## 📊 Output Sections
-
-`schema-diff` provides comprehensive comparison results organized into clear sections:
-
-### Common Fields
-
-Fields that appear in both schemas, showing their types and any differences between them.
-
-### Only in Source / Only in Target
-
-Fields that exist in only one of the compared schemas, helping identify added or removed fields.
-
-### Type Mismatches
-
-Fields with the same name but different data types between schemas (e.g., `bool → int`, `str → float`).
-
-### Presence mismatches (NULL/required)
-
-Differences in field optionality and nullability constraints (e.g., `required → nullable`, `nullable → required`).
-
-### Path Changes
-
-Fields that appear in different locations or structures between schemas, useful for understanding structural changes.
-
----
-
 ## 🔄 Migration Analysis
 
-The migration analysis feature generates comprehensive reports for schema migrations based purely on the schema comparison results:
+The migration analysis feature generates comprehensive reports for schema migrations based on comparison results:
 
 ### Report Sections
 

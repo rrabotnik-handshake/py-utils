@@ -11,25 +11,55 @@ from pathlib import Path
 
 def add_config_subcommand(subparsers) -> None:
     """Add config subcommand to the parser."""
+    from ..helpfmt import ColorDefaultsFormatter
+    from .colors import BOLD, CYAN, GREEN, RESET, YELLOW
+
     config_parser = subparsers.add_parser(
         "config",
         help="Manage configuration",
-        description="Manage configuration and show system information",
+        formatter_class=ColorDefaultsFormatter,
+        description=f"""
+Show system information, check dependencies, and inspect GCS files.
+
+{BOLD}{YELLOW}WHAT IT SHOWS:{RESET}
+  • Python version and platform
+  • Installed packages
+  • Optional dependencies status
+  • GCS file metadata
+
+{BOLD}{CYAN}EXAMPLES:{RESET}
+  {GREEN}# Show all information (default){RESET}
+  schema-diff config
+
+  {GREEN}# Show version only{RESET}
+  schema-diff config --version
+
+  {GREEN}# Check which optional features are installed{RESET}
+  schema-diff config --check-deps
+
+  {GREEN}# Inspect GCS file{RESET}
+  schema-diff config --gcs-info gs://bucket/file.json
+        """,
     )
 
     config_parser.add_argument(
         "--show-info",
         action="store_true",
-        help="Show system and dependency information",
+        help="Show system information (Python version, platform, installed packages)",
     )
     config_parser.add_argument(
-        "--check-deps", action="store_true", help="Check optional dependencies"
+        "--check-deps",
+        action="store_true",
+        help="Check which optional dependencies are installed (bigquery, gcs, validation)",
     )
     config_parser.add_argument(
-        "--version", action="store_true", help="Show version information"
+        "--version",
+        action="store_true",
+        help="Show schema-diff version",
     )
     config_parser.add_argument(
-        "--gcs-info", help="Show GCS file information for the specified path"
+        "--gcs-info",
+        help="Show GCS file metadata (size, content-type, last modified) for given path",
     )
 
 

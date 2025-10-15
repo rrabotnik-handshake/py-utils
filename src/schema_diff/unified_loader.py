@@ -92,12 +92,45 @@ def _load_unified_schema(
         return schema_from_dbt_model_unified(file_path)  # type: ignore[no-any-return]
 
     elif schema_type == "bigquery":
-        from .loader import _handle_bigquery_live_table
+        from google.cloud import bigquery
+
+        from .bigquery_ddl import bigquery_schema_to_internal
         from .models import from_legacy_tree
 
-        # Handle BigQuery live table schema extraction
-        tree, required, label = _handle_bigquery_live_table(file_path)
-        return from_legacy_tree(tree, required, source_type="bigquery")
+        # Parse BigQuery table reference
+        if ":" in file_path:
+            project_part, table_part = file_path.split(":", 1)
+        else:
+            project_part = None
+            table_part = file_path
+
+        if "." in table_part:
+            dataset_id, table_id = table_part.split(".", 1)
+        else:
+            raise ValueError(f"Invalid BigQuery reference: {file_path}")
+
+        # Get project ID
+        if project_part:
+            project_id = project_part
+        else:
+            client = bigquery.Client()
+            project_id = client.project
+
+        # Get raw BigQuery schema for anti-pattern detection
+        client = bigquery.Client(project=project_id)
+        table_ref = f"{project_id}.{dataset_id}.{table_id}"
+        table = client.get_table(table_ref)
+        raw_bq_schema = table.schema
+
+        # Convert to internal format (this flattens unnecessary wrappers)
+        tree, required = bigquery_schema_to_internal(raw_bq_schema)
+
+        # Create Schema object with raw schema in metadata
+        schema = from_legacy_tree(tree, required, source_type="bigquery")
+        schema.metadata["raw_bq_schema"] = raw_bq_schema
+        schema.source_path = file_path
+
+        return schema
 
     else:
         raise ValueError(f"Unsupported schema type for unified loading: {schema_type}")

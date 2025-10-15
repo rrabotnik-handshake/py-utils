@@ -21,19 +21,53 @@ from ..output_utils import write_output_file
 
 def add_compare_subcommand(subparsers) -> None:
     """Add compare subcommand to the parser."""
+    from ..helpfmt import ColorDefaultsFormatter
+    from .colors import BOLD, CYAN, GREEN, RESET, YELLOW
+
     compare_parser = subparsers.add_parser(
         "compare",
         help="Compare two schemas or data files",
-        description="Compare schemas from different sources (data files, JSON Schema, Spark, SQL DDL, etc.)",
+        formatter_class=ColorDefaultsFormatter,
+        description=f"""
+Compare schemas from different sources and identify differences in:
+  • Structure (fields added/removed)
+  • Types (bool → int, str → float)
+  • Nullability (required ↔ nullable)
+
+{BOLD}{YELLOW}SUPPORTED FORMATS:{RESET}
+  Data files:    JSON, NDJSON, compressed (.gz), GCS paths
+  Schema files:  JSON Schema, SQL DDL, BigQuery DDL, Spark, dbt, Protobuf
+  Live tables:   BigQuery (project:dataset.table)
+
+{BOLD}{CYAN}EXAMPLES:{RESET}
+  {GREEN}# Compare two data files{RESET}
+  schema-diff compare old.json new.json
+
+  {GREEN}# Compare data against schema{RESET}
+  schema-diff compare data.json schema.sql --right sql
+
+  {GREEN}# Compare BigQuery tables{RESET}
+  schema-diff compare project:dataset.table1 project:dataset.table2
+
+  {GREEN}# Find compatible fields only{RESET}
+  schema-diff compare file1.json file2.json --only-common
+        """,
     )
 
     # Positional arguments
-    compare_parser.add_argument("file1", help="First schema/data file to compare")
-    compare_parser.add_argument("file2", help="Second schema/data file to compare")
+    compare_parser.add_argument(
+        "file1",
+        help="First file (JSON, SQL, BigQuery table, or gs://path)",
+    )
+    compare_parser.add_argument(
+        "file2",
+        help="Second file (JSON, SQL, BigQuery table, or gs://path)",
+    )
 
     # Schema type arguments
     compare_parser.add_argument(
         "--left",
+        metavar="TYPE",
         choices=[
             "data",
             "json_schema",
@@ -46,10 +80,11 @@ def add_compare_subcommand(subparsers) -> None:
             "dbt-model",
             "bigquery",
         ],
-        help="Left file type (auto-detected if not specified)",
+        help="Override left type (auto-detected): data, sql, bigquery, json_schema, etc.",
     )
     compare_parser.add_argument(
         "--right",
+        metavar="TYPE",
         choices=[
             "data",
             "json_schema",
@@ -62,73 +97,80 @@ def add_compare_subcommand(subparsers) -> None:
             "dbt-model",
             "bigquery",
         ],
-        help="Right file type (auto-detected if not specified)",
+        help="Override right type (auto-detected): data, sql, bigquery, json_schema, etc.",
     )
 
     # Sampling arguments
     compare_parser.add_argument(
         "--all-records",
         action="store_true",
-        help="Process all records (no sampling limit)",
+        help="Process all records instead of sampling",
     )
     compare_parser.add_argument(
         "--sample-size",
         type=int,
         default=DEFAULT_SAMPLE_SIZE,
-        help=f"Number of records to sample (default: {DEFAULT_SAMPLE_SIZE})",
+        help=f"Records to sample (default: {DEFAULT_SAMPLE_SIZE})",
     )
     compare_parser.add_argument(
         "--first-record",
         action="store_true",
-        help="Process only the first record (equivalent to --sample-size 1)",
+        help="Process only first record (same as --sample-size 1)",
     )
 
     # Display options
     compare_parser.add_argument(
         "--show-common",
         action="store_true",
-        help="Show common fields in addition to differences",
+        help="Include common fields (for compatibility checks)",
     )
     compare_parser.add_argument(
         "--only-common",
         action="store_true",
-        help="Show only common fields (hide differences)",
+        help="Show ONLY common fields (hide differences)",
     )
     compare_parser.add_argument(
         "--fields",
         nargs="*",
-        help="Compare only specific fields (space-separated list)",
+        help="Compare specific fields only (e.g., user_id email)",
     )
     compare_parser.add_argument(
-        "--no-color", action="store_true", help="Disable colored output"
+        "--no-color",
+        action="store_true",
+        help="Plain text output (for CI/CD or logs)",
     )
 
     # Output options
     compare_parser.add_argument(
         "--output",
         action="store_true",
-        help="Save results to output directory with migration analysis",
+        help="Save report to ./output/comparisons/",
     )
 
     # GCS options
     compare_parser.add_argument(
         "--force-download",
         action="store_true",
-        help="Force re-download of GCS files even if they exist locally",
+        help="Force re-download GCS files (ignore cache)",
     )
     compare_parser.add_argument(
-        "--gcs-info", action="store_true", help="Show GCS file information and exit"
+        "--gcs-info",
+        action="store_true",
+        help="Show GCS metadata (size, type, modified date)",
     )
 
-    # BigQuery options
+    # BigQuery & Schema-specific options
     compare_parser.add_argument(
-        "--table", help="BigQuery table name (for BigQuery live table comparisons)"
+        "--table",
+        help="BigQuery table name (e.g., 'users' from project:dataset.users)",
     )
     compare_parser.add_argument(
-        "--right-table", help="Table name for right-side SQL schema (alias for --table)"
+        "--right-table",
+        help="Alias for --table (backward compatibility)",
     )
     compare_parser.add_argument(
-        "--model", help="dbt model name (for dbt manifest/yml comparisons)"
+        "--model",
+        help="dbt model name (for manifest.json or schema.yml)",
     )
 
     # Legacy/backward compatibility arguments
@@ -136,20 +178,20 @@ def add_compare_subcommand(subparsers) -> None:
         "-k",
         "--samples",
         type=int,
-        help="Number of records to sample (alias for --sample-size)",
+        help="Alias for --sample-size",
     )
     compare_parser.add_argument("--seed", type=int, help="Random seed for sampling")
-    compare_parser.add_argument("--json-out", help="Output JSON report to file")
+    compare_parser.add_argument("--json-out", help="Save JSON report to file")
     compare_parser.add_argument(
-        "--record", type=int, help="Process specific record number"
+        "--record", type=int, help="Process specific record by index"
     )
     compare_parser.add_argument(
         "--both-modes",
         action="store_true",
-        help="Show both ordinal and sampled sections",
+        help="Show ordinal and sampled sections",
     )
     compare_parser.add_argument(
-        "--show-samples", action="store_true", help="Show sample data in output"
+        "--show-samples", action="store_true", help="Include sample data in output"
     )
 
 

@@ -15,14 +15,46 @@ from ..schema_generator import generate_schema_from_data
 
 def add_generate_subcommand(subparsers) -> None:
     """Add generate subcommand to the parser."""
+    from ..helpfmt import ColorDefaultsFormatter
+    from .colors import BLUE, BOLD, CYAN, GREEN, RESET, YELLOW
+
     generate_parser = subparsers.add_parser(
         "generate",
         help="Generate schema from data file",
-        description="Infer and generate schema from data files in various formats",
+        formatter_class=ColorDefaultsFormatter,
+        description=f"""
+Generate schema from data files by sampling records and inferring types.
+
+{BOLD}{YELLOW}INPUT FORMATS:{RESET}
+  • JSON, NDJSON (.json, .ndjson, .jsonl)
+  • Compressed (.gz)
+  • GCS paths (gs://bucket/path)
+
+{BOLD}{YELLOW}OUTPUT FORMATS:{RESET}
+  {BLUE}json_schema{RESET}    JSON Schema (Draft-07)
+  {BLUE}sql_ddl{RESET}        SQL CREATE TABLE (PostgreSQL-compatible)
+  {BLUE}bigquery_ddl{RESET}   BigQuery CREATE TABLE with STRUCT/ARRAY
+  {BLUE}spark{RESET}          Spark schema (StructType format)
+  {BLUE}bigquery_json{RESET}  BigQuery JSON schema
+  {BLUE}openapi{RESET}        OpenAPI 3.0 schema
+
+{BOLD}{CYAN}EXAMPLES:{RESET}
+  {GREEN}# Generate JSON Schema (default){RESET}
+  schema-diff generate data.json
+
+  {GREEN}# Generate BigQuery DDL{RESET}
+  schema-diff generate data.json --format bigquery_ddl --table-name users
+
+  {GREEN}# Process all records and save{RESET}
+  schema-diff generate gs://bucket/data.json.gz --all-records --output
+        """,
     )
 
     # Positional arguments
-    generate_parser.add_argument("data_file", help="Data file to generate schema from")
+    generate_parser.add_argument(
+        "data_file",
+        help="Data file to analyze (JSON/NDJSON, local file or GCS path)",
+    )
 
     # Schema format options
     generate_parser.add_argument(
@@ -56,11 +88,11 @@ def add_generate_subcommand(subparsers) -> None:
     generate_parser.add_argument(
         "--required-fields",
         nargs="*",
-        help="Fields to mark as required (space-separated list)",
+        help="Fields to mark as required/NOT NULL (e.g., --required-fields id email created_at)",
     )
     generate_parser.add_argument(
         "--table-name",
-        help="Table name for SQL DDL generation (default: generated_table)",
+        help="Table name for SQL/BigQuery DDL output (default: generated_table)",
     )
 
     # Validation options
@@ -68,15 +100,19 @@ def add_generate_subcommand(subparsers) -> None:
         "--validate",
         action="store_true",
         default=True,
-        help="Validate generated schema (default: enabled)",
+        help="Validate generated schema syntax (enabled by default, use --no-validate to skip)",
     )
     generate_parser.add_argument(
-        "--no-validate", action="store_true", help="Skip schema validation"
+        "--no-validate",
+        action="store_true",
+        help="Skip schema validation (faster but may produce invalid schemas)",
     )
 
     # Output options
     generate_parser.add_argument(
-        "--output", action="store_true", help="Save schema to output directory"
+        "--output",
+        action="store_true",
+        help="Save generated schema to ./output/schemas/ with auto-generated filename",
     )
 
     # GCS options

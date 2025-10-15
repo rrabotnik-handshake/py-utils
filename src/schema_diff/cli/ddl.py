@@ -13,47 +13,94 @@ from ..output_utils import write_output_file
 
 def add_ddl_subcommand(subparsers) -> None:
     """Add DDL subcommand to the parser."""
+    from ..helpfmt import ColorDefaultsFormatter
+    from .colors import BLUE, BOLD, CYAN, GREEN, RESET, YELLOW
+
     ddl_parser = subparsers.add_parser(
         "ddl",
         help="Generate DDL from BigQuery tables",
-        description="Generate DDL (Data Definition Language) from BigQuery live tables",
+        formatter_class=ColorDefaultsFormatter,
+        description=f"""
+Generate DDL (CREATE TABLE statements) from BigQuery live tables.
+
+Extracts complete table schemas including:
+  • Nested structures (STRUCT, ARRAY)
+  • Data types and constraints
+  • Column descriptions (if any)
+
+{BOLD}{YELLOW}TABLE REFERENCE FORMAT:{RESET}
+  {BLUE}project:dataset.table{RESET}
+
+{BOLD}{YELLOW}MODES:{RESET}
+  {BLUE}table{RESET}    Extract DDL for one table
+  {BLUE}batch{RESET}    Extract DDL for multiple tables
+  {BLUE}dataset{RESET}  Extract DDL for all tables in a dataset
+
+{BOLD}{CYAN}EXAMPLES:{RESET}
+  {GREEN}# Single table{RESET}
+  schema-diff ddl table 'my-project:dataset.users'
+
+  {GREEN}# Multiple tables{RESET}
+  schema-diff ddl batch 'project:dataset.table1' 'project:dataset.table2'
+
+  {GREEN}# Entire dataset{RESET}
+  schema-diff ddl dataset 'my-project:analytics' --output
+        """,
     )
 
     ddl_subparsers = ddl_parser.add_subparsers(
         dest="ddl_command",
-        help="DDL generation commands",
+        help="Select DDL generation mode",
         metavar="{table,batch,dataset}",
     )
 
     # Table DDL command
     table_parser = ddl_subparsers.add_parser(
-        "table", help="Generate DDL for a single table"
+        "table",
+        help="Generate DDL for a single table",
+        description="Extract DDL for one BigQuery table",
     )
     table_parser.add_argument(
-        "table_ref", help="Table reference (project:dataset.table)"
+        "table_ref",
+        help="Table reference in format: project:dataset.table (quotes recommended)",
     )
     table_parser.add_argument(
-        "--output", action="store_true", help="Save DDL to output directory"
+        "--output",
+        action="store_true",
+        help="Save DDL to ./output/ddl/{dataset}_{table}_ddl.sql",
     )
 
     # Batch DDL command
     batch_parser = ddl_subparsers.add_parser(
-        "batch", help="Generate DDL for multiple tables"
+        "batch",
+        help="Generate DDL for multiple tables",
+        description="Extract DDL for multiple BigQuery tables in one command",
     )
-    batch_parser.add_argument("table_refs", nargs="+", help="Multiple table references")
     batch_parser.add_argument(
-        "--output", action="store_true", help="Save DDL files to output directory"
+        "table_refs",
+        nargs="+",
+        help="Space-separated table references (project:dataset.table1 project:dataset.table2 ...)",
+    )
+    batch_parser.add_argument(
+        "--output",
+        action="store_true",
+        help="Save all DDL files to ./output/ddl/ directory",
     )
 
     # Dataset DDL command
     dataset_parser = ddl_subparsers.add_parser(
-        "dataset", help="Generate DDL for all tables in a dataset"
+        "dataset",
+        help="Generate DDL for all tables in a dataset",
+        description="Extract DDL for every table in a BigQuery dataset",
     )
     dataset_parser.add_argument(
-        "dataset_ref", help="Dataset reference (project:dataset)"
+        "dataset_ref",
+        help="Dataset reference in format: project:dataset",
     )
     dataset_parser.add_argument(
-        "--output", action="store_true", help="Save DDL files to output directory"
+        "--output",
+        action="store_true",
+        help="Save all table DDL files to ./output/ddl/ directory",
     )
 
 
