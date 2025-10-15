@@ -289,8 +289,8 @@ def analyze_policy_tags(schema: Schema) -> Dict[str, Any]:  # type: ignore[misc]
     from google.cloud.bigquery import SchemaField
 
     # Import canonical catalogs and helpers from bigquery_ddl
+    from schema_diff import analyze_config
     from schema_diff.bigquery_ddl import (
-        SENSITIVE_SECRETS_EXACT,
         _classify_pii_by_name,
         _policy_tag_names_on_field,
         _tokenize_name,
@@ -356,7 +356,9 @@ def analyze_policy_tags(schema: Schema) -> Dict[str, Any]:  # type: ignore[misc]
             if not name_lower.endswith(("_id", "_key", "_ref", "id", "key")):
                 name_tokens = set(_tokenize_name(field.name))
                 # Exact match check
-                if any(tok in SENSITIVE_SECRETS_EXACT for tok in name_tokens):
+                if any(
+                    tok in analyze_config.SENSITIVE_SECRETS_EXACT for tok in name_tokens
+                ):
                     analysis["sensitive_fields_untagged"].append(field_path)
                 # Suffix check for variants
                 elif any(

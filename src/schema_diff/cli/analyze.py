@@ -316,9 +316,9 @@ def _format_as_text(results, schema):
             infos = [s for s in suggestions if s["severity"] == "info"]
 
             for group, icon, color, suggestions_list in [
-                ("CRITICAL ISSUES", "❌", RED, errors),
-                ("WARNINGS", "⚠️", YELLOW, warnings),
-                ("RECOMMENDATIONS", "ℹ️", BLUE, infos),
+                ("CRITICAL ISSUES", "❌ ", RED, errors),
+                ("WARNINGS", "⚠️ ", YELLOW, warnings),
+                ("RECOMMENDATIONS", "ℹ️ ", BLUE, infos),
             ]:
                 if suggestions_list:
                     output.append(
