@@ -722,19 +722,13 @@ def get_batch_constraints(
 # DDL rendering helpers
 # =========================
 
-INDENT = "  "  # two spaces per level
-
-SCALAR_TYPE_MAP = {
-    # Normalize type aliases for BigQuery DDL rendering
-    # Note: This maps TO canonical DDL forms (FLOAT64, INT64, BOOL)
-    # Contrast with _canon_type() which maps FROM aliases for analysis
-    "FLOAT": "FLOAT64",
-    "INTEGER": "INT64",
-    "BOOLEAN": "BOOL",
-}
-
 
 def _render_scalar_type(bq_type: str) -> str:
+    """Render scalar type using canonical DDL forms from config.
+
+    Uses analyze_config.SCALAR_TYPE_MAP which normalizes type aliases
+    to BigQuery DDL preferred forms (FLOAT64, INT64, BOOL).
+    """
     return analyze_config.SCALAR_TYPE_MAP.get(bq_type, bq_type)
 
 
@@ -2706,7 +2700,7 @@ def detect_bigquery_antipatterns(
             # tolerant extras: *_secret, *_token, *_private_key (but avoid false positives)
             if not is_secretish and any(
                 name_lower.endswith(sfx)
-                for sfx in ("_secret", "_token", "_private_key")
+                for sfx in analyze_config.SENSITIVE_SECRET_SUFFIXES
             ):
                 is_secretish = True
 
@@ -3293,5 +3287,621 @@ def detect_bigquery_antipatterns(
                 "affected_fields": small_structs,
             }
         )
+
+    # =============================================================================
+    # PARTITIONING & CLUSTERING ANTI-PATTERNS (requires table metadata)
+    # =============================================================================
+    # Note: These checks require BigQuery Table metadata (not just schema).
+    # They are implemented in a separate function: detect_table_antipatterns()
+    # which should be called with the full Table object.
+
+    # =============================================================================
+    # TYPES & SEMANTICS ANTI-PATTERNS
+    # =============================================================================
+
+    # Anti-pattern 32: Epoch/Unix time stored as INT64
+    epoch_fields = []
+
+    def check_epoch_fields(field: SchemaField, path: str = "") -> None:
+        field_path = f"{path}.{field.name}" if path else field.name
+        name_lower = field.name.lower()
+
+        if field.field_type == "INT64":
+            # Check for epoch/unix time indicators
+            if any(
+                indicator in name_lower
+                for indicator in analyze_config.EPOCH_TIME_INDICATORS
+            ):
+                epoch_fields.append(field_path)
+
+        if field.field_type == "RECORD":
+            for sub in field.fields:
+                check_epoch_fields(sub, field_path)
+
+    for field in schema:
+        check_epoch_fields(field)
+
+    if epoch_fields:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "epoch_as_int64",
+                "severity": "warning",
+                "category": "types",
+                "suggestion": "Epoch/Unix timestamps stored as INT64 are harder to query. Use TIMESTAMP instead and convert with TIMESTAMP_MILLIS(col) or TIMESTAMP_SECONDS(col).",
+                "affected_fields": epoch_fields,
+            }
+        )
+
+    # Anti-pattern 33: Duration fields using INT64/STRING instead of INTERVAL
+    duration_fields = []
+
+    def check_duration_fields(field: SchemaField, path: str = "") -> None:
+        field_path = f"{path}.{field.name}" if path else field.name
+        name_lower = field.name.lower()
+
+        if field.field_type in ("INT64", "STRING"):
+            # Check for duration indicators
+            if any(
+                name_lower.endswith(suf)
+                for suf in analyze_config.DURATION_FIELD_SUFFIXES
+            ):
+                duration_fields.append(field_path)
+
+        if field.field_type == "RECORD":
+            for sub in field.fields:
+                check_duration_fields(sub, field_path)
+
+    for field in schema:
+        check_duration_fields(field)
+
+    if duration_fields:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "duration_without_interval",
+                "severity": "info",
+                "category": "types",
+                "suggestion": "Duration fields stored as INT64/STRING lose semantics. Consider using INTERVAL type with MAKE_INTERVAL() for clarity.",
+                "affected_fields": duration_fields,
+            }
+        )
+
+    # Anti-pattern 34: Monetary amounts without currency
+    money_without_currency = []
+
+    def check_money_fields(field: SchemaField, path: str = "") -> None:
+        field_path = f"{path}.{field.name}" if path else field.name
+        name_lower = field.name.lower()
+
+        # Only check at top level or within RECORD parents
+        if field.field_type in ("NUMERIC", "BIGNUMERIC", "FLOAT64", "INT64"):
+            if any(ind in name_lower for ind in analyze_config.MONEY_FIELD_INDICATORS):
+                # Check if there's a sibling currency field
+                parent_fields = []
+                if not path:  # Top level
+                    parent_fields = [f.name.lower() for f in schema]
+                else:
+                    # Find parent struct
+                    for f in schema:
+                        parent = _find_parent_struct(f, path)
+                        if parent:
+                            parent_fields = [sf.name.lower() for sf in parent.fields]
+                            break
+
+                has_currency = any("currency" in fname for fname in parent_fields)
+                if not has_currency:
+                    money_without_currency.append(field_path)
+
+        if field.field_type == "RECORD":
+            for sub in field.fields:
+                check_money_fields(sub, field_path)
+
+    def _find_parent_struct(field: SchemaField, target_path: str) -> SchemaField | None:
+        """Find parent STRUCT containing target_path."""
+        # Simple implementation for nested paths
+        parts = target_path.split(".")
+        if not parts:
+            return None
+
+        current = None
+        for f in schema:
+            if f.name == parts[0]:
+                current = f
+                break
+
+        if not current:
+            return None
+
+        for part in parts[1:]:
+            if current.field_type != "RECORD":
+                return None
+            found = False
+            for sub in current.fields:
+                if sub.name == part:
+                    current = sub
+                    found = True
+                    break
+            if not found:
+                return None
+
+        return current
+
+    for field in schema:
+        check_money_fields(field)
+
+    if money_without_currency:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "money_without_currency",
+                "severity": "warning",
+                "category": "types",
+                "suggestion": "Monetary amounts without currency_code are ambiguous. Add a sibling currency_code STRING field (ISO-4217) or use a normalized currency table.",
+                "affected_fields": money_without_currency,
+            }
+        )
+
+    # Anti-pattern 35: Lat/Lon pairs not modeled as GEOGRAPHY
+    latlon_without_geography = []
+    top_level_names_lower = {f.name.lower() for f in schema}
+
+    for field in schema:
+        name_lower = field.name.lower()
+        # Check for latitude field
+        if name_lower in analyze_config.LATITUDE_FIELD_NAMES and field.field_type in (
+            "FLOAT64",
+            "STRING",
+        ):
+            # Check if there's a corresponding lon field but no geography field
+            has_lon = bool(top_level_names_lower & analyze_config.LONGITUDE_FIELD_NAMES)
+            has_geography = any("geo" in n for n in top_level_names_lower)
+            if has_lon and not has_geography:
+                latlon_without_geography.append(f"{field.name} & lon")
+
+    if latlon_without_geography:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "latlon_not_geography",
+                "severity": "info",
+                "category": "types",
+                "suggestion": "Lat/lon pairs as separate STRING/FLOAT fields are clumsy for spatial queries. Use GEOGRAPHY with ST_GEOGPOINT(lon, lat) and consider clustering by geography.",
+                "affected_fields": latlon_without_geography,
+            }
+        )
+
+    # Anti-pattern 36: DATETIME for instant events (should be TIMESTAMP)
+    datetime_for_instants = []
+
+    def check_datetime_fields(field: SchemaField, path: str = "") -> None:
+        field_path = f"{path}.{field.name}" if path else field.name
+        name_lower = field.name.lower()
+
+        if field.field_type == "DATETIME":
+            # Check for instant event indicators
+            if any(
+                ind in name_lower for ind in analyze_config.INSTANT_EVENT_INDICATORS
+            ):
+                datetime_for_instants.append(field_path)
+
+        if field.field_type == "RECORD":
+            for sub in field.fields:
+                check_datetime_fields(sub, field_path)
+
+    for field in schema:
+        check_datetime_fields(field)
+
+    if datetime_for_instants:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "datetime_for_instants",
+                "severity": "warning",
+                "category": "types",
+                "suggestion": "DATETIME fields for instant events lack timezone info and can cause issues during DST transitions. Use TIMESTAMP unless truly timezone-agnostic.",
+                "affected_fields": datetime_for_instants,
+            }
+        )
+
+    # =============================================================================
+    # NAMING & DOCUMENTATION ANTI-PATTERNS
+    # =============================================================================
+
+    # Anti-pattern 37: Non-ASCII / whitespace / problematic underscores
+    problematic_names = []
+
+    def check_name_quality(field: SchemaField, path: str = "") -> None:
+        field_path = f"{path}.{field.name}" if path else field.name
+        name = field.name
+
+        # Check for various naming issues
+        issues_found = []
+        if any(ord(c) > 127 for c in name):  # Non-ASCII
+            issues_found.append("non-ASCII")
+        if " " in name:  # Whitespace
+            issues_found.append("whitespace")
+        if name.startswith("_"):  # Leading underscore
+            issues_found.append("leading underscore")
+        if name.endswith("_"):  # Trailing underscore
+            issues_found.append("trailing underscore")
+        if "__" in name:  # Consecutive underscores
+            issues_found.append("consecutive underscores")
+        if len(name.split("_")) > 5:  # Too many segments
+            issues_found.append("too many segments")
+
+        if issues_found:
+            problematic_names.append(f"{field_path} ({', '.join(issues_found)})")
+
+        if field.field_type == "RECORD":
+            for sub in field.fields:
+                check_name_quality(sub, field_path)
+
+    for field in schema:
+        check_name_quality(field)
+
+    if problematic_names:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "problematic_field_names",
+                "severity": "warning",
+                "category": "naming",
+                "suggestion": "Field names with non-ASCII characters, whitespace, problematic underscores, or too many segments cause tooling friction. Use clean snake_case names.",
+                "affected_fields": problematic_names[:20],  # Limit display
+            }
+        )
+
+    # Anti-pattern 38: Documentation coverage
+    total_fields = 0
+    documented_fields = 0
+
+    def count_documentation(field: SchemaField) -> None:
+        nonlocal total_fields, documented_fields
+        total_fields += 1
+        if field.description and field.description.strip():
+            documented_fields += 1
+
+        if field.field_type == "RECORD":
+            for sub in field.fields:
+                count_documentation(sub)
+
+    for field in schema:
+        count_documentation(field)
+
+    if total_fields > 0:
+        coverage_pct = (documented_fields / total_fields) * 100
+
+        # Find undocumented top-level fields
+        undocumented_top = [
+            f.name for f in schema if not f.description or not f.description.strip()
+        ]
+
+        if coverage_pct < 60:  # Warn if < 60%
+            severity = "error" if coverage_pct < 30 else "warning"
+            issues.append(
+                {
+                    "field_name": "schema",
+                    "pattern": "low_documentation_coverage",
+                    "severity": severity,
+                    "category": "documentation",
+                    "suggestion": f"Only {coverage_pct:.1f}% of fields have descriptions. Document all fields for better maintainability. Top-level fields missing descriptions: {', '.join(undocumented_top[:10])}",
+                    "coverage_percent": coverage_pct,
+                    "documented": documented_fields,
+                    "total": total_fields,
+                }
+            )
+
+    # =============================================================================
+    # ARRAYS & NESTED DATA ANTI-PATTERNS
+    # =============================================================================
+
+    # Anti-pattern 39: Repeated scalar that should be structured
+    repeated_scalars_near_structs = []
+
+    for field in schema:
+        if field.mode == "REPEATED" and field.field_type not in (
+            "RECORD",
+            "STRUCT",
+        ):
+            # Check if there are sibling STRUCT fields
+            has_struct_sibling = any(
+                f.field_type == "RECORD" and f.name.startswith(field.name.rstrip("s"))
+                for f in schema
+            )
+            if has_struct_sibling:
+                repeated_scalars_near_structs.append(field.name)
+
+    if repeated_scalars_near_structs:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "repeated_scalar_should_be_struct",
+                "severity": "info",
+                "category": "schema_design",
+                "suggestion": "Repeated scalars with related STRUCT siblings often evolve into ARRAY<STRUCT>. Consider ARRAY<STRUCT<id, name, ...>> from the start.",
+                "affected_fields": repeated_scalars_near_structs,
+            }
+        )
+
+    # Anti-pattern 40: Array of STRUCTs missing both id and natural key
+    arrays_missing_keys = []
+
+    def check_array_keys(field: SchemaField, path: str = "") -> None:
+        field_path = f"{path}.{field.name}" if path else field.name
+
+        if field.mode == "REPEATED" and field.field_type == "RECORD":
+            # Check for id or natural keys
+            field_names_lower = {f.name.lower() for f in field.fields}
+            has_key = bool(field_names_lower & analyze_config.ARRAY_NATURAL_KEY_NAMES)
+
+            if not has_key and len(field.fields) > 2:
+                arrays_missing_keys.append(field_path)
+
+        if field.field_type == "RECORD":
+            for sub in field.fields:
+                check_array_keys(sub, field_path)
+
+    for field in schema:
+        check_array_keys(field)
+
+    if arrays_missing_keys:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "array_missing_keys",
+                "severity": "warning",
+                "category": "schema_design",
+                "suggestion": "ARRAY<STRUCT> without id or natural key (code, name) makes updates/deduplication difficult. Add an identifier field.",
+                "affected_fields": arrays_missing_keys,
+            }
+        )
+
+    # Anti-pattern 41: Fan-out "god child" arrays
+    god_child_arrays = []
+
+    def check_god_arrays(field: SchemaField, path: str = "", depth: int = 0) -> None:
+        field_path = f"{path}.{field.name}" if path else field.name
+
+        if field.mode == "REPEATED" and field.field_type == "RECORD":
+            # Check if struct is very wide and deeply nested
+            if (
+                len(field.fields) > analyze_config.GOD_ARRAY_MIN_FIELDS
+                and depth >= analyze_config.GOD_ARRAY_MIN_DEPTH
+            ):
+                god_child_arrays.append(f"{field_path} ({len(field.fields)} fields)")
+
+        if field.field_type == "RECORD":
+            for sub in field.fields:
+                check_god_arrays(sub, field_path, depth + 1)
+
+    for field in schema:
+        check_god_arrays(field)
+
+    if god_child_arrays:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "god_child_array",
+                "severity": "warning",
+                "category": "schema_design",
+                "suggestion": "Extremely wide and deeply nested ARRAY<STRUCT> are expensive to unnest and hard to query. Move to a dedicated child table keyed by parent id.",
+                "affected_fields": god_child_arrays,
+            }
+        )
+
+    return issues
+
+
+def detect_table_antipatterns(
+    table: bigquery.Table,
+) -> list[dict[str, Any]]:
+    """Detect table-level anti-patterns (partitioning, clustering, etc.).
+
+    Requires full BigQuery Table object with metadata.
+
+    Args:
+        table: BigQuery Table object with schema and metadata
+
+    Returns:
+        List of anti-pattern issues
+    """
+    issues = []
+    schema = table.schema
+
+    # Anti-pattern 42: Event-time column exists but table uses ingestion-time partitioning
+    if table.time_partitioning:
+        # Check if using ingestion-time (field is None)
+        if table.time_partitioning.field is None:
+            # Look for event time columns in schema
+            event_time_candidates = []
+            for field in schema:
+                name_lower = field.name.lower()
+                if any(
+                    indicator in name_lower
+                    for indicator in analyze_config.EVENT_TIME_INDICATORS
+                ):
+                    if field.field_type in ("TIMESTAMP", "DATETIME", "DATE"):
+                        event_time_candidates.append(field.name)
+
+            if event_time_candidates:
+                issues.append(
+                    {
+                        "field_name": "table",
+                        "pattern": "ingestion_time_when_event_time_exists",
+                        "severity": "warning",
+                        "category": "partitioning",
+                        "suggestion": f"Table uses ingestion-time partitioning but has event-time columns: {', '.join(event_time_candidates)}. Use PARTITION BY DATE({event_time_candidates[0]}) for accurate backfills and add OPTIONS(require_partition_filter=TRUE).",
+                        "event_time_candidates": event_time_candidates,
+                    }
+                )
+
+    # Anti-pattern 43: Partitioned table without require_partition_filter
+    if table.time_partitioning:
+        if not table.time_partitioning.require_partition_filter:
+            issues.append(
+                {
+                    "field_name": "table",
+                    "pattern": "missing_partition_filter_requirement",
+                    "severity": "warning",
+                    "category": "partitioning",
+                    "suggestion": "Partitioned table without require_partition_filter=TRUE allows accidental full scans. Add OPTIONS(require_partition_filter=TRUE) to prevent costly mistakes.",
+                }
+            )
+
+    # Anti-pattern 44: Poor clustering choices (BOOLEAN or ultra-low cardinality)
+    if table.clustering_fields:
+        poor_clustering = []
+        for cluster_field in table.clustering_fields:
+            # Find field in schema
+            for field in schema:
+                if field.name == cluster_field:
+                    if field.field_type == "BOOL":
+                        poor_clustering.append(f"{cluster_field} (BOOLEAN)")
+                    elif field.field_type == "STRING":
+                        name_lower = field.name.lower()
+                        # Check for likely low-cardinality fields
+                        if any(
+                            low_card in name_lower
+                            for low_card in analyze_config.LOW_CARDINALITY_INDICATORS
+                        ):
+                            poor_clustering.append(
+                                f"{cluster_field} (likely low cardinality)"
+                            )
+
+        if poor_clustering:
+            issues.append(
+                {
+                    "field_name": "table",
+                    "pattern": "poor_clustering_choices",
+                    "severity": "info",
+                    "category": "clustering",
+                    "suggestion": f"Clustering on low-cardinality fields gives little benefit: {', '.join(poor_clustering)}. Remove boolean keys or reorder cluster keys by descending selectivity.",
+                    "affected_fields": poor_clustering,
+                }
+            )
+
+    # Anti-pattern 45: Too many clustering fields with low-value fields
+    if table.clustering_fields and len(table.clustering_fields) == 4:
+        # Check if at least one looks low-value
+        has_low_value = False
+        for cluster_field in table.clustering_fields:
+            for field in schema:
+                if field.name == cluster_field:
+                    if field.field_type == "BOOL":
+                        has_low_value = True
+                    name_lower = field.name.lower()
+                    if any(
+                        lv in name_lower
+                        for lv in analyze_config.LOW_CARDINALITY_INDICATORS
+                    ):
+                        has_low_value = True
+
+        if has_low_value:
+            issues.append(
+                {
+                    "field_name": "table",
+                    "pattern": "too_many_clustering_fields",
+                    "severity": "info",
+                    "category": "clustering",
+                    "suggestion": f"Using all 4 clustering fields including low-value ones can hurt maintenance. Trim to fields primarily used in selective filters/joins: {', '.join(table.clustering_fields)}.",
+                    "clustering_fields": table.clustering_fields,
+                }
+            )
+
+    return issues
+
+
+def detect_dataset_antipatterns(
+    client: bigquery.Client,
+    project_id: str,
+    dataset_id: str,
+) -> list[dict[str, Any]]:
+    """Detect dataset-level anti-patterns (sharded tables, cross-table consistency).
+
+    Args:
+        client: BigQuery client
+        project_id: GCP project ID
+        dataset_id: Dataset ID
+
+    Returns:
+        List of anti-pattern issues
+    """
+    issues = []
+
+    # Get all tables in dataset
+    dataset_ref = client.dataset(dataset_id, project=project_id)
+    tables = list(client.list_tables(dataset_ref))
+    table_names = [t.table_id for t in tables]
+
+    # Anti-pattern 46: Sharded tables by name (dataset-level)
+    sharded_patterns: dict[str, list[str]] = {}
+    import re
+
+    # Pattern: name_YYYYMMDD or name_YYYYMM
+    shard_pattern = re.compile(r"^(.+)_(\d{6}|\d{8})$")
+
+    for table_name in table_names:
+        match = shard_pattern.match(table_name)
+        if match:
+            base_name = match.group(1)
+            if base_name not in sharded_patterns:
+                sharded_patterns[base_name] = []
+            sharded_patterns[base_name].append(table_name)
+
+    # Report patterns with MIN_SHARD_COUNT+ sharded tables
+    for base_name, shards in sharded_patterns.items():
+        if len(shards) >= analyze_config.MIN_SHARD_COUNT:
+            issues.append(
+                {
+                    "field_name": "dataset",
+                    "pattern": "sharded_tables_by_name",
+                    "severity": "warning",
+                    "category": "schema_design",
+                    "suggestion": f"Legacy sharded table pattern detected: {base_name}_* ({len(shards)} tables). Consolidate to a single partitioned table for better performance and maintenance.",
+                    "base_name": base_name,
+                    "shard_count": len(shards),
+                    "sample_shards": shards[:5],
+                }
+            )
+
+    # Anti-pattern 47: ID type inconsistency across tables
+    # Collect all *_id field types across tables
+    id_field_types: dict[str, set[str]] = {}  # {field_name: {types}}
+
+    for table_ref in tables:
+        try:
+            table = client.get_table(f"{project_id}.{dataset_id}.{table_ref.table_id}")
+            for field in table.schema:
+                name_lower = field.name.lower()
+                if name_lower.endswith("_id") or name_lower == "id":
+                    if name_lower not in id_field_types:
+                        id_field_types[name_lower] = set()
+                    id_field_types[name_lower].add(field.field_type)
+        except Exception:
+            continue  # Skip tables we can't access
+
+    # Find ID fields with inconsistent types
+    inconsistent_ids = []
+    for id_name, types in id_field_types.items():
+        if len(types) > 1:
+            inconsistent_ids.append(f"{id_name}: {', '.join(sorted(types))}")
+
+    if inconsistent_ids:
+        issues.append(
+            {
+                "field_name": "dataset",
+                "pattern": "inconsistent_id_types",
+                "severity": "warning",
+                "category": "types",
+                "suggestion": f"ID fields with inconsistent types across tables require casting in joins: {'; '.join(inconsistent_ids[:5])}. Standardize on one type per entity.",
+                "affected_fields": inconsistent_ids,
+            }
+        )
+
+    # Anti-pattern 48: FK type mismatch (when constraints exist)
+    # This requires checking actual foreign keys
+    # For now, we'll add a placeholder for when FK constraints are used
+    # This would need to be implemented by comparing FK column types against PK types
 
     return issues

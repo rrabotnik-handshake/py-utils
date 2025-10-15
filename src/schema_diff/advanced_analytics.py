@@ -363,7 +363,7 @@ def analyze_policy_tags(schema: Schema) -> Dict[str, Any]:  # type: ignore[misc]
                 # Suffix check for variants
                 elif any(
                     name_lower.endswith(sfx)
-                    for sfx in ("_token", "_secret", "_private_key")
+                    for sfx in analyze_config.SENSITIVE_SECRET_SUFFIXES
                 ):
                     analysis["sensitive_fields_untagged"].append(field_path)
 

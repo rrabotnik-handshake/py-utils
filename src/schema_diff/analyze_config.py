@@ -137,6 +137,15 @@ SENSITIVE_SECRETS_EXACT: set[str] = {
     "bearer_token",
 }
 
+# Sensitive secret suffixes (for *_token, *_secret detection)
+SENSITIVE_SECRET_SUFFIXES = frozenset(
+    {
+        "_secret",
+        "_token",
+        "_private_key",
+    }
+)
+
 # PII detection exclusions (to reduce false positives)
 PII_EXCLUDE_EXACT = {"id", "uuid", "guid", "key", "index", "order", "position", "rank"}
 PII_EXCLUDE_SUFFIXES = ("_id", "_uuid", "_guid", "_key", "_ref", "_index")
@@ -622,3 +631,134 @@ RETRY_BACKOFF_MULTIPLIER = 2.0
 # Parallelization configuration
 PARALLEL_WORKERS = 15  # Number of threads for parallel table processing
 PARALLEL_ENABLED_DEFAULT = True  # Enable parallel processing by default
+
+
+# =============================================================================
+# ANTI-PATTERN DETECTION: TEMPORAL & TIME-BASED PATTERNS
+# =============================================================================
+
+# Epoch/Unix timestamp field indicators (Anti-pattern #32)
+EPOCH_TIME_INDICATORS = frozenset(
+    {
+        "_epoch",
+        "_ts",
+        "_ms",
+        "_seconds",
+        "epoch",
+        "unix",
+    }
+)
+
+# Duration field suffixes (Anti-pattern #33)
+DURATION_FIELD_SUFFIXES = frozenset(
+    {
+        "_duration",
+        "_ttl",
+        "_age",
+        "_latency",
+        "_elapsed",
+    }
+)
+
+# Event timestamp field indicators (for partitioning detection)
+EVENT_TIME_INDICATORS = frozenset(
+    {
+        "event_time",
+        "event_timestamp",
+        "created_at",
+        "occurred_at",
+        "timestamp",
+    }
+)
+
+# Instant event indicators (for DATETIME vs TIMESTAMP check, Anti-pattern #36)
+INSTANT_EVENT_INDICATORS = frozenset(
+    {
+        "_at",
+        "_timestamp",
+        "created",
+        "updated",
+        "occurred",
+        "published",
+        "sent",
+        "received",
+    }
+)
+
+
+# =============================================================================
+# ANTI-PATTERN DETECTION: MONETARY & FINANCIAL PATTERNS
+# =============================================================================
+
+# Monetary field indicators (Anti-pattern #34)
+MONEY_FIELD_INDICATORS = frozenset(
+    {
+        "amount",
+        "price",
+        "cost",
+        "fee",
+        "revenue",
+        "balance",
+        "payment",
+        "total",
+    }
+)
+
+
+# =============================================================================
+# ANTI-PATTERN DETECTION: GEOSPATIAL PATTERNS
+# =============================================================================
+
+# Latitude field names (Anti-pattern #35)
+LATITUDE_FIELD_NAMES = frozenset({"lat", "latitude"})
+
+# Longitude field names (Anti-pattern #35)
+LONGITUDE_FIELD_NAMES = frozenset({"lon", "lng", "longitude"})
+
+
+# =============================================================================
+# ANTI-PATTERN DETECTION: ARRAY & NESTED STRUCTURE PATTERNS
+# =============================================================================
+
+# Natural key field names (for array identification, Anti-pattern #40)
+ARRAY_NATURAL_KEY_NAMES = frozenset(
+    {
+        "id",
+        "uuid",
+        "guid",
+        "key",
+        "index",
+        "code",
+        "name",
+        "type",
+        "identifier",
+    }
+)
+
+# Minimum field count for "god child" array detection (Anti-pattern #41)
+GOD_ARRAY_MIN_FIELDS = 20
+GOD_ARRAY_MIN_DEPTH = 3
+
+
+# =============================================================================
+# ANTI-PATTERN DETECTION: CLUSTERING & PARTITIONING
+# =============================================================================
+
+# Low-cardinality field indicators (for clustering analysis, Anti-pattern #44)
+LOW_CARDINALITY_INDICATORS = frozenset(
+    {
+        "status",
+        "state",
+        "type",
+        "flag",
+        "is_",
+    }
+)
+
+
+# =============================================================================
+# ANTI-PATTERN DETECTION: DATASET-LEVEL PATTERNS
+# =============================================================================
+
+# Minimum shard count to flag sharded table pattern (Anti-pattern #46)
+MIN_SHARD_COUNT = 3
