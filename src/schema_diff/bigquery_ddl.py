@@ -11,14 +11,746 @@ This module provides:
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, TypeVar
 
+from google.api_core import exceptions as gcp_exceptions
 from google.cloud import bigquery
 from google.cloud.bigquery.schema import SchemaField
+
+# Import all configuration from centralized module
+from schema_diff import bq_config
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+# --- Retry helper for transient BigQuery errors ------------------------------
+
+
+def _retry_on_transient(
+    fn: Callable[[], T],
+    max_attempts: int = bq_config.RETRY_MAX_ATTEMPTS,
+    initial_delay: float = bq_config.RETRY_INITIAL_DELAY,
+    backoff_multiplier: float = bq_config.RETRY_BACKOFF_MULTIPLIER,
+    operation_name: str = "BigQuery operation",
+) -> T:
+    """Retry function on transient BigQuery errors (429, 500, 503).
+
+    Args:
+        fn: Function to execute (no arguments)
+        max_attempts: Maximum number of attempts (default: 3)
+        initial_delay: Initial delay in seconds (default: 1.0)
+        backoff_multiplier: Backoff multiplier for exponential delay (default: 2.0)
+        operation_name: Description for logging
+
+    Returns:
+        Result of fn()
+
+    Raises:
+        Last exception if all retries exhausted
+    """
+    delay = initial_delay
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fn()
+        except (
+            gcp_exceptions.TooManyRequests,  # 429
+            gcp_exceptions.InternalServerError,  # 500
+            gcp_exceptions.ServiceUnavailable,  # 503
+            gcp_exceptions.DeadlineExceeded,  # Timeout
+        ) as e:
+            if attempt == max_attempts:
+                logger.error(
+                    "%s failed after %d attempts: %s",
+                    operation_name,
+                    max_attempts,
+                    e,
+                )
+                raise
+
+            logger.warning(
+                "%s failed (attempt %d/%d), retrying in %.1fs: %s",
+                operation_name,
+                attempt,
+                max_attempts,
+                delay,
+                e,
+            )
+            time.sleep(delay)
+            delay *= backoff_multiplier
+
+    # Should never reach here (all paths return or raise), but satisfy linter
+    raise RuntimeError(f"{operation_name}: Exhausted retries without raising exception")
+
+
+# --- PII & sensitive secrets catalogs ----------------------------------------
+
+PII_INDICATORS: dict[str, set[str]] = {
+    # Contact
+    "contact": {
+        "email",
+        "phone",
+        "mobile",
+        "fax",
+        "telephone",
+    },
+    # Names
+    "name": {
+        "first_name",
+        "last_name",
+        "full_name",
+        "middle_name",
+        "maiden_name",
+        "given_name",
+        "family_name",
+        "nickname",
+        "display_name",
+        "legal_name",
+        "preferred_name",
+    },
+    # Government IDs
+    "gov_id": {
+        "ssn",
+        "social_security",
+        "passport",
+        "license",
+        "driver_license",
+        "national_id",
+        "tax_id",
+        "ein",
+        "tin",
+        "citizen_id",
+        "resident_id",
+    },
+    # Financial
+    "financial": {
+        "salary",
+        "wage",
+        "income",
+        "compensation",
+        "credit_card",
+        "bank_account",
+        "routing_number",
+        "iban",
+        "swift",
+        "account_number",
+    },
+    # Personal dates
+    "personal_date": {
+        "birth_date",
+        "birthdate",
+        "dob",
+        "date_of_birth",
+    },
+    # Location
+    "location": {
+        "address",
+        "street",
+        "home_address",
+        "residence",
+        "location",
+        "zip_code",
+        "postal_code",
+        "postcode",
+    },
+    # Medical
+    "medical": {
+        "medical",
+        "health",
+        "diagnosis",
+        "prescription",
+        "patient",
+        "hipaa",
+    },
+    # Biometric / imagery
+    "biometric": {
+        "fingerprint",
+        "retina",
+        "facial",
+        "biometric",
+        "photo",
+        "image",
+        "picture",
+    },
+    # Other device/user identifiers
+    "device_user_id": {
+        "ip_address",
+        "mac_address",
+        "device_id",
+        "imei",
+        "uuid",
+        "username",
+        "login",
+    },
+}
+
+SENSITIVE_SECRETS_EXACT: set[str] = {
+    "password",
+    "pwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "private_key",
+    "access_token",
+    "refresh_token",
+    "auth_token",
+    "session_token",
+    "bearer_token",
+}
+
+# PII detection exclusions (to reduce false positives)
+_PII_EXCLUDE_EXACT = {"id", "uuid", "guid", "key", "index", "order", "position", "rank"}
+_PII_EXCLUDE_SUFFIXES = ("_id", "_uuid", "_guid", "_key", "_ref", "_index")
+
+# Optional: enforce policy tags on PII (set in CI)
+REQUIRE_POLICY_TAGS_FOR_PII = os.getenv("REQUIRE_POLICY_TAGS_FOR_PII", "0") == "1"
+# Optional: restrict required tags to a taxonomy prefix (keeps false positives low)
+# e.g. "projects/acme/locations/us/taxonomies/123"
+REQUIRED_PII_TAXONOMY_PREFIX = os.getenv("REQUIRED_PII_TAXONOMY_PREFIX", "").strip()
+
+
+# --- Tokenization & matching helpers -----------------------------------------
+
+_CAMEL_SPLIT_RE = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _tokenize_name(name: str) -> list[str]:
+    """Split field name into lowercase tokens (handles snake & camelCase)."""
+    n = name or ""
+    # replace non-alnum with underscores, then split
+    base = re.sub(r"[^0-9A-Za-z]+", "_", n)
+    parts = []
+    for p in base.split("_"):
+        if not p:
+            continue
+        # split camelCase chunks too
+        parts.extend(_CAMEL_SPLIT_RE.sub("_", p).lower().split("_"))
+    # drop purely numeric tokens
+    return [t for t in parts if t and not t.isdigit()]
+
+
+def _indicator_tokens(indicator: str) -> list[str]:
+    """Turn an indicator like 'credit_card' into tokens ['credit','card']."""
+    return _tokenize_name(indicator)
+
+
+def _matches_indicator(tokens: set[str], indicator: str) -> bool:
+    """True if all tokens of the indicator are present in name tokens."""
+    itoks = _indicator_tokens(indicator)
+    return all(t in tokens for t in itoks)
+
+
+def _classify_pii_by_name(field_name: str) -> dict[str, list[str]]:
+    """Return {category: [matched_indicator,...]} for the field name."""
+    tokens = set(_tokenize_name(field_name))
+    hits: dict[str, list[str]] = {}
+    for cat, indicators in PII_INDICATORS.items():
+        matched = [i for i in indicators if _matches_indicator(tokens, i)]
+        if matched:
+            hits[cat] = matched
+    return hits
+
+
+def _policy_tag_names_on_field(f: SchemaField) -> list[str]:
+    """Extract policy tag names from a BigQuery SchemaField."""
+    pt = getattr(f, "policy_tags", None)
+    names = getattr(pt, "names", None)
+    if names is None and isinstance(pt, (list, tuple, set)):
+        names = list(pt)
+    if names is None and isinstance(pt, dict):
+        names = pt.get("names") or pt.get("policy_tags")
+    if names is None:
+        try:
+            names = list(pt) if pt is not None else []
+        except Exception:
+            names = []
+    return [str(n).strip() for n in (names or []) if str(n).strip()]
+
+
+# Shorter alias for internal use
+_policy_tag_names = _policy_tag_names_on_field
+
+
+# --- Anti-pattern detection configuration ------------------------------------
+
+# Nesting & Complexity
+MAX_NESTING_DEPTH = 10  # Flag if depth exceeds this
+WARN_NESTING_DEPTH = 5  # Warn if multiple fields exceed this
+WARN_NESTING_DEPTH_THRESHOLD = 8  # Severity threshold for max depth
+
+# Table size thresholds
+MAX_TOP_LEVEL_FIELDS = 100  # Error threshold
+WARN_TOP_LEVEL_FIELDS = 50  # Warning threshold
+GOD_TABLE_THRESHOLD = 80  # Too many unrelated fields
+
+# Naming conventions
+MIN_ACCEPTABLE_NAME_LENGTH = 2  # Names shorter than this are cryptic
+SHORT_NAME_LENGTH = 6  # Names this length or less are checked for abbreviations
+LONG_NAME_LENGTH = 50  # Names longer than this are flagged
+ACCEPTABLE_SHORT_NAMES = {
+    "id",
+    "at",
+    "by",
+    "to",
+    "ts",
+    "no",
+    "ip",
+    "os",
+    "db",
+    "pk",
+    "fk",
+    "url",
+    "uri",
+    "api",
+    "ui",
+    "ux",
+    "qa",
+    "ci",
+    "cd",
+    "etl",
+    "ssn",
+    "ein",
+    "vat",
+    "gst",
+    "sku",
+    "upc",
+    "isbn",
+}
+
+# Structural thresholds
+COMPLEX_STRUCT_FIELD_COUNT = 5  # Flag RECORD with > this many fields as complex
+MIN_STRUCT_FIELD_COUNT_FOR_ORDER = (
+    1  # Min fields to require ordering in REPEATED RECORD
+)
+ARRAY_NEEDS_ID_FIELD_COUNT = 2  # Arrays with > this many fields should have ID
+OVER_STRUCT_MAX_FIELDS = 2  # Structs with <= this many fields might be over-structured
+
+# Consistency checks
+NAMING_INCONSISTENCY_THRESHOLD = 0.2  # >20% inconsistency triggers warning
+CASING_MINORITY_THRESHOLD = 0.15  # >15% minority casing triggers warning
+MIN_FIELDS_FOR_CONSISTENCY_CHECK = 5  # Need this many fields to check consistency
+DUPLICATE_SIGNATURE_MIN_SIZE = 6  # Signature must be this long for duplicate check
+DUPLICATE_SIGNATURE_MIN_COUNT = 3  # Need >= this many duplicates to flag
+PREFIX_REDUNDANCY_THRESHOLD = 0.5  # >50% of fields share prefix
+PREFIX_MIN_OCCURRENCE = 4  # Prefix must appear >= this many times
+
+# Type-specific patterns
+JSON_BLOB_FIELDS = {
+    "json",
+    "blob",
+    "raw",
+    "payload",
+    "data",
+    "metadata",
+    "properties",
+    "attributes",
+    "config",
+    "settings",
+}
+DATE_FIELD_SUFFIXES = {"_date", "_at", "_on", "_time", "_timestamp"}
+EXPENSIVE_UNNEST_FIELD_COUNT = 10  # ARRAY<STRUCT> with > this many fields is expensive
+
+# Audit & metadata field catalogs
+# Organized by category for better detection and recommendations
+
+# Temporal audit fields (when something happened)
+AUDIT_TIMESTAMP_FIELDS = {
+    "created_at",
+    "created_on",
+    "created_date",
+    "created_time",
+    "creation_time",
+    "updated_at",
+    "updated_on",
+    "updated_date",
+    "updated_time",
+    "modification_time",
+    "modified_at",
+    "modified_on",
+    "modified_date",
+    "modified_time",
+    "deleted_at",
+    "deleted_on",
+    "deleted_date",
+    "deleted_time",
+    "deletion_time",
+    "inserted_at",
+    "inserted_on",
+    "last_modified_at",
+    "last_modified_on",
+    "last_updated_at",
+    "last_updated_on",
+}
+
+# Actor audit fields (who did something)
+AUDIT_ACTOR_FIELDS = {
+    "created_by",
+    "created_by_user",
+    "created_by_id",
+    "creator",
+    "creator_id",
+    "updated_by",
+    "updated_by_user",
+    "updated_by_id",
+    "updater",
+    "updater_id",
+    "modified_by",
+    "modified_by_user",
+    "modified_by_id",
+    "modifier",
+    "modifier_id",
+    "deleted_by",
+    "deleted_by_user",
+    "deleted_by_id",
+    "deleter",
+    "deleter_id",
+    "inserted_by",
+    "inserted_by_user",
+    "inserted_by_id",
+    "last_modified_by",
+    "last_modified_by_user",
+    "last_updated_by",
+}
+
+# Version/change tracking fields
+AUDIT_VERSION_FIELDS = {
+    "version",
+    "version_number",
+    "revision",
+    "revision_number",
+    "etag",
+    "row_version",
+    "record_version",
+    "change_version",
+    "change_number",
+    "change_sequence",
+}
+
+# Soft delete fields
+AUDIT_SOFT_DELETE_FIELDS = {
+    "deleted_at",
+    "deleted_on",
+    "is_deleted",
+    "deleted",
+    "is_active",
+    "active",
+    "is_archived",
+    "archived",
+    "status",  # Often used for soft delete (e.g., status='deleted')
+}
+
+# Source tracking fields (where data came from)
+AUDIT_SOURCE_FIELDS = {
+    "source",
+    "source_system",
+    "source_id",
+    "source_table",
+    "origin",
+    "origin_system",
+    "data_source",
+    "ingested_at",
+    "ingested_on",
+    "ingestion_time",
+    "imported_at",
+    "imported_on",
+    "import_time",
+}
+
+# All audit fields combined (for comprehensive checks)
+ALL_AUDIT_FIELDS = (
+    AUDIT_TIMESTAMP_FIELDS
+    | AUDIT_ACTOR_FIELDS
+    | AUDIT_VERSION_FIELDS
+    | AUDIT_SOFT_DELETE_FIELDS
+    | AUDIT_SOURCE_FIELDS
+)
+
+# Minimum recommended audit fields for a production table
+RECOMMENDED_AUDIT_FIELDS = {
+    "created_at",  # When was this record created
+    "updated_at",  # When was this record last updated
+}
+
+# Common audit field pairs (often used together)
+AUDIT_FIELD_PAIRS = [
+    ("created_at", "created_by"),  # Creation timestamp + actor
+    ("updated_at", "updated_by"),  # Update timestamp + actor
+    ("deleted_at", "deleted_by"),  # Deletion timestamp + actor
+]
+
+# Reserved keywords (SQL/BigQuery common ones)
+RESERVED_KEYWORDS = {
+    "select",
+    "from",
+    "where",
+    "join",
+    "left",
+    "right",
+    "inner",
+    "outer",
+    "group",
+    "order",
+    "by",
+    "having",
+    "limit",
+    "offset",
+    "union",
+    "all",
+    "distinct",
+    "case",
+    "when",
+    "then",
+    "else",
+    "end",
+    "as",
+    "and",
+    "or",
+    "not",
+    "in",
+    "exists",
+    "between",
+    "like",
+    "is",
+    "null",
+    "true",
+    "false",
+    "cast",
+    "convert",
+    "table",
+    "view",
+    "index",
+    "key",
+    "primary",
+    "foreign",
+    "references",
+    "constraint",
+    "create",
+    "alter",
+    "drop",
+    "insert",
+    "update",
+    "delete",
+    "truncate",
+    "grant",
+    "revoke",
+    "commit",
+    "rollback",
+    "transaction",
+}
+
+# Type suffixes to avoid in names
+TYPE_SUFFIXES = {
+    "_string",
+    "_str",
+    "_int",
+    "_integer",
+    "_float",
+    "_bool",
+    "_boolean",
+    "_array",
+    "_list",
+}
+
+# Negative boolean prefixes/patterns
+NEGATIVE_BOOLEAN_PATTERNS = {"is_not_", "not_", "isnt_", "disabled", "inactive"}
+
+# Unstructured field patterns
+UNSTRUCTURED_ADDRESS_PATTERNS = {
+    "address",
+    "addr",
+    "street_address",
+    "mailing_address",
+    "billing_address",
+    "shipping_address",
+    "home_address",
+}
+
+# Enum field indicators
+ENUM_FIELD_INDICATORS = {
+    "status",
+    "state",
+    "type",
+    "kind",
+    "category",
+    "role",
+    "level",
+    "priority",
+}
+
+# Date/time field patterns
+DATE_ONLY_FIELD_PATTERNS = {
+    "birth_date",
+    "birthdate",
+    "hire_date",
+    "start_date",
+    "end_date",
+    "expiry_date",
+    "expiration_date",
+    "effective_date",
+    "due_date",
+}
+
+# Mixed NULL representation patterns
+NULL_REPRESENTATION_PATTERNS = {
+    "null",
+    "none",
+    "n/a",
+    "na",
+    "nil",
+    "undefined",
+    "unknown",
+    "missing",
+    "empty",
+}
+
+# Boolean representation patterns (non-boolean types)
+TRUTHY_STRING_VALUES = {"true", "t", "yes", "y", "1", "on", "active", "enabled"}
+FALSY_STRING_VALUES = {"false", "f", "no", "n", "0", "off", "inactive", "disabled"}
+
+# Binary data field indicators
+BINARY_FIELD_INDICATORS = {
+    "binary",
+    "bytes",
+    "blob",
+    "image",
+    "photo",
+    "file",
+    "attachment",
+    "document",
+}
+
+# Address structure components (for structured address check)
+ADDRESS_COMPONENTS = {
+    "street",
+    "city",
+    "state",
+    "country",
+    "zip",
+    "postal",
+    "province",
+    "region",
+}
+
+# Soft delete flag names
+SOFT_DELETE_FLAGS = {
+    "deleted_at",
+    "is_deleted",
+    "deleted",
+    "is_active",
+    "active",
+    "status",
+}
+
+# Acceptable abbreviations (for cryptic name detection)
+ACCEPTABLE_ABBREVIATIONS = {
+    # Identifiers
+    "id",
+    "uid",
+    "uuid",
+    "guid",
+    # Network/protocols
+    "url",
+    "uri",
+    "api",
+    "ip",
+    "mac",
+    "http",
+    "https",
+    "ftp",
+    "ssh",
+    "ssl",
+    "tls",
+    # Systems/hardware
+    "os",
+    "cpu",
+    "gpu",
+    "ram",
+    "ssd",
+    "db",
+    "pk",
+    "fk",
+    # File formats
+    "pdf",
+    "jpg",
+    "png",
+    "gif",
+    "svg",
+    "html",
+    "css",
+    "js",
+    # Statistics/math
+    "min",
+    "max",
+    "avg",
+    "sum",
+    "std",
+    "var",
+    # Business/accounting
+    "ssn",
+    "ein",
+    "vat",
+    "gst",
+    "sku",
+    "upc",
+    "isbn",
+    # Time/temporal
+    "at",
+    "by",
+    "to",
+    "ts",
+    "no",
+    # User experience
+    "ui",
+    "ux",
+    "qa",
+    "ci",
+    "cd",
+    "etl",
+}
+
+# String abuse detection - fields that should NOT be STRING
+STRING_FIELD_EXCLUSIONS = {
+    # ISO codes and standards (legitimately STRING)
+    "iso_",
+    "iso",
+    "_code",
+    "country",
+    "region",
+    "state",
+    "province",
+}
+
+# Numeric field indicators (fields that should be numeric, not STRING)
+NUMERIC_FIELD_INDICATORS = {
+    "count",
+    "total",
+    "sum",
+    "quantity",
+    "amount",
+    "price",
+    "cost",
+    "fee",
+    "balance",
+    "num",
+    "qty",
+    "score",
+    "rating",
+    "rank",
+}
+
+# Boolean field indicators (fields that should be BOOLEAN, not STRING)
+BOOLEAN_FIELD_PREFIXES = {"is_", "has_", "can_", "should_", "will_"}
+BOOLEAN_FIELD_KEYWORDS = {"enabled", "disabled", "active"}
 
 
 def get_default_project() -> str:
@@ -33,7 +765,9 @@ def get_default_project() -> str:
         client = bigquery.Client()
         return str(client.project)
     except Exception as e:
-        raise ValueError("Unable to determine default BigQuery project") from e
+        raise ValueError(
+            "Unable to determine default BigQuery project (no GOOGLE_CLOUD_PROJECT and client has no project)"
+        ) from e
 
 
 # =========================
@@ -321,46 +1055,83 @@ ORDER BY table_name, constraint_type, constraint_name
 def get_constraints(
     client: bigquery.Client, project_id: str, dataset_id: str, table_id: str
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    """Retrieve PK and FK constraints using INFORMATION_SCHEMA with.
-
-    parameters.
-    """
+    """Retrieve PK and FK constraints using INFORMATION_SCHEMA with parameters."""
     try:
-        job = client.query(
-            PK_SQL.format(project=project_id, dataset=dataset_id),
-            job_config=bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("table_name", "STRING", table_id),
-                    bigquery.ScalarQueryParameter("dataset_name", "STRING", dataset_id),
-                ]
+        # Query PK with retry on transient errors
+        pk_rows = _retry_on_transient(
+            lambda: list(
+                client.query(
+                    PK_SQL.format(project=project_id, dataset=dataset_id),
+                    job_config=bigquery.QueryJobConfig(
+                        query_parameters=[
+                            bigquery.ScalarQueryParameter(
+                                "table_name", "STRING", table_id
+                            ),
+                            bigquery.ScalarQueryParameter(
+                                "dataset_name", "STRING", dataset_id
+                            ),
+                        ]
+                    ),
+                ).result()
             ),
+            operation_name=f"PK query for {project_id}.{dataset_id}.{table_id}",
         )
-        pk_rows = list(job.result())
-        primary_keys = pk_rows[0].columns if pk_rows else []
+        primary_keys: list[str] = pk_rows[0].columns if pk_rows else []
 
-        job = client.query(
-            FK_SQL.format(project=project_id, dataset=dataset_id),
-            job_config=bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("table_name", "STRING", table_id),
-                    bigquery.ScalarQueryParameter("dataset_name", "STRING", dataset_id),
-                ]
+        # Query FK with retry on transient errors
+        fk_rows = _retry_on_transient(
+            lambda: list(
+                client.query(
+                    FK_SQL.format(project=project_id, dataset=dataset_id),
+                    job_config=bigquery.QueryJobConfig(
+                        query_parameters=[
+                            bigquery.ScalarQueryParameter(
+                                "table_name", "STRING", table_id
+                            ),
+                            bigquery.ScalarQueryParameter(
+                                "dataset_name", "STRING", dataset_id
+                            ),
+                        ]
+                    ),
+                ).result()
             ),
+            operation_name=f"FK query for {project_id}.{dataset_id}.{table_id}",
         )
-        foreign_keys: list[dict[str, Any]] = []
-        for r in job.result():
-            foreign_keys.append(
+
+        # Group rows into composite FK constraints
+        fk_groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for r in fk_rows:
+            key = (
+                r["constraint_name"],
+                (r["referenced_dataset"] or dataset_id),
+                (r["referenced_table"] or "UNKNOWN"),
+            )
+            grp = fk_groups.setdefault(
+                key,
                 {
                     "constraint_name": r["constraint_name"],
-                    "column": r["column_name"],
-                    "referenced_dataset": r["referenced_dataset"] or dataset_id,
-                    "referenced_table": r["referenced_table"] or "UNKNOWN",
-                    "referenced_column": r["referenced_column"] or "UNKNOWN",
-                }
+                    "referenced_dataset": key[1],
+                    "referenced_table": key[2],
+                    "columns": [],
+                    "referenced_columns": [],
+                },
             )
+            grp["columns"].append(r["column_name"])
+            grp["referenced_columns"].append(r["referenced_column"] or "UNKNOWN")
+
+        foreign_keys = list(fk_groups.values())
         return primary_keys, foreign_keys
+
     except Exception as e:
-        print(f"Error retrieving constraints for {dataset_id}.{table_id}: {e}")
+        # Log with context for CI/debugging - schema may lack INFORMATION_SCHEMA access
+        logger.warning(
+            "Failed to retrieve constraints for %s.%s.%s: %s",
+            project_id,
+            dataset_id,
+            table_id,
+            e,
+            exc_info=logger.isEnabledFor(logging.DEBUG),
+        )
         return [], []
 
 
@@ -372,44 +1143,75 @@ def get_batch_constraints(
         return {}
 
     try:
-        job = client.query(
-            BATCH_CONSTRAINTS_SQL.format(project=project_id, dataset=dataset_id),
-            job_config=bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ArrayQueryParameter("table_names", "STRING", table_ids),
-                    bigquery.ScalarQueryParameter("dataset_name", "STRING", dataset_id),
-                ]
+        # Query batch constraints with retry on transient errors
+        rows = _retry_on_transient(
+            lambda: list(
+                client.query(
+                    BATCH_CONSTRAINTS_SQL.format(
+                        project=project_id, dataset=dataset_id
+                    ),
+                    job_config=bigquery.QueryJobConfig(
+                        query_parameters=[
+                            bigquery.ArrayQueryParameter(
+                                "table_names", "STRING", table_ids
+                            ),
+                            bigquery.ScalarQueryParameter(
+                                "dataset_name", "STRING", dataset_id
+                            ),
+                        ]
+                    ),
+                ).result()
             ),
+            operation_name=f"Batch constraints query for {project_id}.{dataset_id}",
         )
 
         results: dict[str, tuple[list[str], list[dict[str, Any]]]] = {}
         for table_id in table_ids:
             results[table_id] = ([], [])
 
-        for row in job.result():
+        for row in rows:
             table_name = row["table_name"]
             constraint_type = row["constraint_type"]
 
             if constraint_type == "PRIMARY KEY":
-                results[table_name] = (row["columns"], results[table_name][1])
+                results[table_name] = (list(row["columns"]), results[table_name][1])
             elif constraint_type == "FOREIGN KEY":
                 fks = results[table_name][1]
-                for i, col in enumerate(row["columns"]):
-                    ref = row["references"][i]
-                    fks.append(
-                        {
-                            "constraint_name": row["constraint_name"],
-                            "column": col,
-                            "referenced_dataset": ref["referenced_dataset"]
-                            or dataset_id,
-                            "referenced_table": ref["referenced_table"] or "UNKNOWN",
-                            "referenced_column": ref["referenced_column"] or "UNKNOWN",
-                        }
-                    )
+                refs = row["references"]
+                # For composite FKs, all columns reference the same table
+                # (REFERENTIAL_CONSTRAINTS is 1:1 with constraint_name).
+                # Extract dataset/table from first ref - all refs share these.
+                fks.append(
+                    {
+                        "constraint_name": row["constraint_name"],
+                        "referenced_dataset": (
+                            (refs[0]["referenced_dataset"] or dataset_id)
+                            if refs
+                            else dataset_id
+                        ),
+                        "referenced_table": (
+                            (refs[0]["referenced_table"] or "UNKNOWN")
+                            if refs
+                            else "UNKNOWN"
+                        ),
+                        "columns": list(row["columns"]),
+                        "referenced_columns": [
+                            r["referenced_column"] or "UNKNOWN" for r in refs
+                        ],
+                    }
+                )
 
         return results
     except Exception as e:
-        print(f"Error retrieving batch constraints: {e}")
+        # Log with context - schema may lack INFORMATION_SCHEMA access or have invalid refs
+        logger.warning(
+            "Failed to retrieve batch constraints for %s.%s (tables: %s): %s",
+            project_id,
+            dataset_id,
+            ", ".join(table_ids[:5]) + ("..." if len(table_ids) > 5 else ""),
+            e,
+            exc_info=logger.isEnabledFor(logging.DEBUG),
+        )
         return {table_id: ([], []) for table_id in table_ids}
 
 
@@ -420,7 +1222,12 @@ def get_batch_constraints(
 INDENT = "  "  # two spaces per level
 
 SCALAR_TYPE_MAP = {
-    "FLOAT": "FLOAT64",  # Normalize for BigQuery DDL
+    # Normalize type aliases for BigQuery DDL rendering
+    # Note: This maps TO canonical DDL forms (FLOAT64, INT64, BOOL)
+    # Contrast with _canon_type() which maps FROM aliases for analysis
+    "FLOAT": "FLOAT64",
+    "INTEGER": "INT64",
+    "BOOLEAN": "BOOL",
 }
 
 
@@ -429,11 +1236,57 @@ def _render_scalar_type(bq_type: str) -> str:
 
 
 def _render_col_options(field: SchemaField) -> str:
-    opts = []
+    """Render column-level OPTIONS(...): description + policy tags.
+
+    Supports BigQuery's PolicyTagList (field.policy_tags.names) as well as
+    older shapes (iterables / dicts). Applies to nested fields too.
+    """
+
+    def _extract_policy_tag_names(f: SchemaField) -> list[str]:
+        pt = getattr(f, "policy_tags", None)
+        if not pt:
+            return []
+        # Common case: PolicyTagList(names=[...])
+        names = getattr(pt, "names", None)
+        # Sometimes client returns a plain list/tuple/set
+        if names is None and isinstance(pt, (list, tuple, set)):
+            names = list(pt)
+        # Rare: dict-like {"names": [...]} or {"policy_tags": [...]}
+        if names is None and isinstance(pt, dict):
+            names = pt.get("names") or pt.get("policy_tags")
+        # Last resort: try to iterate
+        if names is None:
+            try:
+                names = list(pt)
+            except Exception:
+                names = []
+        # Normalize to strings, drop empties, dedupe preserving order
+        seen = set()
+        out: list[str] = []
+        for n in names or []:
+            s = str(n).strip()
+            if s and s not in seen:
+                seen.add(s)
+                out.append(s)
+        return out
+
+    opts: list[str] = []
+
+    # Description (safe escaping)
     if field.description:
-        desc = field.description.replace('"', r"\"")
+        desc = (
+            field.description.replace("\\", "\\\\")
+            .replace('"', r"\"")
+            .replace("\n", r"\n")
+        )
         opts.append(f'description="{desc}"')
-    # You can add policy_tags, column security, etc. here.
+
+    # Policy tags
+    tag_names = _extract_policy_tag_names(field)
+    if tag_names:
+        tags_literal = ", ".join(f'"{t}"' for t in tag_names)
+        opts.append(f"policy_tags=[{tags_literal}]")
+
     if not opts:
         return ""
     return f" OPTIONS({', '.join(opts)})"
@@ -495,6 +1348,16 @@ def _render_type_for_field(field: SchemaField, level: int) -> str:
         return base
 
 
+def _render_default(field: SchemaField, level: int) -> str:
+    """Render DEFAULT expression (BigQuery supports DEFAULT on top-level non-STRUCT columns)."""
+    # BigQuery supports DEFAULT on columns (not nested STRUCT members)
+    if level == 1 and field.field_type != "RECORD":
+        expr = getattr(field, "default_value_expression", None)
+        if expr:
+            return f" DEFAULT ({expr})"
+    return ""
+
+
 def _render_column(field: SchemaField, level: int) -> str:
     """Render a single top-level column, expanding nested types cleanly.
 
@@ -507,7 +1370,7 @@ def _render_column(field: SchemaField, level: int) -> str:
       > NOT NULL OPTIONS(...)
     """
     type_str = _render_type_for_field(field, level)
-    tail = f"{_render_not_null(field)}{_render_col_options(field)}"
+    tail = f"{_render_default(field, level)}{_render_not_null(field)}{_render_col_options(field)}"
     return f"{INDENT * level}`{field.name}` {type_str}{tail}"
 
 
@@ -523,12 +1386,16 @@ def _render_columns(schema: list[SchemaField]) -> str:
 
 
 def _collect_table_options(tbl: bigquery.Table) -> dict[str, Any]:
-    """Collect all table-level options (description, partition settings, etc.)."""
-    opts = {}
+    """Collect all table-level options (description, partition settings, labels, etc.)."""
+    opts: dict[str, Any] = {}
 
     # Table description
     if tbl.description:
-        opts["description"] = tbl.description.replace('"', r"\"")
+        opts["description"] = (
+            tbl.description.replace("\\", "\\\\")
+            .replace('"', r"\"")
+            .replace("\n", r"\n")
+        )
 
     # Partition options belong in the same OPTIONS(...) block
     tp = tbl.time_partitioning
@@ -539,22 +1406,32 @@ def _collect_table_options(tbl: bigquery.Table) -> dict[str, Any]:
             days = int(tp.expiration_ms // 1000 // 60 // 60 // 24)
             opts["partition_expiration_days"] = days
 
+    # Labels (if present)
+    if getattr(tbl, "labels", None):
+        # BigQuery Table.labels is a dict[str, str]
+        opts["labels"] = dict(tbl.labels)
+
     return opts
 
 
 def _render_options_line(opts: dict[str, Any]) -> str | None:
-    """Render a single OPTIONS(...) block with all options."""
+    """Render a single OPTIONS(...) block with all options (deterministic label order)."""
     if not opts:
         return None
 
-    pairs = []
+    pairs: list[str] = []
     for k, v in opts.items():
-        if isinstance(v, bool):
+        if k == "labels" and isinstance(v, dict):
+            # labels=[("k","v"),("k2","v2")] - sorted for stable output
+            # Note: BigQuery labels are restricted to [a-z0-9_-] so no escaping needed
+            # (keys: lowercase letters, digits, _ | values: lowercase letters, digits, _, -)
+            items = ", ".join(f'("{lk}","{lv}")' for lk, lv in sorted(v.items()))
+            pairs.append(f"labels=[{items}]")
+        elif isinstance(v, bool):
             pairs.append(f"{k}={'TRUE' if v else 'FALSE'}")
         elif isinstance(v, (int, float)):
             pairs.append(f"{k}={v}")
         else:
-            # String value - escape quotes
             pairs.append(f'{k}="{v}"')
 
     return f"OPTIONS({', '.join(pairs)})"
@@ -619,46 +1496,52 @@ def generate_table_ddl(
     columns_block = _render_columns(tbl.schema)
     closing = ")"
 
-    ddl_lines: list[str] = [create_header, columns_block, closing]
+    create_lines: list[str] = [create_header, columns_block, closing]
 
-    # Add blank line after closing ) for readability
+    # Optional clauses after CREATE body
     part = _render_partitioning(tbl)
     clus = _render_clustering(tbl)
     opts_dict = _collect_table_options(tbl)
     opts_line = _render_options_line(opts_dict)
 
-    if part or clus or opts_line:
-        ddl_lines.append("")  # Blank line before clauses
-
     if part:
-        ddl_lines.append(part)
+        create_lines.append(part)
     if clus:
-        ddl_lines.append(clus)
+        create_lines.append(clus)
     if opts_line:
-        ddl_lines.append(opts_line)
+        create_lines.append(opts_line)
 
+    create_stmt = "\n".join(create_lines) + ";"
+
+    alter_stmts: list[str] = []
     if include_constraints:
         pk_cols, fks = get_constraints(client, project_id, dataset_id, table_id)
-        if pk_cols or fks:
-            ddl_lines.append("")  # Blank line before ALTER statements
 
         if pk_cols:
             cols = ", ".join(f"`{c}`" for c in pk_cols)
-            ddl_lines.append(
-                f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED"
+            alter_stmts.append(
+                f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED;"
             )
 
         for fk in fks:
             ref = f"{project_id}.{fk['referenced_dataset']}.{fk['referenced_table']}"
-            ddl_lines.append(
-                f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY (`{fk['column']}`) "
-                f"REFERENCES `{ref}`(`{fk['referenced_column']}`) NOT ENFORCED"
-            )
+            if "columns" in fk and "referenced_columns" in fk:
+                cols = ", ".join(f"`{c}`" for c in fk["columns"])
+                ref_cols = ", ".join(f"`{c}`" for c in fk["referenced_columns"])
+                alter_stmts.append(
+                    f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY ({cols}) REFERENCES `{ref}`({ref_cols}) NOT ENFORCED;"
+                )
+            else:
+                # Back-compat (single-column shape)
+                alter_stmts.append(
+                    f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY (`{fk['column']}`) "
+                    f"REFERENCES `{ref}`(`{fk['referenced_column']}`) NOT ENFORCED;"
+                )
 
-    ddl = (
-        "\n".join(ddl_lines)
-        + ";\n"
-        + f"-- End of script generated at {datetime.now():%Y-%m-%d %H:%M:%S}"
+    ddl = "\n\n".join(
+        [create_stmt]
+        + alter_stmts
+        + [f"-- End of script generated at {datetime.now():%Y-%m-%d %H:%M:%S}"]
     )
     return ddl
 
@@ -681,13 +1564,13 @@ def generate_dataset_ddl(
         return {}
 
     # Get batch constraints if needed
-    constraints_map = {}
+    constraints_map: dict[str, tuple[list[str], list[dict[str, Any]]]] = {}
     if include_constraints:
         constraints_map = get_batch_constraints(
             client, project_id, dataset_id, table_ids
         )
 
-    ddls = {}
+    ddls: dict[str, str] = {}
     for table_id in table_ids:
         try:
             table_ref = f"{project_id}.{dataset_id}.{table_id}"
@@ -697,52 +1580,64 @@ def generate_dataset_ddl(
             columns_block = _render_columns(tbl.schema)
             closing = ")"
 
-            ddl_lines: list[str] = [create_header, columns_block, closing]
+            create_lines: list[str] = [create_header, columns_block, closing]
 
-            # Add blank line after closing ) for readability
             part = _render_partitioning(tbl)
             clus = _render_clustering(tbl)
             opts_dict = _collect_table_options(tbl)
             opts_line = _render_options_line(opts_dict)
 
-            if part or clus or opts_line:
-                ddl_lines.append("")  # Blank line before clauses
-
             if part:
-                ddl_lines.append(part)
+                create_lines.append(part)
             if clus:
-                ddl_lines.append(clus)
+                create_lines.append(clus)
             if opts_line:
-                ddl_lines.append(opts_line)
+                create_lines.append(opts_line)
 
+            create_stmt = "\n".join(create_lines) + ";"
+
+            alter_stmts: list[str] = []
             if include_constraints and table_id in constraints_map:
                 pk_cols, fks = constraints_map[table_id]
-                if pk_cols or fks:
-                    ddl_lines.append("")  # Blank line before ALTER statements
 
                 if pk_cols:
                     cols = ", ".join(f"`{c}`" for c in pk_cols)
-                    ddl_lines.append(
-                        f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED"
+                    alter_stmts.append(
+                        f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED;"
                     )
 
                 for fk in fks:
                     ref = f"{project_id}.{fk['referenced_dataset']}.{fk['referenced_table']}"
-                    ddl_lines.append(
-                        f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY (`{fk['column']}`) "
-                        f"REFERENCES `{ref}`(`{fk['referenced_column']}`) NOT ENFORCED"
-                    )
+                    if "columns" in fk and "referenced_columns" in fk:
+                        cols = ", ".join(f"`{c}`" for c in fk["columns"])
+                        ref_cols = ", ".join(f"`{c}`" for c in fk["referenced_columns"])
+                        alter_stmts.append(
+                            f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY ({cols}) REFERENCES `{ref}`({ref_cols}) NOT ENFORCED;"
+                        )
+                    else:
+                        alter_stmts.append(
+                            f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY (`{fk['column']}`) "
+                            f"REFERENCES `{ref}`(`{fk['referenced_column']}`) NOT ENFORCED;"
+                        )
 
-            ddl = (
-                "\n".join(ddl_lines)
-                + ";\n"
-                + f"-- End of script generated at {datetime.now():%Y-%m-%d %H:%M:%S}"
+            ddl = "\n\n".join(
+                [create_stmt]
+                + alter_stmts
+                + [f"-- End of script generated at {datetime.now():%Y-%m-%d %H:%M:%S}"]
             )
             ddls[table_id] = ddl
 
         except Exception as e:
-            print(f"Error generating DDL for {table_id}: {e}")
-            ddls[table_id] = f"-- Error: {e}"
+            # Log DDL generation failures with table context for debugging
+            logger.error(
+                "Failed to generate DDL for %s.%s.%s: %s",
+                project_id,
+                dataset_id,
+                table_id,
+                e,
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
+            ddls[table_id] = f"-- Error generating DDL: {e}"
 
     return ddls
 
@@ -900,7 +1795,14 @@ def get_live_table_schema(
 
 
 def _canon_type(field_type: str) -> str:
-    """Normalize BigQuery type aliases to canonical forms.
+    """Normalize BigQuery type aliases to canonical forms for analysis.
+
+    Maps FROM type aliases TO canonical analysis forms (INT64, FLOAT64, BOOLEAN).
+    This is the inverse direction of SCALAR_TYPE_MAP (used for DDL rendering).
+
+    Why the difference?
+    - DDL rendering: BOOLEAN → BOOL (BigQuery DDL prefers short form)
+    - Analysis: BOOL → BOOLEAN (longer form is more explicit for comparisons)
 
     Args:
         field_type: BigQuery field type (e.g., "INTEGER", "INT64", "FLOAT")
@@ -1341,44 +2243,6 @@ def detect_bigquery_antipatterns(
         field_path = f"{path}.{field.name}" if path else field.name
         name = field.name
 
-        # Skip common acceptable abbreviations and standard codes
-        acceptable = {
-            "id",
-            "url",
-            "uri",
-            "api",
-            "uid",
-            "uuid",
-            "guid",
-            "ip",
-            "mac",
-            "os",
-            "cpu",
-            "gpu",
-            "ram",
-            "ssd",
-            "pdf",
-            "jpg",
-            "png",
-            "gif",
-            "svg",
-            "html",
-            "css",
-            "js",
-            "http",
-            "https",
-            "ftp",
-            "ssh",
-            "ssl",
-            "tls",
-            "min",
-            "max",
-            "avg",
-            "sum",
-            "std",
-            "var",
-        }
-
         # Skip ISO standard codes (iso_2, iso_3, iso_*, etc.)
         name_lower = name.lower()
         if "iso" in name_lower or name_lower.startswith("iso_"):
@@ -1388,14 +2252,14 @@ def detect_bigquery_antipatterns(
         is_cryptic = False
 
         # Pattern 1: Very short names (1-2 chars) that aren't common
-        if len(name) <= 2 and name_lower not in acceptable:
+        if len(name) <= 2 and name_lower not in ACCEPTABLE_ABBREVIATIONS:
             is_cryptic = True
 
         # Pattern 2: Excessive abbreviation (lots of consonants, no vowels, >3 chars)
         if len(name) > 3 and len(name) <= 6:
             vowels = set("aeiouAEIOU")
             has_vowel = any(c in vowels for c in name)
-            if not has_vowel and name_lower not in acceptable:
+            if not has_vowel and name_lower not in ACCEPTABLE_ABBREVIATIONS:
                 is_cryptic = True
 
         # Pattern 3: Numbers in names (except common patterns like v1, v2, iso_2, iso_3)
@@ -1436,45 +2300,78 @@ def detect_bigquery_antipatterns(
         )
 
     # Anti-pattern 15: Missing audit columns
-    # Check for common audit fields at top level
     top_level_names = {f.name.lower() for f in schema}
-    has_created = any(
-        name in top_level_names
-        for name in ["created_at", "createdat", "created", "creation_date", "insert_ts"]
-    )
-    has_updated = any(
-        name in top_level_names
-        for name in [
-            "updated_at",
-            "updatedat",
-            "updated",
-            "modified_at",
-            "modified",
-            "update_ts",
-        ]
-    )
-    has_deleted = any(
-        name in top_level_names
-        for name in ["deleted_at", "deletedat", "deleted", "delete_ts", "is_deleted"]
-    )
 
-    missing_audit = []
-    if not has_created:
-        missing_audit.append("created_at/created")
-    if not has_updated:
-        missing_audit.append("updated_at/modified")
-    if not has_deleted:
-        missing_audit.append("deleted_at/is_deleted")
+    # Check for presence of audit field categories
+    has_timestamp = bool(top_level_names & AUDIT_TIMESTAMP_FIELDS)
+    has_actor = bool(top_level_names & AUDIT_ACTOR_FIELDS)
+    has_version = bool(top_level_names & AUDIT_VERSION_FIELDS)
+    has_soft_delete = bool(top_level_names & AUDIT_SOFT_DELETE_FIELDS)
+    has_source = bool(top_level_names & AUDIT_SOURCE_FIELDS)
 
-    if missing_audit:
+    # Find which specific recommended fields are present
+    present_audit = top_level_names & ALL_AUDIT_FIELDS
+    missing_recommended = RECOMMENDED_AUDIT_FIELDS - top_level_names
+
+    # Check for incomplete audit pairs
+    incomplete_pairs = []
+    for ts_field, actor_field in AUDIT_FIELD_PAIRS:
+        if ts_field in top_level_names and actor_field not in top_level_names:
+            incomplete_pairs.append(f"{ts_field} (missing {actor_field})")
+
+    # Build comprehensive feedback
+    audit_summary = {
+        "has_timestamp": has_timestamp,
+        "has_actor": has_actor,
+        "has_version": has_version,
+        "has_soft_delete": has_soft_delete,
+        "has_source": has_source,
+        "present_fields": sorted(present_audit),
+        "missing_recommended": sorted(missing_recommended),
+        "incomplete_pairs": incomplete_pairs,
+    }
+
+    # Issue if missing recommended fields or has incomplete pairs
+    if missing_recommended or incomplete_pairs:
+        severity = "warning" if missing_recommended else "info"
+
+        suggestion_parts = []
+        if missing_recommended:
+            suggestion_parts.append(
+                f"Missing recommended audit fields: {', '.join(sorted(missing_recommended))}"
+            )
+        if incomplete_pairs:
+            suggestion_parts.append(
+                f"Incomplete audit pairs: {', '.join(incomplete_pairs)}"
+            )
+
+        # Add category-specific recommendations
+        recommendations = []
+        if not has_timestamp:
+            recommendations.append(
+                "Add timestamp fields (created_at, updated_at) for change tracking"
+            )
+        if not has_actor and has_timestamp:
+            recommendations.append(
+                "Consider adding actor fields (created_by, updated_by) to track who made changes"
+            )
+        if not has_version and (has_timestamp or has_actor):
+            recommendations.append(
+                "Consider adding version/etag for optimistic locking"
+            )
+
+        full_suggestion = ". ".join(suggestion_parts)
+        if recommendations:
+            full_suggestion += ". " + ". ".join(recommendations)
+
         issues.append(
             {
                 "field_name": "schema",
                 "pattern": "missing_audit_columns",
-                "severity": "info",
+                "severity": severity,
                 "category": "data_quality",
-                "suggestion": f"Missing audit/tracking columns: {', '.join(missing_audit)}. Add timestamp fields for data lineage and debugging.",
-                "missing_fields": missing_audit,
+                "suggestion": full_suggestion,
+                "audit_summary": audit_summary,
             }
         )
 
@@ -1986,58 +2883,21 @@ def detect_bigquery_antipatterns(
 
         if field.field_type == "STRING":
             # Skip ISO codes, country codes, and code fields (correctly STRING)
-            if any(
-                pattern in name_lower
-                for pattern in [
-                    "iso_",
-                    "iso",
-                    "_code",
-                    "country",
-                    "region",
-                    "state",
-                    "province",
-                ]
-            ):
+            if any(pattern in name_lower for pattern in STRING_FIELD_EXCLUSIONS):
                 return
 
             # Numeric indicators
-            numeric_keywords = [
-                "count",
-                "total",
-                "sum",
-                "quantity",
-                "amount",
-                "price",
-                "cost",
-                "fee",
-                "balance",
-                "num",
-                "qty",
-                "score",
-                "rating",
-                "rank",
-            ]
             # Be more conservative: require exact match or _keyword pattern
             # Exclude "number" and "position" as they're often identifiers/codes
             if any(
                 name_lower == kw or f"_{kw}" in name_lower or f"{kw}_" in name_lower
-                for kw in numeric_keywords
+                for kw in NUMERIC_FIELD_INDICATORS
             ):
                 string_abuse_fields.append((field_path, "numeric"))
 
             # Boolean indicators (not caught by boolean_as_integer check)
-            boolean_keywords = [
-                "is_",
-                "has_",
-                "can_",
-                "should_",
-                "will_",
-                "enabled",
-                "disabled",
-                "active",
-            ]
-            if any(name_lower.startswith(kw) for kw in boolean_keywords[:7]) or any(
-                kw in name_lower for kw in boolean_keywords[7:]
+            if any(name_lower.startswith(kw) for kw in BOOLEAN_FIELD_PREFIXES) or any(
+                kw in name_lower for kw in BOOLEAN_FIELD_KEYWORDS
             ):
                 string_abuse_fields.append((field_path, "boolean"))
 
@@ -2203,104 +3063,141 @@ def detect_bigquery_antipatterns(
         )
 
     # Anti-pattern 30: PII without clear marking
-    pii_fields = []
+    pii_missing_both = []  # no policy tags AND no doc
+    pii_missing_tags = []  # documented but missing policy tags
 
     def check_pii(field: SchemaField, path: str = "") -> None:
-        """Check for PII fields without marking."""
+        """Check for PII fields and whether they are tagged/documented."""
         field_path = f"{path}.{field.name}" if path else field.name
         name_lower = field.name.lower()
 
-        # PII indicators
-        pii_patterns = [
-            "email",
-            "phone",
-            "ssn",
-            "social_security",
-            "credit_card",
-            "passport",
-            "license",
-            "tax_id",
-            "national_id",
-            "driver",
-            "birth_date",
-            "birthdate",
-            "dob",
-            "salary",
-            "address",
-        ]
+        # Cut obvious false positives
+        if (name_lower in _PII_EXCLUDE_EXACT) or any(
+            name_lower.endswith(suf) for suf in _PII_EXCLUDE_SUFFIXES
+        ):
+            pass
+        else:
+            # Flatten all PII indicators into single list for substring check
+            all_pii_indicators: list[str] = []
+            for indicators in PII_INDICATORS.values():
+                all_pii_indicators.extend(indicators)
 
-        if any(pattern in name_lower for pattern in pii_patterns):
-            # Check if description mentions PII/sensitive/confidential
-            desc = (field.description or "").lower()
-            if not any(
-                word in desc
-                for word in ["pii", "sensitive", "confidential", "private", "personal"]
+            name_signals = any(ind in name_lower for ind in all_pii_indicators)
+
+            # Weak signals (only count if STRING/BYTES)
+            if not name_signals and any(
+                t in name_lower for t in {"image", "photo", "picture"}
             ):
-                pii_fields.append(field_path)
+                name_signals = field.field_type in ("STRING", "BYTES")
+
+            if name_signals:
+                desc = (field.description or "").lower()
+                documented = any(
+                    w in desc
+                    for w in [
+                        "pii",
+                        "sensitive",
+                        "confidential",
+                        "private",
+                        "personal",
+                    ]
+                )
+                tagged = bool(_policy_tag_names(field))
+
+                if not documented and not tagged:
+                    pii_missing_both.append(field_path)
+                elif documented and not tagged:
+                    pii_missing_tags.append(field_path)
 
         if field.field_type == "RECORD":
-            for sub_field in field.fields:
-                check_pii(sub_field, field_path)
+            for sub in field.fields:
+                check_pii(sub, field_path)
 
     for field in schema:
         check_pii(field)
 
-    if pii_fields:
+    if pii_missing_both:
         issues.append(
             {
                 "field_name": "schema",
-                "pattern": "unmarked_pii",
+                "pattern": "pii_unmarked_undocumented",
                 "severity": "warning",
                 "category": "security",
-                "suggestion": f"Fields likely containing PII without documentation ({len(pii_fields)} fields). Add descriptions marking these as 'PII', 'sensitive', or 'confidential' for compliance and security.",
-                "affected_fields": pii_fields,
+                "suggestion": "Fields likely containing PII are neither policy-tagged nor documented. Add data catalog policy tags and docs.",
+                "affected_fields": pii_missing_both,
+            }
+        )
+    if pii_missing_tags:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "pii_missing_policy_tags",
+                "severity": "info",
+                "category": "security",
+                "suggestion": "Fields likely containing PII are documented as sensitive but missing policy tags. Attach taxonomy policy tags.",
+                "affected_fields": pii_missing_tags,
             }
         )
 
     # Anti-pattern 31: Password/secret fields
-    secret_fields = []
+    secret_fields_untagged = []
+    secret_fields_tagged_or_doc = []
 
     def check_secrets(field: SchemaField, path: str = "") -> None:
-        """Check for password/secret fields."""
         field_path = f"{path}.{field.name}" if path else field.name
         name_lower = field.name.lower()
 
-        # Exclude _id, _key, _ref suffixes (these are references, not secrets)
-        if name_lower.endswith(("_id", "_key", "_ref", "id", "key")):
-            return
+        # Ignore obvious non-secrets (_id/_key references)
+        if name_lower.endswith(("_id", "_key", "_ref")):
+            pass
+        else:
+            is_secretish = name_lower in SENSITIVE_SECRETS_EXACT
+            # tolerant extras: *_secret, *_token, *_private_key (but avoid false positives)
+            if not is_secretish and any(
+                name_lower.endswith(sfx)
+                for sfx in ("_secret", "_token", "_private_key")
+            ):
+                is_secretish = True
 
-        secret_patterns = [
-            "password",
-            "pwd",
-            "pass",
-            "secret",
-            "api_key",
-            "apikey",
-            "private_key",
-            "access_token",
-        ]
-
-        if any(pattern in name_lower for pattern in secret_patterns):
-            # Only flag if it's a STRING (should be hashed)
-            if field.field_type == "STRING":
-                secret_fields.append(field_path)
+            if is_secretish:
+                desc = (field.description or "").lower()
+                documented = any(
+                    w in desc for w in ["secret", "credential", "sensitive"]
+                )
+                tagged = bool(_policy_tag_names(field))
+                # Prefer BYTES or hashed STRING; flag plain STRING strongly
+                if field.field_type == "STRING" and not (tagged or documented):
+                    secret_fields_untagged.append(field_path)
+                elif tagged or documented:
+                    secret_fields_tagged_or_doc.append(field_path)
 
         if field.field_type == "RECORD":
-            for sub_field in field.fields:
-                check_secrets(sub_field, field_path)
+            for sub in field.fields:
+                check_secrets(sub, field_path)
 
     for field in schema:
         check_secrets(field)
 
-    if secret_fields:
+    if secret_fields_untagged:
         issues.append(
             {
                 "field_name": "schema",
                 "pattern": "plaintext_secrets",
                 "severity": "error",
                 "category": "security",
-                "suggestion": f"Fields likely containing passwords/secrets ({len(secret_fields)} fields). NEVER store plaintext passwords. Use hashed values (bcrypt, argon2) and consider removing from schema entirely.",
-                "affected_fields": secret_fields,
+                "suggestion": "Likely secrets stored without policy tags/docs. Never store plaintext passwords or long-lived tokens; prefer hashed values or external secret managers and add policy tags.",
+                "affected_fields": secret_fields_untagged,
+            }
+        )
+    if secret_fields_tagged_or_doc:
+        issues.append(
+            {
+                "field_name": "schema",
+                "pattern": "secrets_needing_review",
+                "severity": "info",
+                "category": "security",
+                "suggestion": "Secret-like fields are present but already tagged/documented. Re-check storage strategy (hashing/rotation) and access policies.",
+                "affected_fields": secret_fields_tagged_or_doc,
             }
         )
 

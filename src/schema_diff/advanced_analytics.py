@@ -173,6 +173,7 @@ def find_schema_patterns(schema: Schema) -> Dict[str, List[str]]:
         "email_fields": [],
         "nested_objects": [],
         "array_of_objects": [],
+        "fields_with_policy_tags": [],
     }
 
     # Analyze field names and paths
@@ -226,10 +227,161 @@ def find_schema_patterns(schema: Schema) -> Dict[str, List[str]]:
         if _is_array_of_objects(field):
             patterns["array_of_objects"].append(field.path)
 
+    # Check for BigQuery-specific patterns (policy tags, etc.)
+    if schema.source_type == "bigquery" and schema.metadata.get("raw_bq_schema"):
+        from google.cloud.bigquery import SchemaField
+
+        raw_schema = schema.metadata["raw_bq_schema"]
+
+        def check_policy_tags(field: SchemaField, path: str = "") -> None:
+            """Recursively check for policy tags in BigQuery schema."""
+            field_path = f"{path}.{field.name}" if path else field.name
+
+            # Check if field has policy tags
+            pt = getattr(field, "policy_tags", None)
+            if pt:
+                names = getattr(pt, "names", None)
+                if names and len(names) > 0:
+                    patterns["fields_with_policy_tags"].append(field_path)
+
+            # Recurse into RECORD fields
+            if field.field_type == "RECORD":
+                for sub_field in field.fields:
+                    check_policy_tags(sub_field, field_path)
+
+        for field in raw_schema:
+            check_policy_tags(field)
+
     # tidy: de-dupe and sort for stable output
     for k in patterns:
         patterns[k] = sorted(set(patterns[k]))
     return patterns
+
+
+def analyze_policy_tags(schema: Schema) -> Dict[str, Any]:  # type: ignore[misc]
+    """Analyze policy tags coverage and patterns for BigQuery schemas.
+
+    Returns information about:
+    - Fields with policy tags
+    - Fields without policy tags that likely need them (PII detection)
+    - Policy tag distribution by category
+    - Compliance coverage metrics
+    """
+    if not isinstance(schema, Schema):
+        raise ValueError("Schema must be a unified Schema object")
+
+    analysis: dict[str, Any] = {
+        "total_fields": len(schema.fields),
+        "fields_with_tags": [],
+        "fields_without_tags_pii": [],
+        "policy_tag_distribution": defaultdict(int),
+        "coverage_percent": 0.0,
+        "pii_fields_untagged": [],
+        "sensitive_fields_untagged": [],
+        "tag_details": {},  # field_path -> list of tag names
+    }
+
+    # Only analyze if BigQuery schema with raw schema available
+    if schema.source_type != "bigquery" or not schema.metadata.get("raw_bq_schema"):
+        result: dict[str, Any] = _to_plain(analysis)  # type: ignore[assignment]
+        return result
+
+    from google.cloud.bigquery import SchemaField
+
+    # Import canonical catalogs and helpers from bigquery_ddl
+    from schema_diff.bigquery_ddl import (
+        SENSITIVE_SECRETS_EXACT,
+        _classify_pii_by_name,
+        _policy_tag_names_on_field,
+        _tokenize_name,
+    )
+
+    raw_schema = schema.metadata["raw_bq_schema"]
+
+    def analyze_field(field: SchemaField, path: str = "") -> None:
+        """Recursively analyze fields for policy tags."""
+        field_path = f"{path}.{field.name}" if path else field.name
+
+        # Check if field has policy tags (use canonical helper)
+        tag_names = _policy_tag_names_on_field(field)
+        has_tags = bool(tag_names)
+
+        if has_tags:
+            analysis["fields_with_tags"].append(field_path)
+
+            # Store tag details for this field
+            analysis["tag_details"][field_path] = tag_names
+
+            # Categorize policy tags
+            for tag_str in tag_names:
+                # Extract category from tag path (e.g., .../pii/..., .../sensitive/...)
+                if "/pii/" in tag_str.lower():
+                    analysis["policy_tag_distribution"]["PII"] += 1
+                elif "/sensitive/" in tag_str.lower():
+                    analysis["policy_tag_distribution"]["Sensitive"] += 1
+                elif "/confidential/" in tag_str.lower():
+                    analysis["policy_tag_distribution"]["Confidential"] += 1
+                else:
+                    analysis["policy_tag_distribution"]["Other"] += 1
+
+        # Check if field likely needs policy tags but doesn't have them
+        if not has_tags:
+            # Use canonical PII classifier
+            pii_hits = _classify_pii_by_name(field.name)
+            if pii_hits:
+                # Field name suggests PII
+                # Skip obvious reference IDs (ending with _id)
+                name_lower = field.name.lower()
+                if name_lower.endswith("_id") or name_lower == "id":
+                    # Exception: standalone government IDs are actual sensitive data
+                    gov_id_indicators = {
+                        "national_id",
+                        "tax_id",
+                        "citizen_id",
+                        "resident_id",
+                    }
+                    is_gov_id = any(
+                        cat == "gov_id"
+                        and any(ind in gov_id_indicators for ind in indicators)
+                        for cat, indicators in pii_hits.items()
+                    )
+                    if is_gov_id and name_lower in gov_id_indicators:
+                        analysis["pii_fields_untagged"].append(field_path)
+                else:
+                    # Not a reference ID, flag as PII
+                    analysis["pii_fields_untagged"].append(field_path)
+
+            # Check for sensitive indicators (credentials/secrets) using canonical catalog
+            name_lower = field.name.lower()
+            if not name_lower.endswith(("_id", "_key", "_ref", "id", "key")):
+                name_tokens = set(_tokenize_name(field.name))
+                # Exact match check
+                if any(tok in SENSITIVE_SECRETS_EXACT for tok in name_tokens):
+                    analysis["sensitive_fields_untagged"].append(field_path)
+                # Suffix check for variants
+                elif any(
+                    name_lower.endswith(sfx)
+                    for sfx in ("_token", "_secret", "_private_key")
+                ):
+                    analysis["sensitive_fields_untagged"].append(field_path)
+
+        # Recurse into RECORD fields
+        if field.field_type == "RECORD":
+            for sub_field in field.fields:
+                analyze_field(sub_field, field_path)
+
+    # Analyze all fields
+    for field in raw_schema:
+        analyze_field(field)
+
+    # Calculate coverage (as percentage of all fields that have tags)
+    if analysis["total_fields"] > 0:
+        analysis["coverage_percent"] = round(
+            (len(analysis["fields_with_tags"]) / analysis["total_fields"]) * 100, 1
+        )
+
+    final_result: dict[str, Any] = _to_plain(analysis)  # type: ignore[assignment]
+    return final_result
 
 
 def suggest_schema_improvements(schema: Schema) -> List[Dict[str, str]]:
@@ -296,6 +448,58 @@ def suggest_schema_improvements(schema: Schema) -> List[Dict[str, str]]:
                 "affected_fields": [],
             }
         )
+
+    # Check policy tags coverage for BigQuery schemas
+    if schema.source_type == "bigquery" and schema.metadata.get("raw_bq_schema"):
+        policy_analysis = analyze_policy_tags(schema)
+
+        # Suggest policy tags for untagged PII fields
+        if policy_analysis["pii_fields_untagged"]:
+            suggestions.append(
+                {
+                    "type": "security",
+                    "severity": "warning",
+                    "description": f"Candidate PII fields without policy tags detected ({len(policy_analysis['pii_fields_untagged'])} fields). Add policy tags for data governance and compliance (GDPR, HIPAA, etc.).",
+                    "affected_fields": policy_analysis["pii_fields_untagged"],
+                }
+            )
+
+        # Suggest policy tags for untagged sensitive fields
+        if policy_analysis["sensitive_fields_untagged"]:
+            suggestions.append(
+                {
+                    "type": "security",
+                    "severity": "error",
+                    "description": f"Sensitive credential fields without policy tags detected ({len(policy_analysis['sensitive_fields_untagged'])} fields). Add policy tags immediately to restrict access.",
+                    "affected_fields": policy_analysis["sensitive_fields_untagged"],
+                }
+            )
+
+        # Positive feedback for good policy tag coverage
+        if (
+            policy_analysis["coverage_percent"] >= 80
+            and policy_analysis["fields_with_tags"]
+        ):
+            suggestions.append(
+                {
+                    "type": "security",
+                    "severity": "info",
+                    "description": f"Good policy tag coverage ({policy_analysis['coverage_percent']}%). {len(policy_analysis['fields_with_tags'])} fields are properly tagged for data governance.",
+                    "affected_fields": [],
+                }
+            )
+        elif policy_analysis["coverage_percent"] < 50 and (
+            policy_analysis["pii_fields_untagged"]
+            or policy_analysis["sensitive_fields_untagged"]
+        ):
+            suggestions.append(
+                {
+                    "type": "security",
+                    "severity": "warning",
+                    "description": f"Low policy tag coverage ({policy_analysis['coverage_percent']}%). Consider implementing a data classification strategy and tagging sensitive fields.",
+                    "affected_fields": [],
+                }
+            )
 
     # Check for repeated field names (potential normalization opportunity)
     if patterns["repeated_field_names"]:
@@ -485,7 +689,7 @@ def suggest_schema_improvements(schema: Schema) -> List[Dict[str, str]]:
                         {
                             "type": "data_integrity",
                             "severity": "info",
-                            "description": f"Foreign key fields are nullable ({len(affected)} fields). Make REQUIRED or add explicit null handling to prevent orphaned references.",
+                            "description": f"Foreign key fields are NULL-able ({len(affected)} fields). Make REQUIRED or add explicit null handling to prevent orphaned references.",
                             "affected_fields": affected,
                         }
                     )
@@ -563,7 +767,7 @@ def suggest_schema_improvements(schema: Schema) -> List[Dict[str, str]]:
                         {
                             "type": "data_integrity",
                             "severity": "warning",
-                            "description": f"Primary/identifier fields are nullable ({len(affected)} fields). IDs should be REQUIRED to ensure data integrity.",
+                            "description": f"Primary/identifier fields are NULL-able ({len(affected)} fields). IDs should be REQUIRED to ensure data integrity.",
                             "affected_fields": affected,
                         }
                     )
@@ -855,4 +1059,5 @@ __all__ = [
     "suggest_schema_improvements",
     "compare_schema_evolution_advanced",
     "generate_schema_report",
+    "analyze_policy_tags",
 ]

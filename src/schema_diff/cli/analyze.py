@@ -226,6 +226,15 @@ def cmd_analyze(args) -> int:
             patterns = find_schema_patterns(schema)
             results["patterns"] = patterns
 
+            # Also analyze policy tags for BigQuery schemas
+            if schema.source_type == "bigquery" and schema.metadata.get(
+                "raw_bq_schema"
+            ):
+                from ..advanced_analytics import analyze_policy_tags
+
+                policy_tags = analyze_policy_tags(schema)
+                results["policy_tags"] = policy_tags
+
         if show_suggestions:
             print("🔍 Generating improvement suggestions...")
             suggestions = suggest_schema_improvements(schema)
@@ -307,13 +316,13 @@ def _format_as_text(results, schema):
             infos = [s for s in suggestions if s["severity"] == "info"]
 
             for group, icon, color, suggestions_list in [
-                ("CRITICAL", "❌", RED, errors),
+                ("CRITICAL ISSUES", "❌", RED, errors),
                 ("WARNINGS", "⚠️", YELLOW, warnings),
-                ("SUGGESTIONS", "ℹ️", BLUE, infos),
+                ("RECOMMENDATIONS", "ℹ️", BLUE, infos),
             ]:
                 if suggestions_list:
                     output.append(
-                        f"\n{color}{icon} {group} ({len(suggestions_list)}){RESET}"
+                        f"\n{BOLD}{color}{icon} {group} ({len(suggestions_list)}){RESET}"
                     )
 
                     # Group by category
@@ -360,12 +369,42 @@ def _format_as_text(results, schema):
 
                             if suggestion["affected_fields"]:
                                 count = len(suggestion["affected_fields"])
-                                fields_str = ", ".join(
-                                    suggestion["affected_fields"][:5]
-                                )
-                                if count > 5:
-                                    fields_str += f" ... +{count - 5} more"
-                                output.append(f"      {CYAN}→{RESET} {fields_str}")
+                                # Word wrap affected fields at 74 chars (accounting for "      → " prefix = 8 chars)
+                                fields_to_show = suggestion["affected_fields"][:5]
+                                fields_parts = []
+                                current_line = []
+                                current_length = 0
+
+                                for field in fields_to_show:
+                                    field_with_comma = f"{field}, "
+                                    field_len = len(field_with_comma)
+
+                                    if current_length + field_len > 74:
+                                        # Finish current line (remove trailing comma+space)
+                                        if current_line:
+                                            fields_parts.append(
+                                                "".join(current_line).rstrip(", ")
+                                            )
+                                        current_line = [field_with_comma]
+                                        current_length = field_len
+                                    else:
+                                        current_line.append(field_with_comma)
+                                        current_length += field_len
+
+                                # Add remaining fields
+                                if current_line:
+                                    line_str = "".join(current_line).rstrip(", ")
+                                    if count > 5:
+                                        line_str += f" ... +{count - 5} more"
+                                    fields_parts.append(line_str)
+
+                                # Output wrapped lines
+                                if fields_parts:
+                                    output.append(
+                                        f"      {CYAN}→{RESET} {fields_parts[0]}"
+                                    )
+                                    for part in fields_parts[1:]:
+                                        output.append(f"        {part}")
 
                             # Add blank line between bullet items
                             output.append("")
@@ -463,11 +502,22 @@ def _format_as_text(results, schema):
             if count > 5:
                 struct_patterns[-1] += f" ... +{count - 5} more"
 
+        # Security (Policy Tags)
+        security_patterns = []
+        if patterns.get("fields_with_policy_tags"):
+            count = len(patterns["fields_with_policy_tags"])
+            security_patterns.append(
+                f"{GREEN}Policy tagged fields ({count}): {', '.join(patterns['fields_with_policy_tags'][:5])}{RESET}"
+            )
+            if count > 5:
+                security_patterns[-1] += f" {GREEN}... +{count - 5} more{RESET}"
+
         for category, items in [
             ("Identifiers", id_patterns),
             ("Temporal", time_patterns),
             ("Contact/Personal", contact_patterns),
             ("Structural", struct_patterns),
+            ("Security & Compliance", security_patterns),
         ]:
             if items:
                 has_patterns = True
@@ -480,8 +530,83 @@ def _format_as_text(results, schema):
 
         output.append("")
 
+    # POLICY TAGS ANALYSIS - show untagged PII/sensitive fields
+    if "policy_tags" in results:
+        from .colors import BOLD, CYAN, GREEN, RED, RESET, YELLOW
+
+        policy_tags = results["policy_tags"]
+        output.append(f"\n{BOLD}{CYAN}🔒 POLICY TAGS ANALYSIS{RESET}")
+        output.append("─" * 70)
+
+        total = policy_tags["total_fields"]
+        with_tags = len(policy_tags["fields_with_tags"])
+        coverage = policy_tags["coverage_percent"]
+
+        output.append(
+            f"  {CYAN}Coverage:{RESET} {BOLD}{with_tags}{RESET} of {total} fields tagged ({coverage:.1f}%)"
+        )
+        output.append("")
+
+        # Show candidate PII fields (untagged)
+        pii_untagged = policy_tags["pii_fields_untagged"]
+        if pii_untagged:
+            count = len(pii_untagged)
+            output.append(
+                f"  {BOLD}{YELLOW}⚠️  Candidate PII Fields Without Tags ({count}):{RESET}"
+            )
+            # Show as bullet points, up to 15 fields
+            for field in pii_untagged[:15]:
+                output.append(f"    • {field}")
+            if count > 15:
+                output.append(f"    {YELLOW}... +{count - 15} more{RESET}")
+            output.append("")
+
+        # Show untagged sensitive fields (credentials/secrets)
+        sensitive_untagged = policy_tags["sensitive_fields_untagged"]
+        if sensitive_untagged:
+            count = len(sensitive_untagged)
+            output.append(
+                f"  {BOLD}{RED}❌ Sensitive Fields Without Tags ({count}):{RESET}"
+            )
+            # Show as bullet points, up to 10 fields
+            for field in sensitive_untagged[:10]:
+                output.append(f"    • {field}")
+            if count > 10:
+                output.append(f"    {RED}... +{count - 10} more{RESET}")
+            output.append("")
+
+        # Show policy tag distribution
+        if policy_tags["policy_tag_distribution"]:
+            output.append(f"  {CYAN}Policy Tag Categories:{RESET}")
+            for category, count in sorted(
+                policy_tags["policy_tag_distribution"].items()
+            ):
+                output.append(f"    • {category}: {count}")
+            output.append("")
+
+        # Summary message
+        total_sensitive = len(pii_untagged) + len(sensitive_untagged) + with_tags
+        if total_sensitive == 0:
+            # No PII or sensitive fields detected at all
+            output.append(
+                f"  {CYAN}ℹ️  No candidate PII or sensitive fields detected in schema{RESET}"
+            )
+        elif not pii_untagged and not sensitive_untagged:
+            # All detected PII/sensitive fields are tagged
+            output.append(
+                f"  {GREEN}✅ All candidate sensitive fields are properly tagged!{RESET}"
+            )
+        else:
+            # Some fields need tags
+            total_untagged = len(pii_untagged) + len(sensitive_untagged)
+            output.append(
+                f"  {YELLOW}💡 Consider adding policy tags to {total_untagged} candidate field(s){RESET}"
+            )
+
+        output.append("")
+
     if "report" in results:
-        output.append("\n📋 DETAILED REPORT")
+        output.append(f"\n{BOLD}📋 DETAILED REPORT{RESET}")
         output.append("─" * 70)
         output.append(results["report"])
 
@@ -526,59 +651,59 @@ def _format_as_markdown(results, schema):
 
         if not suggestions:
             output.append("✅ **No issues found** - schema looks good!\n")
-        else:
-            # Group by severity
-            errors = [s for s in suggestions if s["severity"] == "error"]
-            warnings = [s for s in suggestions if s["severity"] == "warning"]
-            infos = [s for s in suggestions if s["severity"] == "info"]
+    else:
+        # Group by severity
+        errors = [s for s in suggestions if s["severity"] == "error"]
+        warnings = [s for s in suggestions if s["severity"] == "warning"]
+        infos = [s for s in suggestions if s["severity"] == "info"]
 
-            # Summary table
-            if errors or warnings or infos:
-                output.append("### Summary\n")
-                output.append("| Severity | Count |")
-                output.append("|----------|-------|")
-                if errors:
-                    output.append(f"| 🔴 **Critical** | {len(errors)} |")
-                if warnings:
-                    output.append(f"| 🟡 **Warnings** | {len(warnings)} |")
-                if infos:
-                    output.append(f"| 🔵 **Suggestions** | {len(infos)} |")
-                output.append("")
+        # Summary table
+        if errors or warnings or infos:
+            output.append("### Summary\n")
+            output.append("| Severity | Count |")
+            output.append("|----------|-------|")
+            if errors:
+                output.append(f"| 🔴 **Critical Issues** | {len(errors)} |")
+            if warnings:
+                output.append(f"| 🟡 **Warnings** | {len(warnings)} |")
+            if infos:
+                output.append(f"| 🔵 **Recommendations** | {len(infos)} |")
+            output.append("")
 
-            # Detailed recommendations - grouped by category
-            for group, icon, suggestions_list in [
-                ("Critical Issues", "🔴", errors),
-                ("Warnings", "🟡", warnings),
-                ("Suggestions", "🔵", infos),
-            ]:
-                if suggestions_list:
-                    output.append(f"### {icon} {group}\n")
+        # Detailed recommendations - grouped by category
+        for group, icon, suggestions_list in [
+            ("Critical Issues", "🔴", errors),
+            ("Warnings", "🟡", warnings),
+            ("Recommendations", "🔵", infos),
+        ]:
+            if suggestions_list:
+                output.append(f"### {icon} {group}\n")
 
-                    # Group by category
-                    by_category = {}
-                    for suggestion in suggestions_list:
-                        category = suggestion["type"]
-                        by_category.setdefault(category, []).append(suggestion)
+                # Group by category
+                by_category = {}
+                for suggestion in suggestions_list:
+                    category = suggestion["type"]
+                    by_category.setdefault(category, []).append(suggestion)
 
-                    # Sort categories alphabetically
-                    for category in sorted(by_category.keys()):
-                        category_suggestions = by_category[category]
-                        output.append(f"#### {category.replace('_', ' ').title()}\n")
+                # Sort categories alphabetically
+                for category in sorted(by_category.keys()):
+                    category_suggestions = by_category[category]
+                    output.append(f"#### {category.replace('_', ' ').title()}\n")
 
-                        for suggestion in category_suggestions:
-                            output.append(f"- **Issue:** {suggestion['description']}\n")
+                    for suggestion in category_suggestions:
+                        output.append(f"- **Issue:** {suggestion['description']}\n")
 
-                            if suggestion["affected_fields"]:
-                                count = len(suggestion["affected_fields"])
-                                output.append(f"  **Affected Fields ({count}):**")
-                                output.append("  ```")
-                                for field in suggestion["affected_fields"][:10]:
-                                    output.append(f"  {field}")
-                                if count > 10:
-                                    output.append(f"  ... +{count - 10} more")
-                                output.append("  ```\n")
+                        if suggestion["affected_fields"]:
+                            count = len(suggestion["affected_fields"])
+                            output.append(f"  **Affected Fields ({count}):**")
+                            output.append("  ```")
+                            for field in suggestion["affected_fields"][:10]:
+                                output.append(f"  {field}")
+                            if count > 10:
+                                output.append(f"  ... +{count - 10} more")
+                            output.append("  ```\n")
 
-        output.append("---\n")
+    output.append("---\n")
 
     # SCHEMA OVERVIEW
     if "complexity" in results:
