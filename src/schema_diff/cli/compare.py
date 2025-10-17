@@ -273,8 +273,34 @@ def cmd_compare(args) -> None:
             "bigquery",
         }
 
+        # Show source information and format display
+        # Types that should NOT have "schema" suffix:
+        # - data: raw data files
+        # - bigquery: live tables (shown as "live table")
+        # - dbt-manifest, dbt-yml, dbt-model: dbt metadata/model files
+        no_schema_suffix = {"data", "dbt-manifest", "dbt-yml", "dbt-model"}
+
+        if left_kind == "bigquery":
+            left_display = "bigquery (live table)"
+        else:
+            left_source = "GCS" if is_gcs_path(args.file1) else "local"
+            left_type = (
+                left_kind if left_kind in no_schema_suffix else f"{left_kind} schema"
+            )
+            left_display = f"{left_type} ({left_source})"
+
+        if right_kind == "bigquery":
+            right_display = "bigquery (live table)"
+        else:
+            right_source = "GCS" if is_gcs_path(args.file2) else "local"
+            right_type = (
+                right_kind if right_kind in no_schema_suffix else f"{right_kind} schema"
+            )
+            right_display = f"{right_type} ({right_source})"
+
         if left_kind == "data" and right_kind == "data":
             # Data-to-data comparison - use legacy comparison logic
+            print(f"📊 Comparison: {left_display} → {right_display}")
             from ..io_utils import all_records, nth_record, sample_records
             from ..json_data_file_parser import merged_schema_from_samples
 
@@ -335,6 +361,7 @@ def cmd_compare(args) -> None:
 
         elif left_kind == "data" and right_kind in schema_kinds:
             # Data-to-schema comparison
+            print(f"📊 Comparison: {left_display} → {right_display}")
             from ..io_utils import all_records, nth_record, sample_records
 
             if args.first_record:
@@ -390,6 +417,7 @@ def cmd_compare(args) -> None:
             )
         else:
             # Schema-to-schema comparison using unified format
+            print(f"📊 Comparison: {left_display} → {right_display}")
             left_schema = load_schema_unified(
                 args.file1,
                 left_kind,

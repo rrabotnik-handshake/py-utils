@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import re
 import sys
 import time
@@ -77,15 +78,20 @@ def _retry_on_transient(
                 )
                 raise
 
+            # Add decorrelated jitter to prevent thundering herd
+            # Jitter range: [delay, delay * 1.25] to spread out retry attempts
+            jitter = random.uniform(0, delay * 0.25)
+            sleep_time = delay + jitter
+
             logger.warning(
                 "%s failed (attempt %d/%d), retrying in %.1fs: %s",
                 operation_name,
                 attempt,
                 max_attempts,
-                delay,
+                sleep_time,
                 e,
             )
-            time.sleep(delay)
+            time.sleep(sleep_time)
             delay *= backoff_multiplier
 
     # Should never reach here (all paths return or raise), but satisfy linter
@@ -404,198 +410,99 @@ def colorize_sql(sql: str, mode: str = "auto") -> str:
 # =========================
 # INFORMATION_SCHEMA queries
 # =========================
+# (SQL constants defined above near imports)
 
-PK_SQL = """
-SELECT
-  tc.constraint_name,
-  ARRAY_AGG(kcu.column_name ORDER BY kcu.ordinal_position) AS columns
-FROM `{project}.{dataset}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS` tc
-JOIN `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` kcu
-  ON tc.constraint_name = kcu.constraint_name
- AND tc.table_name     = kcu.table_name
- AND tc.table_schema   = kcu.table_schema
-WHERE tc.table_name = @table_name
-  AND tc.table_schema = @dataset_name
-  AND tc.constraint_type = 'PRIMARY KEY'
-GROUP BY tc.constraint_name
-ORDER BY tc.constraint_name
-"""
 
-FK_SQL = """
--- Accurate FK mapping using REFERENTIAL_CONSTRAINTS to handle composite keys
-WITH
-  fk_cols AS (
-    SELECT
-      k.table_schema,
-      k.table_name,
-      k.constraint_name,
-      k.column_name AS fk_column,
-      k.ordinal_position
-    FROM `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
-    WHERE k.table_name = @table_name
-      AND k.table_schema = @dataset_name
-  ),
-  fk_to_pk AS (
-    SELECT
-      rc.constraint_schema,
-      rc.constraint_name,
-      rc.unique_constraint_schema AS pk_schema,
-      rc.unique_constraint_name    AS pk_constraint_name
-    FROM `{project}.{dataset}.INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS` rc
-    WHERE rc.constraint_schema = @dataset_name
-  ),
-  pk_cols AS (
-    SELECT
-      k.constraint_schema,
-      k.constraint_name,
-      k.column_name AS pk_column,
-      k.table_schema AS pk_table_schema,
-      k.table_name   AS pk_table_name,
-      k.ordinal_position
-    FROM `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
-  )
-SELECT
-  f.constraint_name,
-  f.fk_column               AS column_name,
-  p.pk_table_schema         AS referenced_dataset,
-  p.pk_table_name           AS referenced_table,
-  p.pk_column               AS referenced_column,
-  f.ordinal_position
-FROM fk_cols f
-JOIN fk_to_pk m
-  ON f.constraint_name   = m.constraint_name
- AND f.table_schema      = m.constraint_schema
-JOIN pk_cols p
-  ON p.constraint_name   = m.pk_constraint_name
- AND p.constraint_schema = m.pk_schema
- AND p.ordinal_position  = f.ordinal_position
-ORDER BY f.constraint_name, f.ordinal_position
-"""
+def _get_dataset_location(
+    client: bigquery.Client, project_id: str, dataset_id: str
+) -> str:
+    """Get the location (region) of a BigQuery dataset.
 
-# Batch query for multiple tables - uses REFERENTIAL_CONSTRAINTS for accurate FK mapping
-BATCH_CONSTRAINTS_SQL = """
-WITH
-  fk_cols AS (
-    SELECT
-      k.table_name,
-      k.constraint_name,
-      k.column_name AS fk_column,
-      k.table_schema,
-      k.ordinal_position
-    FROM `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
-    WHERE k.table_name IN UNNEST(@table_names)
-      AND k.table_schema = @dataset_name
-  ),
-  fk_to_pk AS (
-    SELECT
-      rc.constraint_schema,
-      rc.constraint_name,
-      rc.unique_constraint_schema AS pk_schema,
-      rc.unique_constraint_name    AS pk_constraint_name
-    FROM `{project}.{dataset}.INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS` rc
-    WHERE rc.constraint_schema = @dataset_name
-  ),
-  pk_cols AS (
-    SELECT
-      k.constraint_schema,
-      k.constraint_name,
-      k.column_name AS pk_column,
-      k.table_schema AS pk_table_schema,
-      k.table_name   AS pk_table_name,
-      k.ordinal_position
-    FROM `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
-  ),
-  resolved_fks AS (
-    SELECT
-      f.table_name,
-      f.constraint_name,
-      ARRAY_AGG(f.fk_column ORDER BY f.ordinal_position) AS fk_columns,
-      ARRAY_AGG(STRUCT(
-        p.pk_table_schema AS referenced_dataset,
-        p.pk_table_name   AS referenced_table,
-        p.pk_column       AS referenced_column
-      ) ORDER BY f.ordinal_position) AS refs
-    FROM fk_cols f
-    JOIN fk_to_pk m
-      ON f.constraint_name   = m.constraint_name
-     AND f.table_schema      = m.constraint_schema
-    JOIN pk_cols p
-      ON p.constraint_name   = m.pk_constraint_name
-     AND p.constraint_schema = m.pk_schema
-     AND p.ordinal_position  = f.ordinal_position
-    GROUP BY f.table_name, f.constraint_name
-  ),
-  all_constraints AS (
-    SELECT
-      r.table_name,
-      r.constraint_name,
-      'FOREIGN KEY' AS constraint_type,
-      r.fk_columns  AS columns,
-      r.refs        AS references
-    FROM resolved_fks r
-    UNION ALL
-    SELECT
-      tc.table_name,
-      tc.constraint_name,
-      'PRIMARY KEY' AS constraint_type,
-      ARRAY_AGG(k.column_name ORDER BY k.ordinal_position) AS columns,
-      ARRAY<STRUCT<referenced_dataset STRING, referenced_table STRING, referenced_column STRING>>[] AS references
-    FROM `{project}.{dataset}.INFORMATION_SCHEMA.TABLE_CONSTRAINTS` tc
-    JOIN `{project}.{dataset}.INFORMATION_SCHEMA.KEY_COLUMN_USAGE` k
-      ON tc.constraint_name = k.constraint_name
-     AND tc.table_name      = k.table_name
-     AND tc.table_schema    = k.table_schema
-    WHERE tc.table_name IN UNNEST(@table_names)
-      AND tc.table_schema = @dataset_name
-      AND tc.constraint_type = 'PRIMARY KEY'
-    GROUP BY tc.table_name, tc.constraint_name
-  )
-SELECT * FROM all_constraints
-ORDER BY table_name, constraint_type, constraint_name
-"""
+    This is critical for cross-region query compatibility: INFORMATION_SCHEMA queries
+    must be executed in the same region as the dataset, otherwise they fail.
+
+    Args:
+        client: BigQuery client instance
+        project_id: GCP project ID
+        dataset_id: Dataset ID
+
+    Returns:
+        Dataset location (e.g., "US", "europe-west1")
+    """
+    try:
+        ds = client.get_dataset(f"{project_id}.{dataset_id}")
+        return str(ds.location)
+    except Exception as e:
+        logger.warning(
+            "Failed to get location for %s.%s, using client default: %s",
+            project_id,
+            dataset_id,
+            e,
+        )
+        # Fallback to US (uses client's default location)
+        return "US"  # Safe default for most cases
 
 
 def get_constraints(
     client: bigquery.Client, project_id: str, dataset_id: str, table_id: str
-) -> tuple[list[str], list[dict[str, Any]]]:
-    """Retrieve PK and FK constraints using INFORMATION_SCHEMA with parameters."""
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Retrieve PK and FK constraints using INFORMATION_SCHEMA with parameters.
+
+    Returns:
+        (primary_key_dict, foreign_keys_list)
+        - primary_key_dict: {"constraint_name": str, "columns": list[str]} or None
+        - foreign_keys_list: list of FK dicts with constraint_name, columns, referenced table/columns
+    """
     try:
+        # Get dataset location for cross-region compatibility
+        location = _get_dataset_location(client, project_id, dataset_id)
+
+        # Create base job config with location
+        job_config_base = bigquery.QueryJobConfig()
+        job_config_base.location = location
+
         # Query PK with retry on transient errors
+        job_config_pk = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("table_name", "STRING", table_id),
+                bigquery.ScalarQueryParameter("dataset_name", "STRING", dataset_id),
+            ]
+        )
+        job_config_pk.location = location
+
         pk_rows = _retry_on_transient(
             lambda: list(
                 client.query(
                     PK_SQL.format(project=project_id, dataset=dataset_id),
-                    job_config=bigquery.QueryJobConfig(
-                        query_parameters=[
-                            bigquery.ScalarQueryParameter(
-                                "table_name", "STRING", table_id
-                            ),
-                            bigquery.ScalarQueryParameter(
-                                "dataset_name", "STRING", dataset_id
-                            ),
-                        ]
-                    ),
+                    job_config=job_config_pk,
                 ).result()
             ),
             operation_name=f"PK query for {project_id}.{dataset_id}.{table_id}",
         )
-        primary_keys: list[str] = pk_rows[0].columns if pk_rows else []
+        # Return PK with constraint name
+        primary_key: dict[str, Any] | None = (
+            {
+                "constraint_name": pk_rows[0].constraint_name,
+                "columns": list(pk_rows[0].columns),
+            }
+            if pk_rows
+            else None
+        )
 
         # Query FK with retry on transient errors
+        job_config_fk = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("table_name", "STRING", table_id),
+                bigquery.ScalarQueryParameter("dataset_name", "STRING", dataset_id),
+            ]
+        )
+        job_config_fk.location = location
+
         fk_rows = _retry_on_transient(
             lambda: list(
                 client.query(
                     FK_SQL.format(project=project_id, dataset=dataset_id),
-                    job_config=bigquery.QueryJobConfig(
-                        query_parameters=[
-                            bigquery.ScalarQueryParameter(
-                                "table_name", "STRING", table_id
-                            ),
-                            bigquery.ScalarQueryParameter(
-                                "dataset_name", "STRING", dataset_id
-                            ),
-                        ]
-                    ),
+                    job_config=job_config_fk,
                 ).result()
             ),
             operation_name=f"FK query for {project_id}.{dataset_id}.{table_id}",
@@ -623,7 +530,7 @@ def get_constraints(
             grp["referenced_columns"].append(r["referenced_column"] or "UNKNOWN")
 
         foreign_keys = list(fk_groups.values())
-        return primary_keys, foreign_keys
+        return primary_key, foreign_keys
 
     except Exception as e:
         # Log with context for CI/debugging - schema may lack INFORMATION_SCHEMA access
@@ -635,49 +542,61 @@ def get_constraints(
             e,
             exc_info=logger.isEnabledFor(logging.DEBUG),
         )
-        return [], []
+        return None, []
 
 
 def get_batch_constraints(
     client: bigquery.Client, project_id: str, dataset_id: str, table_ids: list[str]
-) -> dict[str, tuple[list[str], list[dict[str, Any]]]]:
-    """Retrieve constraints for multiple tables in a single query."""
+) -> dict[str, tuple[dict[str, Any] | None, list[dict[str, Any]]]]:
+    """Retrieve constraints for multiple tables in a single query.
+
+    Returns:
+        Dictionary mapping table_id to (primary_key_dict, foreign_keys_list)
+        - primary_key_dict: {"constraint_name": str, "columns": list[str]} or None
+        - foreign_keys_list: list of FK dicts with constraint_name, columns, referenced table/columns
+    """
     if not table_ids:
         return {}
 
     try:
+        # Get dataset location for cross-region compatibility
+        location = _get_dataset_location(client, project_id, dataset_id)
+
         # Query batch constraints with retry on transient errors
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("table_names", "STRING", table_ids),
+                bigquery.ScalarQueryParameter("dataset_name", "STRING", dataset_id),
+            ]
+        )
+        job_config.location = location
+
         rows = _retry_on_transient(
             lambda: list(
                 client.query(
                     BATCH_CONSTRAINTS_SQL.format(
                         project=project_id, dataset=dataset_id
                     ),
-                    job_config=bigquery.QueryJobConfig(
-                        query_parameters=[
-                            bigquery.ArrayQueryParameter(
-                                "table_names", "STRING", table_ids
-                            ),
-                            bigquery.ScalarQueryParameter(
-                                "dataset_name", "STRING", dataset_id
-                            ),
-                        ]
-                    ),
+                    job_config=job_config,
                 ).result()
             ),
             operation_name=f"Batch constraints query for {project_id}.{dataset_id}",
         )
 
-        results: dict[str, tuple[list[str], list[dict[str, Any]]]] = {}
+        results: dict[str, tuple[dict[str, Any] | None, list[dict[str, Any]]]] = {}
         for table_id in table_ids:
-            results[table_id] = ([], [])
+            results[table_id] = (None, [])
 
         for row in rows:
             table_name = row["table_name"]
             constraint_type = row["constraint_type"]
 
             if constraint_type == "PRIMARY KEY":
-                results[table_name] = (list(row["columns"]), results[table_name][1])
+                pk_dict = {
+                    "constraint_name": row["constraint_name"],
+                    "columns": list(row["columns"]),
+                }
+                results[table_name] = (pk_dict, results[table_name][1])
             elif constraint_type == "FOREIGN KEY":
                 fks = results[table_name][1]
                 refs = row["references"]
@@ -715,7 +634,7 @@ def get_batch_constraints(
             e,
             exc_info=logger.isEnabledFor(logging.DEBUG),
         )
-        return {table_id: ([], []) for table_id in table_ids}
+        return {table_id: (None, []) for table_id in table_ids}
 
 
 # =========================
@@ -1018,26 +937,30 @@ def generate_table_ddl(
 
     alter_stmts: list[str] = []
     if include_constraints:
-        pk_cols, fks = get_constraints(client, project_id, dataset_id, table_id)
+        pk_dict, fks = get_constraints(client, project_id, dataset_id, table_id)
 
-        if pk_cols:
-            cols = ", ".join(f"`{c}`" for c in pk_cols)
+        # Render PRIMARY KEY with constraint name
+        if pk_dict:
+            cols = ", ".join(f"`{c}`" for c in pk_dict["columns"])
+            pk_name = pk_dict["constraint_name"]
             alter_stmts.append(
-                f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED;"
+                f"ALTER TABLE `{table_ref}` ADD CONSTRAINT `{pk_name}` PRIMARY KEY ({cols}) NOT ENFORCED;"
             )
 
+        # Render FOREIGN KEYs with constraint names
         for fk in fks:
+            fk_name = fk["constraint_name"]
             ref = f"{project_id}.{fk['referenced_dataset']}.{fk['referenced_table']}"
             if "columns" in fk and "referenced_columns" in fk:
                 cols = ", ".join(f"`{c}`" for c in fk["columns"])
                 ref_cols = ", ".join(f"`{c}`" for c in fk["referenced_columns"])
                 alter_stmts.append(
-                    f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY ({cols}) REFERENCES `{ref}`({ref_cols}) NOT ENFORCED;"
+                    f"ALTER TABLE `{table_ref}` ADD CONSTRAINT `{fk_name}` FOREIGN KEY ({cols}) REFERENCES `{ref}`({ref_cols}) NOT ENFORCED;"
                 )
             else:
                 # Back-compat (single-column shape)
                 alter_stmts.append(
-                    f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY (`{fk['column']}`) "
+                    f"ALTER TABLE `{table_ref}` ADD CONSTRAINT `{fk_name}` FOREIGN KEY (`{fk['column']}`) "
                     f"REFERENCES `{ref}`(`{fk['referenced_column']}`) NOT ENFORCED;"
                 )
 
@@ -1080,7 +1003,7 @@ def generate_dataset_ddl(
         return {}
 
     # Get batch constraints if needed (done once for all tables)
-    constraints_map: dict[str, tuple[list[str], list[dict[str, Any]]]] = {}
+    constraints_map: dict[str, tuple[dict[str, Any] | None, list[dict[str, Any]]]] = {}
     if include_constraints:
         constraints_map = get_batch_constraints(
             client, project_id, dataset_id, table_ids
@@ -1114,15 +1037,19 @@ def generate_dataset_ddl(
 
             alter_stmts: list[str] = []
             if include_constraints and table_id in constraints_map:
-                pk_cols, fks = constraints_map[table_id]
+                pk_dict, fks = constraints_map[table_id]
 
-                if pk_cols:
-                    cols = ", ".join(f"`{c}`" for c in pk_cols)
+                # Render PRIMARY KEY with constraint name
+                if pk_dict:
+                    cols = ", ".join(f"`{c}`" for c in pk_dict["columns"])
+                    pk_name = pk_dict["constraint_name"]
                     alter_stmts.append(
-                        f"ALTER TABLE `{table_ref}` ADD PRIMARY KEY ({cols}) NOT ENFORCED;"
+                        f"ALTER TABLE `{table_ref}` ADD CONSTRAINT `{pk_name}` PRIMARY KEY ({cols}) NOT ENFORCED;"
                     )
 
+                # Render FOREIGN KEYs with constraint names
                 for fk in fks:
+                    fk_name = fk["constraint_name"]
                     # Preserve cross-dataset/project references
                     ref_proj = project_id  # Default to same project
                     ref_ds = fk.get("referenced_dataset") or dataset_id
@@ -1133,12 +1060,12 @@ def generate_dataset_ddl(
                         cols = ", ".join(f"`{c}`" for c in fk["columns"])
                         ref_cols = ", ".join(f"`{c}`" for c in fk["referenced_columns"])
                         alter_stmts.append(
-                            f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY ({cols}) REFERENCES `{ref}`({ref_cols}) NOT ENFORCED;"
+                            f"ALTER TABLE `{table_ref}` ADD CONSTRAINT `{fk_name}` FOREIGN KEY ({cols}) REFERENCES `{ref}`({ref_cols}) NOT ENFORCED;"
                         )
                     else:
                         # Back-compat for single-column shape
                         alter_stmts.append(
-                            f"ALTER TABLE `{table_ref}` ADD FOREIGN KEY (`{fk['column']}`) "
+                            f"ALTER TABLE `{table_ref}` ADD CONSTRAINT `{fk_name}` FOREIGN KEY (`{fk['column']}`) "
                             f"REFERENCES `{ref}`(`{fk['referenced_column']}`) NOT ENFORCED;"
                         )
 
@@ -1492,8 +1419,7 @@ def detect_bigquery_antipatterns(
                 )
 
         # Anti-pattern 6: Generic field names
-        generic_names = ["data", "value", "info", "details", "metadata", "content"]
-        if field.name.lower() in generic_names:
+        if field.name.lower() in analyze_config.GENERIC_FIELD_NAMES:
             issues.append(
                 {
                     "field_name": field_path,
@@ -2091,111 +2017,13 @@ def detect_bigquery_antipatterns(
         )
 
     # Anti-pattern 19: Reserved keyword field names
-    reserved_keywords = {
-        "all",
-        "and",
-        "any",
-        "array",
-        "as",
-        "asc",
-        "assert_rows_modified",
-        "at",
-        "between",
-        "by",
-        "case",
-        "cast",
-        "collate",
-        "contains",
-        "create",
-        "cross",
-        "cube",
-        "current",
-        "default",
-        "define",
-        "desc",
-        "distinct",
-        "else",
-        "end",
-        "enum",
-        "escape",
-        "except",
-        "exclude",
-        "exists",
-        "extract",
-        "false",
-        "fetch",
-        "following",
-        "for",
-        "from",
-        "full",
-        "group",
-        "grouping",
-        "groups",
-        "hash",
-        "having",
-        "if",
-        "ignore",
-        "in",
-        "inner",
-        "intersect",
-        "interval",
-        "into",
-        "is",
-        "join",
-        "lateral",
-        "left",
-        "like",
-        "limit",
-        "lookup",
-        "merge",
-        "natural",
-        "new",
-        "no",
-        "not",
-        "null",
-        "nulls",
-        "of",
-        "on",
-        "or",
-        "order",
-        "outer",
-        "over",
-        "partition",
-        "preceding",
-        "proto",
-        "range",
-        "recursive",
-        "respect",
-        "right",
-        "rollup",
-        "rows",
-        "select",
-        "set",
-        "some",
-        "struct",
-        "tablesample",
-        "then",
-        "to",
-        "treat",
-        "true",
-        "unbounded",
-        "union",
-        "unnest",
-        "using",
-        "when",
-        "where",
-        "window",
-        "with",
-        "within",
-    }
-
     keyword_fields = []
 
     def check_reserved_keywords(field: SchemaField, path: str = "") -> None:
         """Check for reserved keyword field names."""
         field_path = f"{path}.{field.name}" if path else field.name
 
-        if field.name.lower() in reserved_keywords:
+        if field.name.lower() in analyze_config.RESERVED_KEYWORDS:
             keyword_fields.append(field_path)
 
         # Recurse
@@ -2228,24 +2056,8 @@ def detect_bigquery_antipatterns(
 
         # Check if TIMESTAMP with date-only semantics
         if field.field_type == "TIMESTAMP":
-            date_only_indicators = [
-                "birth_date",
-                "birthdate",
-                "date_of_birth",
-                "dob",
-                "hire_date",
-                "hired_date",
-                "start_date",
-                "end_date",
-                "expiry_date",
-                "expiration_date",
-                "due_date",
-                "publish_date",
-                "published_date",
-                "release_date",
-            ]
             # Also check for _date suffix (but not _datetime)
-            if name_lower in date_only_indicators or (
+            if name_lower in analyze_config.DATE_ONLY_FIELD_PATTERNS or (
                 name_lower.endswith("_date") and not name_lower.endswith("_datetime")
             ):
                 granular_timestamp_fields.append(field_path)
@@ -2318,21 +2130,9 @@ def detect_bigquery_antipatterns(
 
         # Check for negative boolean patterns
         if field.field_type in ["BOOLEAN", "INTEGER"]:
-            negative_patterns = [
-                "is_not_",
-                "has_no_",
-                "cannot_",
-                "isnt_",
-                "hasnt_",
-                "no_",
-                "not_",
-                "non_",
-                "without_",
-                "disabled",
-                "inactive",
-            ]
-            # Check for explicit negative patterns
-            for pattern in negative_patterns[:5]:  # is_not_, has_no_, etc.
+            # Check for explicit negative patterns (first 5 in the set)
+            explicit_negatives = ["is_not_", "has_no_", "cannot_", "isnt_", "hasnt_"]
+            for pattern in explicit_negatives:
                 if name_lower.startswith(pattern):
                     negative_boolean_fields.append(field_path)
                     break
@@ -2523,19 +2323,9 @@ def detect_bigquery_antipatterns(
         ft = _canon_type(field.field_type)
 
         if ft == "FLOAT64":
-            money_keywords = [
-                "price",
-                "cost",
-                "amount",
-                "balance",
-                "tax",
-                "fee",
-                "payment",
-                "salary",
-                "revenue",
-                "total",
-            ]
-            if any(keyword in name_lower for keyword in money_keywords):
+            if any(
+                keyword in name_lower for keyword in analyze_config.FLOAT_MONEY_KEYWORDS
+            ):
                 float_money_fields.append(field_path)
 
         if field.field_type == "RECORD":
@@ -2785,19 +2575,9 @@ def detect_bigquery_antipatterns(
         field_path = f"{path}.{field.name}" if path else field.name
         name_lower = field.name.lower()
 
-        enum_indicators = [
-            "status",
-            "state",
-            "type",
-            "category",
-            "level",
-            "priority",
-            "role",
-            "kind",
-        ]
-
         if field.field_type == "STRING" and any(
-            indicator in name_lower for indicator in enum_indicators
+            indicator in name_lower
+            for indicator in analyze_config.ENUM_FIELD_INDICATORS
         ):
             # Check if description mentions valid values
             desc = (field.description or "").lower()
@@ -2903,20 +2683,10 @@ def detect_bigquery_antipatterns(
         field_path = f"{path}.{field.name}" if path else field.name
         name_lower = field.name.lower()
 
-        type_suffixes = [
-            "_string",
-            "_str",
-            "_int",
-            "_integer",
-            "_bool",
-            "_boolean",
-            "_array",
-            "_list",
-            "_dict",
-            "_map",
-        ]
-
-        if any(name_lower.endswith(suffix) for suffix in type_suffixes):
+        if any(
+            name_lower.endswith(suffix)
+            for suffix in analyze_config.TYPE_SUFFIX_PATTERNS
+        ):
             type_suffix_fields.append(field_path)
 
         if field.field_type == "RECORD":
@@ -3066,18 +2836,9 @@ def detect_bigquery_antipatterns(
             ):
                 return
 
-            binary_keywords = [
-                "hash",
-                "digest",
-                "signature",
-                "checksum",
-                "image_data",
-                "file_content",
-                "binary",
-                "hex",
-                "base64",
-            ]
-            if any(keyword in name_lower for keyword in binary_keywords):
+            if any(
+                keyword in name_lower for keyword in analyze_config.BINARY_DATA_KEYWORDS
+            ):
                 binary_as_string.append(field_path)
 
         if field.field_type == "RECORD":
@@ -3235,10 +2996,11 @@ def detect_bigquery_antipatterns(
 
     # Anti-pattern 44: Nullable partition key (BigQuery)
     # This would require table metadata - checking field names that suggest partitioning
-    partition_field_names = ["partition_date", "event_date", "date", "_partitiontime"]
-
     for field in schema:
-        if field.name.lower() in partition_field_names and field.mode == "NULLABLE":
+        if (
+            field.name.lower() in analyze_config.PARTITION_FIELD_NAMES
+            and field.mode == "NULLABLE"
+        ):
             issues.append(
                 {
                     "field_name": "schema",
@@ -3903,5 +3665,1883 @@ def detect_dataset_antipatterns(
     # This requires checking actual foreign keys
     # For now, we'll add a placeholder for when FK constraints are used
     # This would need to be implemented by comparing FK column types against PK types
+
+    return issues
+
+
+# =============================================================================
+# DIMENSIONAL MODELING PATTERN DETECTION
+# =============================================================================
+
+
+def _analyze_schema_graph(
+    tables_meta: dict[str, dict[str, Any]],
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """Analyze schema graph to detect star/snowflake patterns.
+
+    Args:
+        tables_meta: Dict of {table_name: {"pks": [...], "fks": [(col, ref_table, ref_col), ...]}}
+
+    Returns:
+        Tuple of (hub_candidates, snowflake_dims)
+        - hub_candidates: List of table names with many inbound FKs (fact table candidates)
+        - snowflake_dims: List of (child_dim, parent_dim) tuples
+    """
+    # Count inbound FK degree for each table
+    inbound_degree = {t: 0 for t in tables_meta}
+
+    for _, meta in tables_meta.items():
+        for _, ref_table, _ in meta.get("fks", []):
+            if ref_table in inbound_degree:
+                inbound_degree[ref_table] += 1
+
+    # Hub candidates: high inbound FK count
+    hubs = [
+        t
+        for t, count in inbound_degree.items()
+        if count >= analyze_config.HUB_FK_THRESHOLD
+    ]
+
+    # Snowflake: dim → dim references
+    snowflaked_dims = []
+    for table_name, meta in tables_meta.items():
+        if _is_dimension_table(table_name):
+            for _, ref_table, _ in meta.get("fks", []):
+                if _is_dimension_table(ref_table):
+                    snowflaked_dims.append((table_name, ref_table))
+
+    return hubs, snowflaked_dims
+
+
+def _detect_ambiguous_grain(fields: list[SchemaField]) -> dict[str, Any]:
+    """Detect ambiguous fact table grain.
+
+    Args:
+        fields: List of SchemaField objects
+
+    Returns:
+        Dict with grain issues:
+        - multi_date_keys: True if multiple date/timestamp keys present
+        - missing_surrogate: True if no surrogate key found
+        - date_keys: List of date key field names
+    """
+    date_keys = []
+    has_surrogate = False
+
+    for field in fields:
+        name_lower = field.name.lower()
+
+        # Check for date/timestamp keys
+        if any(
+            name_lower.endswith(suffix)
+            for suffix in analyze_config.ROLE_PLAYING_DATE_SUFFIXES
+        ):
+            date_keys.append(field.name)
+
+        # Check for surrogate key (exact match or suffix)
+        if any(
+            name_lower == key for key in analyze_config.FACT_SURROGATE_KEY_NAMES
+        ) or any(
+            name_lower.endswith(suffix)
+            for suffix in analyze_config.FACT_SURROGATE_KEY_SUFFIXES
+        ):
+            has_surrogate = True
+
+    multi_date_keys = len(date_keys) >= analyze_config.GRAIN_AMBIGUOUS_DATE_THRESHOLD
+
+    return {
+        "multi_date_keys": multi_date_keys,
+        "missing_surrogate": not has_surrogate,
+        "date_keys": date_keys,
+    }
+
+
+def _classify_measures(
+    fields: list[SchemaField],
+) -> tuple[list[str], list[str], list[str]]:
+    """Classify numeric fields as additive, semi-additive, or non-additive measures.
+
+    Args:
+        fields: List of SchemaField objects
+
+    Returns:
+        Tuple of (additive, semi_additive, non_additive) measure names
+    """
+    additive, semi, non = [], [], []
+
+    numeric_types = {"INT64", "INTEGER", "NUMERIC", "BIGNUMERIC", "FLOAT64", "FLOAT"}
+
+    for field in fields:
+        if field.field_type not in numeric_types:
+            continue
+
+        name_lower = field.name.lower()
+
+        # Check measure type by name
+        if any(ind in name_lower for ind in analyze_config.ADDITIVE_MEASURE_INDICATORS):
+            additive.append(field.name)
+        elif any(
+            ind in name_lower for ind in analyze_config.SEMI_ADDITIVE_MEASURE_INDICATORS
+        ):
+            semi.append(field.name)
+        elif any(
+            ind in name_lower for ind in analyze_config.NON_ADDITIVE_MEASURE_INDICATORS
+        ):
+            non.append(field.name)
+
+    return additive, semi, non
+
+
+def _detect_role_playing_dates(
+    fields: list[SchemaField],
+) -> list[str]:
+    """Detect role-playing date dimensions (multiple date FKs).
+
+    Args:
+        fields: List of SchemaField objects
+
+    Returns:
+        List of date key field names
+    """
+    date_keys = []
+
+    for field in fields:
+        name_lower = field.name.lower()
+        if any(
+            name_lower.endswith(suffix)
+            for suffix in analyze_config.ROLE_PLAYING_DATE_SUFFIXES
+        ):
+            # Check if it looks like a foreign key (ends with _key, _id, _fk)
+            if any(
+                name_lower.endswith(fk_suffix) for fk_suffix in ("_key", "_id", "_fk")
+            ):
+                date_keys.append(field.name)
+
+    return date_keys
+
+
+def _detect_scd_type2(fields: list[SchemaField]) -> dict[str, Any]:
+    """Detect Slowly Changing Dimension Type 2 implementation.
+
+    Args:
+        fields: List of SchemaField objects
+
+    Returns:
+        Dict with SCD2 indicators found
+    """
+    found_indicators: dict[str, Any] = {
+        "has_effective_dates": False,
+        "has_current_flag": False,
+        "indicators": [],
+    }
+
+    field_names_lower = {f.name.lower() for f in fields}
+
+    for indicator in analyze_config.SCD_TYPE2_INDICATORS:
+        if indicator in field_names_lower:
+            found_indicators["indicators"].append(indicator)  # type: ignore[union-attr]
+
+            # Check for date range
+            if indicator in ("effective_start", "valid_from", "start_date"):
+                found_indicators["has_effective_dates"] = True
+            # Check for current flag
+            elif indicator in (
+                "is_current",
+                "is_active",
+                "current_flag",
+                "active_flag",
+            ):
+                found_indicators["has_current_flag"] = True
+
+    return found_indicators
+
+
+def _find_junk_dim_candidates(fields: list[SchemaField]) -> list[str]:
+    """Find low-cardinality flags/enums that should be junk dimension.
+
+    Args:
+        fields: List of SchemaField objects
+
+    Returns:
+        List of field names that are junk dimension candidates
+    """
+    candidates = []
+
+    for field in fields:
+        name_lower = field.name.lower()
+
+        # Boolean flags
+        if field.field_type in ("BOOL", "BOOLEAN"):
+            candidates.append(field.name)
+
+        # Small enums/status codes
+        elif field.field_type == "STRING" and any(
+            name_lower.endswith(suffix) for suffix in analyze_config.JUNK_DIM_INDICATORS
+        ):
+            candidates.append(field.name)
+
+    return (
+        candidates if len(candidates) >= analyze_config.JUNK_DIM_FLAG_THRESHOLD else []
+    )
+
+
+def _detect_nested_line_items(fields: list[SchemaField]) -> list[str]:
+    """Detect nested line items that should be flattened.
+
+    Args:
+        fields: List of SchemaField objects
+
+    Returns:
+        List of array field names containing line items
+    """
+    nested_items = []
+
+    for field in fields:
+        if field.mode == "REPEATED" and field.field_type == "RECORD":
+            name_lower = field.name.lower()
+            if any(
+                item_name in name_lower
+                for item_name in analyze_config.LINE_ITEM_ARRAY_NAMES
+            ):
+                nested_items.append(field.name)
+
+    return nested_items
+
+
+def _detect_conformed_dimensions(
+    tables_meta: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Detect conformed dimensions used across multiple fact tables.
+
+    A conformed dimension is one that is referenced by multiple fact tables
+    with the same structure and meaning.
+
+    Args:
+        tables_meta: Dict of {table_name: {"pks": [...], "fks": [(col, ref_table, ref_col), ...], "fields": [...]}}
+
+    Returns:
+        List of issues about conformed dimensions and duplicates
+    """
+    issues = []
+
+    # Build dimension usage map: {dim_table: [fact_tables that reference it]}
+    dim_usage: dict[str, list[str]] = {}
+
+    for table_name, meta in tables_meta.items():
+        for _, ref_table, _ in meta.get("fks", []):
+            if _is_dimension_table(ref_table):
+                dim_usage.setdefault(ref_table, []).append(table_name)
+
+    # Detect conformed dimensions (used by 2+ fact tables)
+    for dim_table, fact_tables in dim_usage.items():
+        if len(fact_tables) >= 2:
+            fact_list = [
+                t for t in fact_tables if "fact_" in t.lower() or "fct_" in t.lower()
+            ]
+            if len(fact_list) >= 2:
+                issues.append(
+                    {
+                        "field_name": dim_table,
+                        "pattern": "conformed_dimension",
+                        "severity": "info",
+                        "category": "dimensional_modeling",
+                        "suggestion": f"Dimension '{dim_table}' is conformed across {len(fact_list)} fact tables ({', '.join(fact_list[:3])}{'...' if len(fact_list) > 3 else ''}). Maintain consistency in structure and business rules.",
+                        "affected_count": len(fact_list),
+                    }
+                )
+
+    # Detect duplicate dimension attributes (same structure, different names)
+    dim_tables = {
+        name: meta
+        for name, meta in tables_meta.items()
+        if name.startswith(analyze_config.SNOWFLAKE_DIM_PREFIX)
+    }
+
+    # Build dimension signatures based on field names (excluding PK/surrogate keys)
+    dim_signatures: dict[str, list[str]] = {}
+
+    for dim_name, meta in dim_tables.items():
+        fields = meta.get("fields", [])
+        # Filter out surrogate keys and system fields
+        business_fields = [
+            f.name.lower()
+            for f in fields
+            if not any(
+                f.name.lower().endswith(suffix) for suffix in ("_key", "_id", "_sk")
+            )
+            and not f.name.lower().startswith(
+                ("created_", "updated_", "modified_", "deleted_")
+            )
+        ]
+
+        if len(business_fields) >= 3:  # Need at least 3 fields to be meaningful
+            # Create signature: sorted field names
+            signature = "|".join(sorted(business_fields))
+            dim_signatures.setdefault(signature, []).append(dim_name)
+
+    # Report duplicate structures
+    for _, dim_names in dim_signatures.items():
+        if len(dim_names) >= 2:
+            issues.append(
+                {
+                    "field_name": ", ".join(dim_names),
+                    "pattern": "duplicate_dimension_structure",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Dimensions {', '.join(dim_names)} have identical or very similar structures. Consider consolidating into a single conformed dimension to maintain consistency and reduce redundancy.",
+                    "affected_count": len(dim_names),
+                }
+            )
+
+    return issues
+
+
+def _classify_fact_type(
+    table_name: str, fields: list[SchemaField]
+) -> tuple[str | None, str]:
+    """Classify fact table type: transaction, periodic snapshot, or accumulating snapshot.
+
+    Args:
+        table_name: Name of the table
+        fields: List of SchemaField objects
+
+    Returns:
+        Tuple of (fact_type, explanation)
+        - fact_type: "transaction", "periodic_snapshot", "accumulating_snapshot", or None
+        - explanation: Human-readable explanation of the classification
+    """
+    field_names_lower = {f.name.lower() for f in fields}
+
+    # Count temporal fields
+    timestamp_fields = [
+        f.name
+        for f in fields
+        if any(
+            ind in f.name.lower()
+            for ind in ("timestamp", "_at", "_time", "_date", "_dt")
+        )
+        and f.field_type in ("TIMESTAMP", "DATETIME", "DATE")
+    ]
+
+    # Check for milestone dates (accumulating snapshot)
+    milestone_dates = [
+        f
+        for f in timestamp_fields
+        if any(ind in f.lower() for ind in analyze_config.MILESTONE_DATE_INDICATORS)
+    ]
+
+    # Check for snapshot indicators
+    snapshot_indicators = any(
+        ind in field_names_lower for ind in analyze_config.SNAPSHOT_FACT_INDICATORS
+    )
+
+    # Check for semi-additive measures (snapshot characteristic)
+    semi_additive_count = sum(
+        1
+        for f in fields
+        if f.field_type in ("INT64", "NUMERIC", "BIGNUMERIC", "FLOAT64")
+        and any(
+            ind in f.name.lower()
+            for ind in analyze_config.SEMI_ADDITIVE_MEASURE_INDICATORS
+        )
+    )
+
+    # Classification logic
+    if len(milestone_dates) >= 3:
+        # 3+ milestone dates → accumulating snapshot
+        return (
+            "accumulating_snapshot",
+            f"Contains {len(milestone_dates)} milestone dates ({', '.join(milestone_dates[:3])}...), indicating an accumulating snapshot that tracks progress through a business process.",
+        )
+
+    elif snapshot_indicators or semi_additive_count >= 2:
+        # Snapshot indicators or 2+ semi-additive measures → periodic snapshot
+        return (
+            "periodic_snapshot",
+            f"Contains snapshot indicators or {semi_additive_count} semi-additive measures, indicating a periodic snapshot taken at regular intervals.",
+        )
+
+    elif len(timestamp_fields) >= 1:
+        # Single timestamp → transaction fact
+        return (
+            "transaction",
+            f"Contains single event timestamp ({timestamp_fields[0]}), indicating a transaction fact recording individual events.",
+        )
+
+    else:
+        return (
+            None,
+            "Unable to classify fact type. Add timestamp fields or snapshot indicators.",
+        )
+
+
+def _detect_bridge_tables(
+    tables_meta: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Detect many-to-many relationships and bridge table patterns.
+
+    Args:
+        tables_meta: Dict of {table_name: {"pks": [...], "fks": [(col, ref_table, ref_col), ...], "fields": [...]}}
+
+    Returns:
+        List of issues about M:N patterns and bridge table recommendations
+    """
+    issues = []
+
+    # Detect explicit bridge tables (naming pattern)
+    bridge_tables = []
+    for table_name in tables_meta.keys():
+        if table_name.startswith(analyze_config.BRIDGE_TABLE_PREFIX) or any(
+            table_name.endswith(suffix)
+            for suffix in analyze_config.BRIDGE_TABLE_SUFFIXES
+        ):
+            bridge_tables.append(table_name)
+
+    if bridge_tables:
+        issues.append(
+            {
+                "field_name": ", ".join(bridge_tables),
+                "pattern": "bridge_table_detected",
+                "severity": "info",
+                "category": "dimensional_modeling",
+                "suggestion": f"Bridge tables detected ({', '.join(bridge_tables)}). These handle many-to-many relationships. Ensure they contain only FK pairs and optional weighting factors.",
+                "affected_count": len(bridge_tables),
+            }
+        )
+
+    # Detect potential M:N patterns (array of references)
+    for table_name, meta in tables_meta.items():
+        fields = meta.get("fields", [])
+
+        # Check for ARRAY<STRUCT> with FK-like fields
+        for field in fields:
+            if field.mode == "REPEATED" and field.field_type == "RECORD":
+                # Check if nested fields look like FKs
+                nested_fields = field.fields or []
+                fk_like = [
+                    nf.name
+                    for nf in nested_fields
+                    if any(
+                        nf.name.lower().endswith(suffix)
+                        for suffix in ("_id", "_key", "_fk")
+                    )
+                ]
+
+                if fk_like:
+                    issues.append(
+                        {
+                            "field_name": f"{table_name}.{field.name}",
+                            "pattern": "nested_many_to_many",
+                            "severity": "warning",
+                            "category": "dimensional_modeling",
+                            "suggestion": f"Field '{field.name}' contains nested FK-like fields ({', '.join(fk_like)}), indicating a many-to-many relationship stored as nested data. Consider creating a bridge table (bridge_{table_name}_{field.name}) for better query performance and BI tool compatibility.",
+                        }
+                    )
+
+    # Detect missing bridge tables (dimension with arrays of FKs)
+    for table_name, meta in tables_meta.items():
+        if not table_name.startswith(analyze_config.SNOWFLAKE_DIM_PREFIX):
+            continue
+
+        fields = meta.get("fields", [])
+
+        # Check for ARRAY<STRING/INT64> that might be FKs
+        for field in fields:
+            if field.mode == "REPEATED" and field.field_type in ("STRING", "INT64"):
+                if any(
+                    suffix in field.name.lower()
+                    for suffix in ("_ids", "_keys", "_list")
+                ):
+                    issues.append(
+                        {
+                            "field_name": f"{table_name}.{field.name}",
+                            "pattern": "array_fk_needs_bridge",
+                            "severity": "warning",
+                            "category": "dimensional_modeling",
+                            "suggestion": f"Field '{field.name}' is an array of IDs, indicating a many-to-many relationship. Create a bridge table with proper foreign keys instead of using arrays for better referential integrity and query performance.",
+                        }
+                    )
+
+    return issues
+
+
+def _detect_hierarchies(tables_meta: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Detect hierarchical patterns: self-referencing dimensions and parent-child relationships.
+
+    Args:
+        tables_meta: Dict of {table_name: {"pks": [...], "fks": [(col, ref_table, ref_col), ...], "fields": [...]}}
+
+    Returns:
+        List of issues about hierarchies and recommendations
+    """
+    issues = []
+
+    for table_name, meta in tables_meta.items():
+        fields = meta.get("fields", [])
+        field_names_lower = {f.name.lower() for f in fields}
+
+        # Detect self-referencing FK (parent_id pattern)
+        self_refs = [
+            (col, ref_table, ref_col)
+            for col, ref_table, ref_col in meta.get("fks", [])
+            if ref_table == table_name
+        ]
+
+        if self_refs:
+            ref_cols = [col for col, _, _ in self_refs]
+            issues.append(
+                {
+                    "field_name": f"{table_name}.{', '.join(ref_cols)}",
+                    "pattern": "self_referencing_hierarchy",
+                    "severity": "info",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Table '{table_name}' has self-referencing foreign key(s) ({', '.join(ref_cols)}), indicating a hierarchical structure. Consider adding a hierarchy bridge table for efficient recursive queries and to support multiple hierarchy paths.",
+                }
+            )
+
+        # Detect parent_id pattern (without explicit FK)
+        parent_fields = [
+            name
+            for name in field_names_lower
+            if any(ind in name for ind in analyze_config.PARENT_FIELD_INDICATORS)
+        ]
+
+        if parent_fields and not self_refs:
+            issues.append(
+                {
+                    "field_name": f"{table_name}.{', '.join(parent_fields)}",
+                    "pattern": "implied_hierarchy_no_fk",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Table '{table_name}' has parent-like fields ({', '.join(parent_fields)}) but no explicit foreign key constraint. Add a self-referencing FK constraint and consider creating a hierarchy bridge table.",
+                }
+            )
+
+        # Detect hierarchy helper fields
+        helper_fields = [
+            f.name
+            for f in fields
+            if any(
+                ind in f.name.lower() for ind in analyze_config.HIERARCHY_HELPER_FIELDS
+            )
+        ]
+
+        if (self_refs or parent_fields) and not helper_fields:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "hierarchy_missing_helpers",
+                    "severity": "info",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Hierarchical table '{table_name}' lacks helper fields for efficient querying. Add: level (INT64), path (STRING), is_leaf (BOOL) to optimize recursive queries and support drill-down operations.",
+                }
+            )
+
+        # Detect multi-valued hierarchies (employee with multiple departments)
+        if _is_dimension_table(table_name):
+            for field in fields:
+                if field.mode == "REPEATED" and any(
+                    hier in field.name.lower()
+                    for hier in ["department", "category", "location", "org"]
+                ):
+                    issues.append(
+                        {
+                            "field_name": f"{table_name}.{field.name}",
+                            "pattern": "multi_valued_hierarchy",
+                            "severity": "warning",
+                            "category": "dimensional_modeling",
+                            "suggestion": f"Field '{field.name}' is a repeated/array field representing multiple hierarchy paths. Create a hierarchy bridge table (bridge_{table_name}_{field.name}) to properly model multiple classification paths.",
+                        }
+                    )
+
+    return issues
+
+
+def _detect_mini_dimensions(
+    table_name: str, fields: list[SchemaField]
+) -> list[dict[str, Any]]:
+    """Detect mini-dimension candidates: high-volatility attributes in dimensions.
+
+    Mini-dimensions are used to separate rapidly changing attributes from
+    slowly changing ones to control row explosion in SCD Type 2 dimensions.
+
+    Args:
+        table_name: Name of the dimension table
+        fields: List of SchemaField objects
+
+    Returns:
+        List of issues about mini-dimension opportunities
+    """
+    issues: list[dict[str, Any]] = []
+
+    # Only analyze dimension tables
+    if not table_name.lower().startswith(analyze_config.SNOWFLAKE_DIM_PREFIX):
+        return issues
+
+    # Identify high-volatility attribute patterns
+    high_volatility_indicators = {
+        # Status fields (change frequently)
+        "status",
+        "state",
+        "phase",
+        "stage",
+        # Activity fields
+        "last_login",
+        "last_activity",
+        "last_updated",
+        "last_accessed",
+        # Score/rating fields
+        "score",
+        "rating",
+        "rank",
+        "level",
+        "tier",
+        # Counter fields
+        "count",
+        "total",
+        "number_of",
+        # Financial fields that change often
+        "balance",
+        "credit",
+        "points",
+        "rewards",
+        # Boolean flags that toggle
+        "is_active",
+        "is_enabled",
+        "is_suspended",
+        "is_locked",
+    }
+
+    volatile_fields = []
+    for field in fields:
+        name_lower = field.name.lower()
+
+        # Check for volatile indicators
+        if any(ind in name_lower for ind in high_volatility_indicators):
+            # Exclude surrogate keys and natural keys
+            if not any(
+                name_lower.endswith(suffix)
+                for suffix in ("_key", "_id", "_code", "_number")
+            ):
+                volatile_fields.append(field.name)
+
+    # Also detect temporal fields that aren't core dimensional attributes
+    temporal_volatile = []
+    for field in fields:
+        name_lower = field.name.lower()
+        if name_lower.startswith(
+            ("last_", "current_", "recent_")
+        ) and not name_lower.startswith(
+            ("created_", "modified_", "updated_", "deleted_")
+        ):
+            if field.name not in volatile_fields:
+                temporal_volatile.append(field.name)
+
+    all_volatile = volatile_fields + temporal_volatile
+
+    # Report if we find 3+ volatile attributes
+    if len(all_volatile) >= 3:
+        issues.append(
+            {
+                "field_name": ", ".join(all_volatile[:5]),
+                "pattern": "mini_dimension_candidate",
+                "severity": "warning",
+                "category": "dimensional_modeling",
+                "suggestion": f"Dimension '{table_name}' has {len(all_volatile)} high-volatility attributes ({', '.join(all_volatile[:3])}...). Consider splitting into a mini-dimension (dim_{table_name.replace('dim_', '')}_status or similar) linked by FK to control row explosion in SCD Type 2.",
+                "affected_count": len(all_volatile),
+            }
+        )
+
+    # Detect score/rating groups specifically
+    score_fields = [
+        f.name
+        for f in fields
+        if any(
+            ind in f.name.lower()
+            for ind in ("score", "rating", "rank", "level", "tier")
+        )
+        and f.field_type in ("INT64", "NUMERIC", "FLOAT64")
+    ]
+
+    if len(score_fields) >= 2:
+        issues.append(
+            {
+                "field_name": ", ".join(score_fields),
+                "pattern": "score_mini_dimension",
+                "severity": "info",
+                "category": "dimensional_modeling",
+                "suggestion": f"Dimension has multiple score/rating fields ({', '.join(score_fields)}). If these change frequently, create a mini-dimension (dim_{table_name.replace('dim_', '')}_scores) with banded ranges (e.g., score 0-100 → band A-F) to reduce SCD2 row explosion.",
+                "affected_count": len(score_fields),
+            }
+        )
+
+    return issues
+
+
+def _detect_degenerate_dimensions(
+    table_name: str, fields: list[SchemaField]
+) -> list[dict[str, Any]]:
+    """Detect degenerate dimensions: high-cardinality textual codes in fact tables.
+
+    Degenerate dimensions are dimension keys that have no corresponding
+    dimension table (e.g., order_number, invoice_number).
+
+    Args:
+        table_name: Name of the fact table
+        fields: List of SchemaField objects
+
+    Returns:
+        List of issues about degenerate dimension detection
+    """
+    issues: list[dict[str, Any]] = []
+
+    # Only analyze fact tables
+    name_lower = table_name.lower()
+    if not ("fact_" in name_lower or "fct_" in name_lower):
+        return issues
+
+    # Degenerate dimension detection
+    degenerate_fields = []
+
+    for field in fields:
+        name_lower_field = field.name.lower()
+
+        # Must be STRING type (high-cardinality textual)
+        if field.field_type != "STRING":
+            continue
+
+        # Check for degenerate patterns using config
+        is_degenerate = (
+            name_lower_field in analyze_config.DEGENERATE_DIMENSION_PATTERNS
+            or any(
+                name_lower_field.endswith(suffix)
+                for suffix in analyze_config.DEGENERATE_DIMENSION_SUFFIXES
+            )
+            or any(
+                name_lower_field.startswith(prefix)
+                for prefix in analyze_config.DEGENERATE_DIMENSION_PREFIXES
+            )
+        )
+
+        # Exclude FK-like fields (these reference dimension tables)
+        is_fk = any(
+            name_lower_field.endswith(suffix) for suffix in ("_key", "_fk", "_dim_id")
+        )
+
+        if is_degenerate and not is_fk:
+            degenerate_fields.append(field.name)
+
+    if degenerate_fields:
+        issues.append(
+            {
+                "field_name": ", ".join(degenerate_fields),
+                "pattern": "degenerate_dimension",
+                "severity": "info",
+                "category": "dimensional_modeling",
+                "suggestion": f"Fact table contains {len(degenerate_fields)} degenerate dimension(s) ({', '.join(degenerate_fields[:3])}{'...' if len(degenerate_fields) > 3 else ''}). These are high-cardinality codes used for filtering/grouping without a dimension table. This is acceptable for operational identifiers like order_number or invoice_number.",
+                "affected_count": len(degenerate_fields),
+            }
+        )
+
+    # Detect potential over-denormalization: too many degenerates
+    if len(degenerate_fields) >= 5:
+        issues.append(
+            {
+                "field_name": ", ".join(degenerate_fields[:5]),
+                "pattern": "excessive_degenerate_dimensions",
+                "severity": "warning",
+                "category": "dimensional_modeling",
+                "suggestion": f"Fact table has {len(degenerate_fields)} degenerate dimensions. Consider if some should be promoted to proper dimension tables with attributes (e.g., product_code → dim_product with category, brand, etc.).",
+                "affected_count": len(degenerate_fields),
+            }
+        )
+
+    # Detect UUID/GUID patterns (very high cardinality)
+    uuid_fields = []
+    for field in fields:
+        name_lower_field = field.name.lower()
+        if field.field_type == "STRING":
+            if any(ind in name_lower_field for ind in ("uuid", "guid", "unique_id")):
+                uuid_fields.append(field.name)
+
+    if uuid_fields:
+        issues.append(
+            {
+                "field_name": ", ".join(uuid_fields),
+                "pattern": "uuid_degenerate_dimension",
+                "severity": "info",
+                "category": "dimensional_modeling",
+                "suggestion": f"Fact table contains UUID/GUID field(s) ({', '.join(uuid_fields)}). These are degenerate dimensions with extremely high cardinality. Acceptable for correlation/tracing but not for grouping. Consider STRING(36) type for storage efficiency.",
+            }
+        )
+
+    return issues
+
+
+def _is_fact_table(table_name: str) -> bool:
+    """Check if table name indicates a fact table.
+
+    Supports: fact_*, fct_*, *_fact, *_fct
+    """
+    name_lower = table_name.lower()
+    return (
+        name_lower.startswith("fact_")
+        or name_lower.startswith("fct_")
+        or name_lower.endswith("_fact")
+        or name_lower.endswith("_fct")
+        or "_fact_" in name_lower
+        or "_fct_" in name_lower
+    )
+
+
+def _is_dimension_table(table_name: str) -> bool:
+    """Check if table name indicates a dimension table.
+
+    Supports: dim_*, *_dim, *_dimension
+    """
+    name_lower = table_name.lower()
+    return (
+        name_lower.startswith("dim_")
+        or name_lower.startswith("dimension_")
+        or name_lower.endswith("_dim")
+        or name_lower.endswith("_dimension")
+        or "_dim_" in name_lower
+        or "_dimension_" in name_lower
+    )
+
+
+def _detect_single_table_dimensional_patterns(
+    table_name: str,
+    fields: list[SchemaField],
+) -> list[dict[str, Any]]:
+    """Detect dimensional modeling patterns that work on a single table.
+
+    These detectors don't require cross-table metadata (FK/PK analysis).
+    They analyze the structure of a single table to identify dimensional patterns.
+
+    Includes:
+    - Dimension with arrays (REPEATED fields in dimensions)
+    - Unit-of-measure ambiguity (measures without units)
+    - Code/value anti-pattern (status_code + status_text pairs)
+    - Snapshot fact checks (as_of_date validation)
+    - Mixed grain detection (header + line IDs without surrogate)
+    - Surrogate key presence (for dimensions)
+    - Rapidly changing attributes (mini-dimension candidates)
+
+    Args:
+        table_name: Name of the table
+        fields: List of SchemaField objects
+
+    Returns:
+        List of dimensional modeling issues
+    """
+    issues = []
+    field_names_lower = {f.name.lower() for f in fields}
+
+    is_fact = _is_fact_table(table_name)
+    is_dim = _is_dimension_table(table_name)
+
+    # Helper: count numeric columns (potential measures)
+    numeric_types = {"INT64", "INTEGER", "NUMERIC", "BIGNUMERIC", "FLOAT64", "FLOAT"}
+    numeric_fields = [f for f in fields if f.field_type in numeric_types]
+
+    # =========================================================================
+    # 1. Dimension with arrays
+    # =========================================================================
+    if is_dim:
+        array_fields = [f.name for f in fields if f.mode == "REPEATED"]
+
+        if array_fields:
+            issues.append(
+                {
+                    "field_name": ", ".join(array_fields[:5]),
+                    "pattern": "dimension_with_arrays",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Dimension contains REPEATED fields ({len(array_fields)} arrays: {', '.join(array_fields[:3])}). Arrays in dimensions lead to complex joins and UNNEST operations. Consider: 1) Moving repeated attributes to a child dimension table, 2) Flattening if cardinality is low, 3) Using SCD2 if array elements change over time.",
+                }
+            )
+
+    # =========================================================================
+    # 2. Unit-of-measure ambiguity
+    # =========================================================================
+    measures_needing_uom = []
+    for field in numeric_fields:
+        name_lower_field = field.name.lower()
+        if any(
+            keyword in name_lower_field
+            for keyword in analyze_config.UOM_MEASURE_KEYWORDS
+        ):
+            # Check if there's a sibling UoM column
+            base_name = field.name.lower()
+            has_uom_sibling = any(
+                f"{base_name}{suffix}" in field_names_lower
+                for suffix in analyze_config.UOM_COLUMN_SUFFIXES
+            )
+            if not has_uom_sibling:
+                measures_needing_uom.append(field.name)
+
+    if measures_needing_uom:
+        issues.append(
+            {
+                "field_name": ", ".join(measures_needing_uom[:5]),
+                "pattern": "missing_unit_of_measure",
+                "severity": "warning",
+                "category": "dimensional_modeling",
+                "suggestion": f"Measures with ambiguous units detected ({len(measures_needing_uom)} fields like {', '.join(measures_needing_uom[:3])}). Add sibling columns (*_uom, *_unit) or normalize units in a reference dimension to prevent misinterpretation (e.g., meters vs feet, kg vs lbs).",
+            }
+        )
+
+    # =========================================================================
+    # 3. Code/value anti-pattern
+    # =========================================================================
+    code_value_pairs_found = []
+    field_names = {f.name.lower(): f for f in fields}
+
+    for code_field, value_field in analyze_config.CODE_VALUE_PAIRS:
+        if code_field in field_names and value_field in field_names:
+            code_value_pairs_found.append((code_field, value_field))
+
+    if code_value_pairs_found:
+        pair_strs = [f"{code}/{val}" for code, val in code_value_pairs_found]
+        issues.append(
+            {
+                "field_name": ", ".join(pair_strs),
+                "pattern": "code_value_antipattern",
+                "severity": "warning",
+                "category": "dimensional_modeling",
+                "suggestion": f"Code/value pairs detected ({', '.join(pair_strs)}). These should be replaced with a small reference dimension (e.g., dim_status). In fact/dimension tables, keep only the FK to the reference dim. This ensures consistency, supports translations, and reduces redundancy.",
+            }
+        )
+
+    # =========================================================================
+    # 4. Snapshot fact checks
+    # =========================================================================
+    if is_fact:
+        snapshot_date_fields = [
+            f.name
+            for f in fields
+            if f.name.lower() in analyze_config.SNAPSHOT_FACT_DATE_FIELDS
+        ]
+
+        if snapshot_date_fields:
+            # This appears to be a snapshot fact
+            snapshot_field = snapshot_date_fields[0]
+            snapshot_field_obj = next(f for f in fields if f.name == snapshot_field)
+
+            # Check if as_of_date is REQUIRED
+            if snapshot_field_obj.mode == "NULLABLE":
+                issues.append(
+                    {
+                        "field_name": snapshot_field,
+                        "pattern": "snapshot_date_nullable",
+                        "severity": "warning",
+                        "category": "dimensional_modeling",
+                        "suggestion": f"Snapshot fact's date field '{snapshot_field}' is NULLABLE. Snapshot date should be REQUIRED to ensure every row has a valid snapshot context. Also ensure table is partitioned by this field.",
+                    }
+                )
+
+            # Check for semi-additive measures
+            semi_additive_count = len(
+                [
+                    f
+                    for f in numeric_fields
+                    if any(
+                        ind in f.name.lower()
+                        for ind in analyze_config.SEMI_ADDITIVE_MEASURE_INDICATORS
+                    )
+                ]
+            )
+
+            if semi_additive_count > 0:
+                issues.append(
+                    {
+                        "field_name": table_name,
+                        "pattern": "snapshot_with_semi_additive",
+                        "severity": "info",
+                        "category": "dimensional_modeling",
+                        "suggestion": f"Snapshot fact contains semi-additive measures ({semi_additive_count} fields). These should NOT be summed across '{snapshot_field}'. Use window functions with LAST_VALUE() or aggregate only within a single snapshot date.",
+                    }
+                )
+
+    # =========================================================================
+    # 5. Mixed grain detection (header + line IDs)
+    # =========================================================================
+    if is_fact:
+        has_header_id = any(
+            keyword in field_names_lower
+            for keyword in analyze_config.HEADER_ID_KEYWORDS
+        )
+        has_line_id = any(
+            keyword in field_names_lower
+            for keyword in analyze_config.LINE_ITEM_ID_KEYWORDS
+        )
+
+        # Check for surrogate key
+        has_surrogate = any(
+            f.name.lower() in analyze_config.FACT_SURROGATE_KEY_NAMES
+            or any(
+                f.name.lower().endswith(suffix)
+                for suffix in analyze_config.FACT_SURROGATE_KEY_SUFFIXES
+            )
+            for f in fields
+        )
+
+        if has_header_id and has_line_id and not has_surrogate:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "mixed_grain_fact",
+                    "severity": "error",
+                    "category": "dimensional_modeling",
+                    "suggestion": "Fact table contains both header-level identifiers (order_id, invoice_id) and line-level identifiers (line_item_id, position) without a surrogate key. This indicates mixed grain. Create separate header-level and line-level fact tables, or add a surrogate key and document the grain explicitly.",
+                }
+            )
+
+    # =========================================================================
+    # 6. Dimension lacking surrogate key
+    # =========================================================================
+    if is_dim:
+        # Check for natural keys
+        has_natural_key = any(
+            any(
+                f.name.lower().endswith(suffix)
+                for suffix in analyze_config.DIMENSION_NATURAL_KEY_SUFFIXES
+            )
+            for f in fields
+        )
+
+        # Check for surrogate key
+        has_surrogate = any(
+            f.name.lower() in analyze_config.DIMENSION_SURROGATE_KEY_NAMES
+            or any(
+                f.name.lower().endswith(suffix)
+                for suffix in analyze_config.DIMENSION_SURROGATE_KEY_SUFFIXES
+            )
+            for f in fields
+        )
+
+        if has_natural_key and not has_surrogate:
+            natural_keys = [
+                f.name
+                for f in fields
+                if any(
+                    f.name.lower().endswith(suffix)
+                    for suffix in analyze_config.DIMENSION_NATURAL_KEY_SUFFIXES
+                )
+            ]
+            issues.append(
+                {
+                    "field_name": ", ".join(natural_keys),
+                    "pattern": "dimension_missing_surrogate_key",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Dimension has natural key(s) ({', '.join(natural_keys[:3])}) but no surrogate key. Add a single-column surrogate key (*_key, *_sk, id) for better SCD2 implementation and to handle late-arriving facts.",
+                }
+            )
+
+    # =========================================================================
+    # 7. Rapidly changing attributes (mini-dimension candidates)
+    # =========================================================================
+    if is_dim:
+        rapidly_changing = [
+            f.name
+            for f in fields
+            if any(
+                keyword in f.name.lower()
+                for keyword in analyze_config.RAPIDLY_CHANGING_ATTRIBUTE_KEYWORDS
+            )
+        ]
+
+        if len(rapidly_changing) >= 3:
+            issues.append(
+                {
+                    "field_name": ", ".join(rapidly_changing[:5]),
+                    "pattern": "mini_dimension_candidate",
+                    "severity": "info",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Dimension contains {len(rapidly_changing)} rapidly-changing attributes ({', '.join(rapidly_changing[:3])}). Consider creating a mini-dimension table for these volatile attributes, keyed off the main dimension, to reduce SCD2 explosion and improve query performance.",
+                }
+            )
+
+    return issues
+
+
+def _detect_advanced_dimensional_patterns(
+    table_name: str,
+    fields: list[SchemaField],
+    tables_meta: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Detect advanced dimensional modeling patterns and anti-patterns.
+
+    Includes:
+    - Bridge (many-to-many) tables
+    - Dimension lacking surrogate key
+    - Snowflake chains deeper than 1
+    - Ambiguous fact grain v2 (mixed header/line grain)
+    - Snapshot fact sanity checks
+    - Conformed dimension type inconsistencies
+    - FK density vs row width
+    - Evolving attribute candidates (mini-dimensions)
+    - Late-arriving facts support
+    - Unit-of-measure ambiguity
+    - Code/value anti-pattern
+    - Orphan risk (nullable FKs without referenced table)
+    - Dimension with arrays
+    - Fact without conformed date dimension
+
+    Args:
+        table_name: Name of the table
+        fields: List of SchemaField objects
+        tables_meta: Dict of all tables with PK/FK/fields metadata
+
+    Returns:
+        List of dimensional modeling issues
+    """
+    issues = []
+
+    # Get metadata for current table
+    table_meta = tables_meta.get(table_name, {})
+    fks = table_meta.get("fks", [])
+    pks = table_meta.get("pks", [])
+
+    # Helper: count numeric columns (potential measures)
+    numeric_types = {"INT64", "INTEGER", "NUMERIC", "BIGNUMERIC", "FLOAT64", "FLOAT"}
+    numeric_fields = [
+        f
+        for f in fields
+        if f.field_type in numeric_types
+        and f.name.lower() not in [fk[0].lower() for fk in fks]
+    ]
+
+    field_names_lower = {f.name.lower() for f in fields}
+
+    # =========================================================================
+    # 1. Bridge (many-to-many) table detection
+    # =========================================================================
+    fk_count = len(fks)
+    non_fk_fields = [
+        f for f in fields if f.name.lower() not in [fk[0].lower() for fk in fks]
+    ]
+    non_key_attrs = [
+        f for f in non_fk_fields if f.name.lower() not in [pk.lower() for pk in pks]
+    ]
+
+    if (
+        analyze_config.BRIDGE_TABLE_MIN_FK_COUNT
+        <= fk_count
+        <= analyze_config.BRIDGE_TABLE_MAX_FK_COUNT
+        and len(numeric_fields) <= analyze_config.BRIDGE_TABLE_MAX_MEASURES
+        and len(non_key_attrs) <= analyze_config.BRIDGE_TABLE_MAX_ATTRIBUTES
+    ):
+        # This looks like a bridge table
+        fk_refs = [fk[1] for fk in fks[:2]]  # Get first 2 FK references
+        issues.append(
+            {
+                "field_name": table_name,
+                "pattern": "bridge_table_detected",
+                "severity": "info",
+                "category": "dimensional_modeling",
+                "suggestion": f"Table appears to be a bridge (many-to-many) table linking {' and '.join(fk_refs)}. Bridge tables should not be aggregated like facts. Document the relationship and consider adding effective/expiration dates if the relationship changes over time.",
+                "fk_count": fk_count,
+                "symmetric_fks": fk_refs,
+            }
+        )
+
+    # =========================================================================
+    # 2. Dimension lacking surrogate key
+    # =========================================================================
+    if _is_dimension_table(table_name):
+        # Check for natural keys
+        has_natural_key = any(
+            any(
+                f.name.lower().endswith(suffix)
+                for suffix in analyze_config.DIMENSION_NATURAL_KEY_SUFFIXES
+            )
+            for f in fields
+        )
+
+        # Check for surrogate key
+        has_surrogate = any(
+            f.name.lower() in analyze_config.DIMENSION_SURROGATE_KEY_NAMES
+            or any(
+                f.name.lower().endswith(suffix)
+                for suffix in analyze_config.DIMENSION_SURROGATE_KEY_SUFFIXES
+            )
+            for f in fields
+        )
+
+        if has_natural_key and not has_surrogate:
+            natural_keys = [
+                f.name
+                for f in fields
+                if any(
+                    f.name.lower().endswith(suffix)
+                    for suffix in analyze_config.DIMENSION_NATURAL_KEY_SUFFIXES
+                )
+            ]
+            issues.append(
+                {
+                    "field_name": ", ".join(natural_keys),
+                    "pattern": "dimension_missing_surrogate_key",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Dimension has natural key(s) ({', '.join(natural_keys[:3])}) but no surrogate key. Add a single-column surrogate key (*_key, *_sk, id) for better SCD2 implementation and to handle late-arriving facts.",
+                }
+            )
+
+    # =========================================================================
+    # 3. Snowflake chains deeper than 1
+    # =========================================================================
+    if _is_dimension_table(table_name) and fks:
+        # Check if this dim references other dims (snowflake)
+        dim_refs = [
+            ref_table for _, ref_table, _ in fks if _is_dimension_table(ref_table)
+        ]
+
+        if dim_refs:
+            # Check depth by looking at referenced dims
+            max_depth = 1
+            for ref_dim in dim_refs:
+                ref_meta = tables_meta.get(ref_dim, {})
+                ref_fks = ref_meta.get("fks", [])
+                ref_dim_refs = [
+                    rt
+                    for _, rt, _ in ref_fks
+                    if rt.startswith(analyze_config.SNOWFLAKE_DIM_PREFIX)
+                ]
+                if ref_dim_refs:
+                    max_depth = 2  # Found a chain of depth 2
+                    break
+
+            if max_depth > analyze_config.SNOWFLAKE_MAX_DEPTH:
+                issues.append(
+                    {
+                        "field_name": table_name,
+                        "pattern": "snowflake_depth_excessive",
+                        "severity": "warning",
+                        "category": "dimensional_modeling",
+                        "suggestion": f"Snowflake chain depth exceeds recommended limit ({max_depth} > {analyze_config.SNOWFLAKE_MAX_DEPTH}). Deep snowflakes hurt query performance. Consider denormalizing frequently-used attributes back to the base dimension or using nested STRUCT fields in BigQuery.",
+                        "depth": max_depth,
+                        "chain": " → ".join([table_name] + dim_refs[:2]),
+                    }
+                )
+
+    # =========================================================================
+    # 4. Ambiguous fact grain v2 (mixed header/line grain)
+    # =========================================================================
+    if _is_fact_table(table_name):
+        has_header_id = any(
+            keyword in field_names_lower
+            for keyword in analyze_config.HEADER_ID_KEYWORDS
+        )
+        has_line_id = any(
+            keyword in field_names_lower
+            for keyword in analyze_config.LINE_ITEM_ID_KEYWORDS
+        )
+
+        # Check for surrogate key
+        has_surrogate = any(
+            f.name.lower() in analyze_config.FACT_SURROGATE_KEY_NAMES
+            or any(
+                f.name.lower().endswith(suffix)
+                for suffix in analyze_config.FACT_SURROGATE_KEY_SUFFIXES
+            )
+            for f in fields
+        )
+
+        if has_header_id and has_line_id and not has_surrogate:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "mixed_grain_fact",
+                    "severity": "error",
+                    "category": "dimensional_modeling",
+                    "suggestion": "Fact table contains both header-level identifiers (order_id, invoice_id) and line-level identifiers (line_item_id, position) without a surrogate key. This indicates mixed grain. Create separate header-level and line-level fact tables, or add a surrogate key and document the grain explicitly.",
+                }
+            )
+
+    # =========================================================================
+    # 5. Snapshot fact sanity checks
+    # =========================================================================
+    if _is_fact_table(table_name):
+        snapshot_date_fields = [
+            f.name
+            for f in fields
+            if f.name.lower() in analyze_config.SNAPSHOT_FACT_DATE_FIELDS
+        ]
+
+        if snapshot_date_fields:
+            # This appears to be a snapshot fact
+            snapshot_field = snapshot_date_fields[0]
+            snapshot_field_obj = next(f for f in fields if f.name == snapshot_field)
+
+            # Check if as_of_date is REQUIRED
+            if snapshot_field_obj.mode == "NULLABLE":
+                issues.append(
+                    {
+                        "field_name": snapshot_field,
+                        "pattern": "snapshot_date_nullable",
+                        "severity": "warning",
+                        "category": "dimensional_modeling",
+                        "suggestion": f"Snapshot fact's date field '{snapshot_field}' is NULLABLE. Snapshot date should be REQUIRED to ensure every row has a valid snapshot context. Also ensure table is partitioned by this field.",
+                    }
+                )
+
+            # Check for semi-additive measures
+            semi_additive_count = len(
+                [
+                    f
+                    for f in numeric_fields
+                    if any(
+                        ind in f.name.lower()
+                        for ind in analyze_config.SEMI_ADDITIVE_MEASURE_INDICATORS
+                    )
+                ]
+            )
+
+            if semi_additive_count > 0:
+                issues.append(
+                    {
+                        "field_name": table_name,
+                        "pattern": "snapshot_with_semi_additive",
+                        "severity": "info",
+                        "category": "dimensional_modeling",
+                        "suggestion": f"Snapshot fact contains semi-additive measures ({semi_additive_count} fields). These should NOT be summed across '{snapshot_field}'. Use window functions with LAST_VALUE() or aggregate only within a single snapshot date.",
+                    }
+                )
+
+    # =========================================================================
+    # 6. Conformed dimension type inconsistencies
+    # =========================================================================
+    # Find dimensions referenced by multiple fact tables
+    dim_usage: dict[str, dict[str, list[tuple[str, str]]]] = (
+        {}
+    )  # {dim_table: {fk_col: [(fact_table, fk_type)]}}
+
+    for tbl_name, meta in tables_meta.items():
+        if _is_fact_table(tbl_name):
+            for fk_col, ref_table, _ in meta.get("fks", []):
+                if _is_dimension_table(ref_table):
+                    if ref_table not in dim_usage:
+                        dim_usage[ref_table] = {}
+                    if fk_col not in dim_usage[ref_table]:
+                        dim_usage[ref_table][fk_col] = []
+
+                    # Get FK column type
+                    fk_field = next(
+                        (f for f in meta.get("fields", []) if f.name == fk_col), None
+                    )
+                    if fk_field:
+                        dim_usage[ref_table][fk_col].append(
+                            (tbl_name, fk_field.field_type)
+                        )
+
+    # Check for type inconsistencies
+    for dim_table, fk_info in dim_usage.items():
+        for _, usage_list in fk_info.items():
+            if len(usage_list) >= 2:
+                # Check if types differ
+                types_used = {fk_type for _, fk_type in usage_list}
+                if len(types_used) > 1:
+                    type_summary = ", ".join(
+                        f"{tbl}({fk_type})" for tbl, fk_type in usage_list[:3]
+                    )
+                    issues.append(
+                        {
+                            "field_name": dim_table,
+                            "pattern": "conformed_dim_type_inconsistency",
+                            "severity": "error",
+                            "category": "dimensional_modeling",
+                            "suggestion": f"Conformed dimension '{dim_table}' is referenced with inconsistent FK types: {type_summary}. Standardize FK types across all fact tables (typically STRING or INT64) to avoid implicit casts in joins.",
+                            "affected_facts": [tbl for tbl, _ in usage_list],
+                        }
+                    )
+
+    # =========================================================================
+    # 7. FK density vs row width (star schema health)
+    # =========================================================================
+    if _is_fact_table(table_name):
+        if fk_count < analyze_config.FACT_MIN_FK_COUNT:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "fact_too_denormalized",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Fact table has only {fk_count} FK(s). This indicates over-denormalization. Consider breaking out dimension attributes into proper dimension tables for better maintainability and query performance.",
+                }
+            )
+        elif fk_count > analyze_config.FACT_MAX_FK_COUNT:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "god_fact_table",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Fact table has {fk_count} FKs (>{analyze_config.FACT_MAX_FK_COUNT}). This 'god fact' pattern hurts query performance and maintainability. Consider splitting into focused sub-facts, moving rarely-used dimensions to mini-facts, or converting low-cardinality dimensions to degenerate dimensions.",
+                }
+            )
+
+    # =========================================================================
+    # 8. Evolving attribute candidates (mini-dimension)
+    # =========================================================================
+    if _is_dimension_table(table_name):
+        rapidly_changing = [
+            f.name
+            for f in fields
+            if any(
+                keyword in f.name.lower()
+                for keyword in analyze_config.RAPIDLY_CHANGING_ATTRIBUTE_KEYWORDS
+            )
+        ]
+
+        if len(rapidly_changing) >= 3:
+            issues.append(
+                {
+                    "field_name": ", ".join(rapidly_changing[:5]),
+                    "pattern": "mini_dimension_candidate",
+                    "severity": "info",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Dimension contains {len(rapidly_changing)} rapidly-changing attributes ({', '.join(rapidly_changing[:3])}). Consider creating a mini-dimension table for these volatile attributes, keyed off the main dimension, to reduce SCD2 explosion and improve query performance.",
+                }
+            )
+
+    # =========================================================================
+    # 9. Late-arriving facts support
+    # =========================================================================
+    if _is_fact_table(table_name):
+        # Count nullable FKs
+        nullable_fks = [
+            fk_col
+            for fk_col, _, _ in fks
+            if any(f.name == fk_col and f.mode == "NULLABLE" for f in fields)
+        ]
+
+        # Check for multiple date keys (late-arriving indicator)
+        date_fks = [
+            fk_col for fk_col, ref_table, _ in fks if "date" in ref_table.lower()
+        ]
+
+        if len(date_fks) >= 2 and nullable_fks:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "late_arriving_fact_risk",
+                    "severity": "info",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Fact table has multiple date keys ({len(date_fks)}) and nullable FKs ({len(nullable_fks)}), suggesting late-arriving fact handling. Ensure: 1) All referenced dimensions have 'unknown' member rows (-1, 'Unknown', etc.), 2) ETL logic assigns unknowns to nullable FKs, 3) Document late-arrival resolution process.",
+                    "nullable_fks": nullable_fks[:5],
+                }
+            )
+
+    # =========================================================================
+    # 10. Unit-of-measure (UoM) ambiguity
+    # =========================================================================
+    measures_needing_uom = []
+    for field in numeric_fields:
+        name_lower_field = field.name.lower()
+        if any(
+            keyword in name_lower_field
+            for keyword in analyze_config.UOM_MEASURE_KEYWORDS
+        ):
+            # Check if there's a sibling UoM column
+            base_name = field.name.lower()
+            has_uom_sibling = any(
+                f"{base_name}{suffix}" in field_names_lower
+                for suffix in analyze_config.UOM_COLUMN_SUFFIXES
+            )
+            if not has_uom_sibling:
+                measures_needing_uom.append(field.name)
+
+    if measures_needing_uom:
+        issues.append(
+            {
+                "field_name": ", ".join(measures_needing_uom[:5]),
+                "pattern": "missing_unit_of_measure",
+                "severity": "warning",
+                "category": "dimensional_modeling",
+                "suggestion": f"Measures with ambiguous units detected ({len(measures_needing_uom)} fields like {', '.join(measures_needing_uom[:3])}). Add sibling columns (*_uom, *_unit) or normalize units in a reference dimension to prevent misinterpretation (e.g., meters vs feet, kg vs lbs).",
+            }
+        )
+
+    # =========================================================================
+    # 11. Code/value anti-pattern
+    # =========================================================================
+    code_value_pairs_found = []
+    field_names = {f.name.lower(): f for f in fields}
+
+    for code_field, value_field in analyze_config.CODE_VALUE_PAIRS:
+        if code_field in field_names and value_field in field_names:
+            code_value_pairs_found.append((code_field, value_field))
+
+    if code_value_pairs_found:
+        pair_strs = [f"{code}/{val}" for code, val in code_value_pairs_found]
+        issues.append(
+            {
+                "field_name": ", ".join(pair_strs),
+                "pattern": "code_value_antipattern",
+                "severity": "warning",
+                "category": "dimensional_modeling",
+                "suggestion": f"Code/value pairs detected ({', '.join(pair_strs)}). These should be replaced with a small reference dimension (e.g., dim_status). In fact/dimension tables, keep only the FK to the reference dim. This ensures consistency, supports translations, and reduces redundancy.",
+            }
+        )
+
+    # =========================================================================
+    # 12. Orphan risk (nullable FKs without NOT ENFORCED warning)
+    # =========================================================================
+    if fks:
+        orphan_risk_fks = []
+        for fk_col, ref_table, _ in fks:
+            # Check if FK is nullable
+            fk_field = next((f for f in fields if f.name == fk_col), None)
+            if fk_field and fk_field.mode == "NULLABLE":
+                # Check if referenced table exists in metadata
+                if ref_table not in tables_meta:
+                    orphan_risk_fks.append((fk_col, ref_table))
+
+        if orphan_risk_fks:
+            orphan_strs = [
+                f"{fk_col} → {ref_table}" for fk_col, ref_table in orphan_risk_fks
+            ]
+            issues.append(
+                {
+                    "field_name": ", ".join([fk for fk, _ in orphan_risk_fks]),
+                    "pattern": "orphan_fk_risk",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Nullable FKs without enforced constraints detected ({', '.join(orphan_strs[:3])}). BigQuery constraints are NOT ENFORCED, creating orphan risk. Implement: 1) Scheduled validation queries to detect orphans, 2) Data quality jobs to clean orphans, 3) Consider making FKs REQUIRED if business rules allow.",
+                }
+            )
+
+    # =========================================================================
+    # 13. Dimension with arrays
+    # =========================================================================
+    if _is_dimension_table(table_name):
+        array_fields = [f.name for f in fields if f.mode == "REPEATED"]
+
+        if array_fields:
+            issues.append(
+                {
+                    "field_name": ", ".join(array_fields[:5]),
+                    "pattern": "dimension_with_arrays",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Dimension contains REPEATED fields ({len(array_fields)} arrays: {', '.join(array_fields[:3])}). Arrays in dimensions lead to complex joins and UNNEST operations. Consider: 1) Moving repeated attributes to a child dimension table, 2) Flattening if cardinality is low, 3) Using SCD2 if array elements change over time.",
+                }
+            )
+
+    # =========================================================================
+    # 14. Fact without conformed date dimension (enhanced check)
+    # =========================================================================
+    if _is_fact_table(table_name):
+        # Check for date dimension reference
+        date_dim_refs = [
+            ref_table
+            for _, ref_table, _ in fks
+            if "date" in ref_table.lower()
+            and ref_table.startswith(analyze_config.SNOWFLAKE_DIM_PREFIX)
+        ]
+
+        if date_dim_refs:
+            # Date dimension found - check completeness
+            for date_dim in date_dim_refs:
+                date_dim_meta = tables_meta.get(date_dim, {})
+                date_dim_fields = date_dim_meta.get("fields", [])
+                date_field_names = {f.name.lower() for f in date_dim_fields}
+
+                # Check for fiscal fields
+                has_fiscal = any(
+                    fiscal_field in date_field_names
+                    for fiscal_field in analyze_config.DATE_DIM_FISCAL_FIELDS
+                )
+
+                # Check for week fields
+                has_week = any(
+                    week_field in date_field_names
+                    for week_field in analyze_config.DATE_DIM_WEEK_FIELDS
+                )
+
+                if not has_fiscal or not has_week:
+                    missing_parts = []
+                    if not has_fiscal:
+                        missing_parts.append("fiscal calendar")
+                    if not has_week:
+                        missing_parts.append("week attributes")
+
+                    issues.append(
+                        {
+                            "field_name": date_dim,
+                            "pattern": "incomplete_date_dimension",
+                            "severity": "info",
+                            "category": "dimensional_modeling",
+                            "suggestion": f"Date dimension '{date_dim}' is incomplete: missing {' and '.join(missing_parts)}. Add fiscal_year/quarter/month and week_of_year/iso_week columns to support common business reporting patterns.",
+                        }
+                    )
+
+    return issues
+
+
+def detect_dimensional_patterns(
+    table_name: str,
+    fields: list[SchemaField],
+    tables_meta: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Detect dimensional modeling patterns and anti-patterns.
+
+    This function analyzes a BigQuery table for dimensional modeling patterns:
+    - Fact table characteristics (grain, measures)
+    - Dimension table characteristics (SCD, junk dims)
+    - Star/Snowflake schema patterns
+    - Role-playing dimensions
+    - Nested vs flat modeling
+
+    Args:
+        table_name: Name of the table being analyzed
+        fields: List of SchemaField objects
+        tables_meta: Optional dict of all tables with PK/FK metadata for graph analysis
+
+    Returns:
+        List of issue dictionaries with dimensional modeling suggestions
+    """
+    issues = []
+
+    # 1) Star/Snowflake patterns (requires tables_meta)
+    if tables_meta:
+        hubs, snowflake_dims = _analyze_schema_graph(tables_meta)
+
+        if table_name in hubs:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "star_hub_fact_table",
+                    "severity": "info",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Table '{table_name}' has {len([t for t, m in tables_meta.items() if any(rt == table_name for _, rt, _ in m.get('fks', []))])} inbound FKs, indicating it's a fact table hub. Document its grain clearly (e.g., 'one row per order line item').",
+                }
+            )
+
+        for child, parent in snowflake_dims:
+            if table_name == child:
+                issues.append(
+                    {
+                        "field_name": table_name,
+                        "pattern": "snowflake_dimension",
+                        "severity": "warning",
+                        "category": "dimensional_modeling",
+                        "suggestion": f"Dimension '{child}' references another dimension '{parent}' (snowflake pattern). Consider flattening into a single dimension table for better BigQuery performance.",
+                    }
+                )
+
+    # 2) Fact table grain detection
+    if _is_fact_table(table_name):
+        grain_info = _detect_ambiguous_grain(fields)
+
+        if grain_info["multi_date_keys"]:
+            issues.append(
+                {
+                    "field_name": ", ".join(grain_info["date_keys"]),
+                    "pattern": "ambiguous_fact_grain",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Fact table has multiple date keys ({', '.join(grain_info['date_keys'])}), which may indicate ambiguous grain. Document the grain explicitly and consider using role-playing date dimensions.",
+                }
+            )
+
+        if grain_info["missing_surrogate"]:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "missing_fact_surrogate_key",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": "Fact table lacks a surrogate key (fact_id, row_id). Add a numeric surrogate key for efficient joins and unique row identification.",
+                }
+            )
+
+    # 3) Measure classification
+    if _is_fact_table(table_name):
+        additive, semi, non = _classify_measures(fields)
+
+        if semi:
+            issue: dict[str, Any] = {
+                "field_name": ", ".join(semi[:5]),  # Show first 5
+                "pattern": "semi_additive_measures",
+                "severity": "info",
+                "category": "dimensional_modeling",
+                "suggestion": f"Semi-additive measures detected ({len(semi)} fields like {', '.join(semi[:3])}). These should not be summed across time. Use periodic snapshots and last-non-null aggregations.",
+                "affected_count": len(semi),
+            }
+            issues.append(issue)
+
+        if non:
+            issue_non: dict[str, Any] = {
+                "field_name": ", ".join(non[:5]),  # Show first 5
+                "pattern": "non_additive_measures",
+                "severity": "info",
+                "category": "dimensional_modeling",
+                "suggestion": f"Non-additive measures detected ({len(non)} fields like {', '.join(non[:3])}). These cannot be meaningfully summed. Use pre-aggregated snapshots or store base measures.",
+                "affected_count": len(non),
+            }
+            issues.append(issue_non)
+
+    # 4) Role-playing date dimensions
+    date_keys = _detect_role_playing_dates(fields)
+    if len(date_keys) >= 2:
+        issues.append(
+            {
+                "field_name": ", ".join(date_keys),
+                "pattern": "role_playing_dates",
+                "severity": "info",
+                "category": "dimensional_modeling",
+                "suggestion": f"Multiple date keys detected ({', '.join(date_keys)}). Consider creating a dim_date table and using separate FKs for each role (e.g., order_date_key, ship_date_key).",
+            }
+        )
+
+    # 5) Missing dim_date reference
+    if _is_fact_table(table_name):
+        has_date_dim_ref = any(
+            any(
+                dim_name in field.name.lower()
+                for dim_name in analyze_config.DATE_DIMENSION_NAMES
+            )
+            for field in fields
+        )
+        if not has_date_dim_ref and date_keys:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "missing_date_dimension",
+                    "severity": "warning",
+                    "category": "dimensional_modeling",
+                    "suggestion": "Fact table has date keys but no reference to a date dimension (dim_date). Create a date dimension with calendar attributes for flexible time-based analysis.",
+                }
+            )
+
+    # 6) SCD Type 2 detection for dimensions
+    if _is_dimension_table(table_name):
+        scd_info = _detect_scd_type2(fields)
+
+        if scd_info["indicators"]:
+            # Has some SCD2 indicators
+            if not scd_info["has_effective_dates"] or not scd_info["has_current_flag"]:
+                missing = []
+                if not scd_info["has_effective_dates"]:
+                    missing.append(
+                        "effective date range (effective_start, effective_end)"
+                    )
+                if not scd_info["has_current_flag"]:
+                    missing.append("current flag (is_current)")
+
+                issues.append(
+                    {
+                        "field_name": table_name,
+                        "pattern": "incomplete_scd_type2",
+                        "severity": "warning",
+                        "category": "dimensional_modeling",
+                        "suggestion": f"Dimension has SCD Type 2 indicators ({', '.join(scd_info['indicators'])}) but missing: {', '.join(missing)}. Implement complete SCD2 pattern for proper historical tracking.",
+                    }
+                )
+        else:
+            # No SCD2 indicators - may need them
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": "no_scd_support",
+                    "severity": "info",
+                    "category": "dimensional_modeling",
+                    "suggestion": "Dimension table has no SCD (Slowly Changing Dimension) indicators. If attributes change over time, implement SCD Type 2 with effective_start, effective_end, and is_current columns.",
+                }
+            )
+
+    # 7) Junk dimension candidates
+    junk_candidates = _find_junk_dim_candidates(fields)
+    if junk_candidates:
+        issue_junk: dict[str, Any] = {
+            "field_name": ", ".join(junk_candidates[:10]),  # Show first 10
+            "pattern": "junk_dimension_candidate",
+            "severity": "info",
+            "category": "dimensional_modeling",
+            "suggestion": f"Table has {len(junk_candidates)} low-cardinality flags/enums ({', '.join(junk_candidates[:5])}...). Consider moving these to a junk dimension with a single surrogate key to reduce table width.",
+            "affected_count": len(junk_candidates),
+        }
+        issues.append(issue_junk)
+
+    # 8) Nested line items
+    nested_items = _detect_nested_line_items(fields)
+    if nested_items:
+        issues.append(
+            {
+                "field_name": ", ".join(nested_items),
+                "pattern": "nested_line_items",
+                "severity": "warning",
+                "category": "dimensional_modeling",
+                "suggestion": f"Table stores line items as nested arrays ({', '.join(nested_items)}). For BI/analytics, create a flattened fact table (fct_{table_name}_items) or expose a view with UNNEST for a clean grain.",
+            }
+        )
+
+    # 9) Unknown/Not Applicable members in dimensions
+    if _is_dimension_table(table_name):
+        # Check if dimension has unknown member rows seeded
+        # (This would require checking actual data, so we provide guidance)
+        issues.append(
+            {
+                "field_name": table_name,
+                "pattern": "dimension_unknown_member",
+                "severity": "info",
+                "category": "dimensional_modeling",
+                "suggestion": f"Ensure dimension has 'Unknown' and 'Not Applicable' member rows seeded (keys {analyze_config.UNKNOWN_MEMBER_KEY}, {analyze_config.NOT_APPLICABLE_KEY}) to handle early-arriving facts and missing references.",
+            }
+        )
+
+    # 10) Multi-table analysis (conformed dimensions, duplicates)
+    if tables_meta:
+        conformed_issues = _detect_conformed_dimensions(tables_meta)
+        issues.extend(conformed_issues)
+
+    # 11) Automatic fact type classification
+    if _is_fact_table(table_name):
+        fact_type, explanation = _classify_fact_type(table_name, fields)
+        if fact_type:
+            issues.append(
+                {
+                    "field_name": table_name,
+                    "pattern": f"fact_type_{fact_type}",
+                    "severity": "info",
+                    "category": "dimensional_modeling",
+                    "suggestion": f"Fact table classified as {fact_type.replace('_', ' ')}. {explanation}",
+                }
+            )
+
+    # 12) Bridge table detection
+    if tables_meta:
+        bridge_issues = _detect_bridge_tables(tables_meta)
+        issues.extend(bridge_issues)
+
+    # 13) Hierarchy detection
+    if tables_meta:
+        hierarchy_issues = _detect_hierarchies(tables_meta)
+        issues.extend(hierarchy_issues)
+
+    # 14) Mini-dimension detection (high-volatility attributes)
+    if _is_dimension_table(table_name):
+        mini_dim_issues = _detect_mini_dimensions(table_name, fields)
+        issues.extend(mini_dim_issues)
+
+    # 15) Degenerate dimension detection (high-cardinality codes in facts)
+    if _is_fact_table(table_name):
+        degenerate_issues = _detect_degenerate_dimensions(table_name, fields)
+        issues.extend(degenerate_issues)
+
+    # 16) Advanced dimensional modeling detectors (multi-table)
+    if tables_meta:
+        advanced_issues = _detect_advanced_dimensional_patterns(
+            table_name, fields, tables_meta
+        )
+        issues.extend(advanced_issues)
+
+    # 17) Single-table dimensional detectors (work without tables_meta)
+    single_table_issues = _detect_single_table_dimensional_patterns(table_name, fields)
+    issues.extend(single_table_issues)
 
     return issues

@@ -160,6 +160,190 @@ REQUIRED_PII_TAXONOMY_PREFIX = os.environ.get("REQUIRED_PII_TAXONOMY_PREFIX", ""
 
 
 # =============================================================================
+# DIMENSIONAL MODELING DETECTION
+# =============================================================================
+
+# Star/Snowflake detection
+HUB_FK_THRESHOLD = 5  # Minimum inbound FKs to be considered a fact hub
+SNOWFLAKE_DIM_PREFIX = "dim_"  # Prefix for dimension tables
+
+# Fact table grain detection
+GRAIN_AMBIGUOUS_DATE_THRESHOLD = 2  # Multiple date keys suggest ambiguous grain
+FACT_SURROGATE_KEY_NAMES = frozenset(
+    {
+        "fact_id",
+        "row_id",
+        "id",
+        "pk",
+        "surrogate_key",
+        "_surrogate_key",  # dbt standard
+        "sk",
+    }
+)
+
+# Fact surrogate key suffixes (for contains/endswith checks)
+FACT_SURROGATE_KEY_SUFFIXES = frozenset(
+    {
+        "_id",
+        "_key",
+        "_sk",
+        "_surrogate_key",  # dbt standard
+    }
+)
+
+# Measure classification
+ADDITIVE_MEASURE_INDICATORS = frozenset(
+    {
+        "amount",
+        "price",
+        "cost",
+        "fee",
+        "revenue",
+        "qty",
+        "quantity",
+        "count",
+        "units",
+        "seconds",
+        "minutes",
+        "hours",
+        "total",
+        "sum",
+    }
+)
+
+SEMI_ADDITIVE_MEASURE_INDICATORS = frozenset(
+    {
+        "balance",
+        "snapshot",
+        "on_hand",
+        "end_qty",
+        "inventory",
+        "outstanding",
+        "pending",
+    }
+)
+
+NON_ADDITIVE_MEASURE_INDICATORS = frozenset(
+    {
+        "rate",
+        "ratio",
+        "pct",
+        "percent",
+        "percentage",
+        "avg",
+        "average",
+        "median",
+        "distinct",
+        "margin",
+    }
+)
+
+# Date/Time dimensions
+DATE_DIMENSION_NAMES = frozenset(
+    {
+        "dim_date",
+        "dim_time",
+        "date_dim",
+        "time_dim",
+    }
+)
+
+ROLE_PLAYING_DATE_SUFFIXES = frozenset(
+    {
+        "_date",
+        "_dt",
+        "_timestamp",
+        "_ts",
+        "_time",
+    }
+)
+
+# Slowly Changing Dimensions (SCD)
+SCD_TYPE2_INDICATORS = frozenset(
+    {
+        "effective_start",
+        "effective_end",
+        "valid_from",
+        "valid_to",
+        "_valid_from",  # dbt standard
+        "_valid_to",  # dbt standard
+        "start_date",
+        "end_date",
+        "is_current",
+        "is_active",
+        "current_flag",
+        "active_flag",
+    }
+)
+
+# Junk dimension detection
+JUNK_DIM_FLAG_THRESHOLD = 4  # 4+ low-cardinality flags → junk dim candidate
+JUNK_DIM_INDICATORS = frozenset(
+    {
+        "status",
+        "type",
+        "flag",
+        "indicator",
+        "code",
+    }
+)
+
+# Bridge table patterns
+BRIDGE_TABLE_PREFIX = "bridge_"
+BRIDGE_TABLE_SUFFIXES = frozenset(
+    {
+        "_bridge",
+        "_xref",
+        "_mapping",
+    }
+)
+
+# Fact types
+TRANSACTION_FACT_INDICATORS = frozenset(
+    {
+        "transaction",
+        "event",
+        "order",
+        "sale",
+        "payment",
+    }
+)
+
+SNAPSHOT_FACT_INDICATORS = frozenset(
+    {
+        "snapshot",
+        "daily",
+        "weekly",
+        "monthly",
+        "period",
+    }
+)
+
+ACCUMULATING_SNAPSHOT_INDICATORS = frozenset(
+    {
+        "milestone",
+        "accumulating",
+        "lifecycle",
+    }
+)
+
+# Unknown/Not Applicable member keys
+UNKNOWN_MEMBER_KEY = -1
+NOT_APPLICABLE_KEY = 0
+
+# Nested vs Flat modeling
+LINE_ITEM_ARRAY_NAMES = frozenset(
+    {
+        "items",
+        "line_items",
+        "order_items",
+        "details",
+        "lines",
+    }
+)
+
+
+# =============================================================================
 # ANTI-PATTERN DETECTION THRESHOLDS
 # =============================================================================
 
@@ -324,90 +508,106 @@ DATE_FIELD_SUFFIXES = {
 
 EXPENSIVE_UNNEST_FIELD_COUNT = 5  # Arrays with more fields are expensive to UNNEST
 
-# --- Audit Field Catalogs ---
-AUDIT_TIMESTAMP_FIELDS = {
-    "created_at",
-    "created_on",
-    "creation_time",
-    "create_time",
-    "insert_time",
-    "updated_at",
-    "updated_on",
-    "update_time",
-    "modification_time",
-    "modified_at",
-    "deleted_at",
-    "deleted_on",
-    "deletion_time",
-    "delete_time",
-    "last_modified",
-    "last_updated",
-    "last_changed",
-}
-
-AUDIT_ACTOR_FIELDS = {
-    "created_by",
-    "creator",
-    "creator_id",
-    "created_by_user",
-    "author",
-    "updated_by",
-    "updater",
-    "updater_id",
-    "updated_by_user",
-    "modifier",
-    "deleted_by",
-    "deleter",
-    "deleter_id",
-    "deleted_by_user",
-}
-
-AUDIT_VERSION_FIELDS = {
-    "version",
-    "revision",
-    "etag",
-    "row_version",
-    "version_number",
-}
-
-AUDIT_SOFT_DELETE_FIELDS = {
-    "deleted_at",
-    "is_deleted",
-    "deleted",
-    "is_active",
-    "active",
-    "archived",
-}
-
-AUDIT_SOURCE_FIELDS = {
-    "source",
-    "source_system",
-    "source_id",
-    "source_table",
-    "origin",
-    "origin_system",
-    "data_source",
-    "ingested_at",
-    "ingested_on",
-    "ingestion_time",
-    "imported_at",
-    "imported_on",
-    "import_time",
-}
-
-# All audit fields combined
-ALL_AUDIT_FIELDS = (
-    AUDIT_TIMESTAMP_FIELDS
-    | AUDIT_ACTOR_FIELDS
-    | AUDIT_VERSION_FIELDS
-    | AUDIT_SOFT_DELETE_FIELDS
-    | AUDIT_SOURCE_FIELDS
+# --- Audit Field Catalog (Consolidated) ---
+# All fields related to record lifecycle, tracking, and versioning
+AUDIT_FIELDS = frozenset(
+    {
+        # Lifecycle timestamps
+        "created_at",
+        "created_on",
+        "creation_time",
+        "create_time",
+        "insert_time",
+        "updated_at",
+        "updated_on",
+        "update_time",
+        "modification_time",
+        "modified_at",
+        "deleted_at",
+        "deleted_on",
+        "deletion_time",
+        "delete_time",
+        "last_modified",
+        "last_updated",
+        "last_changed",
+        # dbt standards
+        "_source_created_at",
+        "_source_updated_at",
+        "_transform_created_at",
+        "_transform_updated_at",
+        # Activation/deactivation
+        "activated_at",
+        "deactivated_at",
+        "premium_activated_at",
+        "premium_deactivated_at",
+        "registered_at",
+        "sent_at",
+        "first_active_at",
+        "last_active_at",
+        # Expiration
+        "expiration_date",
+        "default_expiration_date",
+        # Actors/ownership
+        "created_by",
+        "creator",
+        "creator_id",
+        "created_by_user",
+        "author",
+        "updated_by",
+        "updater",
+        "updater_id",
+        "updated_by_user",
+        "modifier",
+        "deleted_by",
+        "deleter",
+        "deleter_id",
+        "deleted_by_user",
+        "activated_by_id",
+        "owner_id",
+        "owner_name",
+        # Versions
+        "version",
+        "revision",
+        "etag",
+        "row_version",
+        "version_number",
+        "_values_hash",
+        # Soft delete state
+        "is_deleted",
+        "deleted",
+        "active",
+        "archived",
+        # Source tracking
+        "source",
+        "source_system",
+        "source_id",
+        "source_table",
+        "origin",
+        "origin_system",
+        "data_source",
+        "ingested_at",
+        "ingested_on",
+        "ingestion_time",
+        "imported_at",
+        "imported_on",
+        "import_time",
+    }
 )
+
+# Keep legacy references for backward compatibility
+AUDIT_TIMESTAMP_FIELDS = AUDIT_FIELDS
+AUDIT_ACTOR_FIELDS = AUDIT_FIELDS
+AUDIT_VERSION_FIELDS = AUDIT_FIELDS
+AUDIT_SOFT_DELETE_FIELDS = AUDIT_FIELDS
+AUDIT_SOURCE_FIELDS = AUDIT_FIELDS
+ALL_AUDIT_FIELDS = AUDIT_FIELDS
 
 # Minimum recommended audit fields for production
 RECOMMENDED_AUDIT_FIELDS = {
     "created_at",  # When was this record created
     "updated_at",  # When was this record last updated
+    "_transform_created_at",  # dbt standard for transformation timestamps
+    "_transform_updated_at",
 }
 
 # Common audit field pairs (often used together)
@@ -415,105 +615,157 @@ AUDIT_FIELD_PAIRS = [
     ("created_at", "created_by"),  # Creation timestamp + actor
     ("updated_at", "updated_by"),  # Update timestamp + actor
     ("deleted_at", "deleted_by"),  # Deletion timestamp + actor
+    ("_source_created_at", "_source_updated_at"),  # dbt source timestamp pair
+    ("_transform_created_at", "_transform_updated_at"),  # dbt transform timestamp pair
+    ("_valid_from", "_valid_to"),  # dbt SCD2 validity period
+    ("activated_at", "activated_by_id"),  # Activation timestamp + actor
 ]
 
-# --- Reserved Keywords ---
-RESERVED_KEYWORDS = {
-    "select",
-    "from",
-    "where",
-    "join",
-    "left",
-    "right",
-    "inner",
-    "outer",
-    "group",
-    "order",
-    "by",
-    "having",
-    "limit",
-    "offset",
-    "union",
-    "all",
-    "distinct",
-    "case",
-    "when",
-    "then",
-    "else",
-    "end",
-    "as",
-    "and",
-    "or",
-    "not",
-    "in",
-    "exists",
-    "between",
-    "like",
-    "is",
-    "null",
-    "true",
-    "false",
-    "cast",
-    "convert",
-    "table",
-    "view",
-    "index",
-    "key",
-    "primary",
-    "foreign",
-    "references",
-    "constraint",
-    "create",
-    "alter",
-    "drop",
-    "insert",
-    "update",
-    "delete",
-    "truncate",
-    "grant",
-    "revoke",
-    "commit",
-    "rollback",
-    "transaction",
-}
+# --- Temporal Fields (Business Events) ---
+# Business event dates and timestamps (NOT audit/system timestamps)
+TEMPORAL_FIELDS = frozenset(
+    {
+        "calendar_date",
+        "interaction_date",
+        "event_date",
+        "activation_date",
+        "graduation_date",
+        "close_date",
+        "event_timestamp",
+        "event_time",
+    }
+)
 
-# --- Type-Related Patterns ---
-TYPE_SUFFIXES = {
-    "_string",
-    "_str",
-    "_int",
-    "_integer",
-    "_float",
-    "_bool",
-    "_boolean",
-    "_array",
-    "_list",
-}
+# --- Tracking Identifiers (Session/Request/Trace) ---
+# Session, request, and correlation tracking IDs
+TRACKING_IDENTIFIERS = frozenset(
+    {
+        "session_id",
+        "anonymous_id",
+        "session_type",
+        "feed_tracking_id",
+        "search_id",
+        "request_id",
+        "trace_id",
+        "correlation_id",
+    }
+)
 
-NEGATIVE_BOOLEAN_PATTERNS = {"is_not_", "not_", "isnt_", "disabled", "inactive"}
+# --- System References (External Systems) ---
+# References to external systems and UTM parameters
+SYSTEM_REFERENCES = frozenset(
+    {
+        "external_id",
+        "external_job_id",
+        "external_job_new_id",
+        "ats_id",
+        "sfdc_account_id",
+        "sfdc_id",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_content",
+        "utm_term",
+    }
+)
 
-ENUM_FIELD_INDICATORS = {
-    "status",
-    "state",
-    "type",
-    "kind",
-    "category",
-    "role",
-    "level",
-    "priority",
-}
+# Keep legacy references for backward compatibility
+EVENT_TEMPORAL_FIELDS = TEMPORAL_FIELDS
+SESSION_TRACKING_FIELDS = TRACKING_IDENTIFIERS
+EXTERNAL_REFERENCE_FIELDS = SYSTEM_REFERENCES
 
-DATE_ONLY_FIELD_PATTERNS = {
-    "birth_date",
-    "birthdate",
-    "hire_date",
-    "start_date",
-    "end_date",
-    "expiry_date",
-    "expiration_date",
-    "effective_date",
-    "due_date",
-}
+# --- SCD Fields (Slowly Changing Dimensions) ---
+SCD_FIELDS = frozenset(
+    {
+        "effective_start",
+        "effective_end",
+        "valid_from",
+        "valid_to",
+        "_valid_from",  # dbt standard
+        "_valid_to",  # dbt standard
+        "start_date",
+        "end_date",
+        "is_current",
+        "is_active",
+        "current_flag",
+        "active_flag",
+    }
+)
+
+# Keep legacy reference for backward compatibility
+SCD_TYPE2_INDICATORS = SCD_FIELDS
+
+# --- Field Naming Pattern Catalogs ---
+
+# Boolean field prefixes
+BOOLEAN_FIELD_PREFIXES = frozenset(
+    {
+        "is_",
+        "has_",
+        "can_",
+        "should_",
+        "will_",
+        "was_",
+        "were_",
+    }
+)
+
+# Classification field suffixes (removed "_source" to avoid conflicts)
+CLASSIFICATION_FIELD_SUFFIXES = frozenset(
+    {
+        "_type",
+        "_category",
+        "_segment",
+        "_tier",
+        "_level",
+        "_role",
+        "_channel",
+        "_status",
+        "_state",
+        "_phase",
+        "_stage",
+    }
+)
+
+# Metric and aggregation field suffixes
+METRIC_FIELD_SUFFIXES = frozenset(
+    {
+        "_count",
+        "_total",
+        "_sum",
+        "_avg",
+        "_average",
+        "_mean",
+        "_median",
+        "_min",
+        "_max",
+        "_rate",
+        "_ratio",
+        "_percent",
+        "_pct",
+        "_percentage",
+        "_amount",
+        "_quantity",
+        "_qty",
+        "_rank",
+        "_score",
+        "_index",
+        "_weight",
+    }
+)
+
+# Identifier field suffixes (foreign keys + surrogate keys)
+IDENTIFIER_FIELD_SUFFIXES = frozenset(
+    {
+        "_id",
+        "_key",
+        "_sk",
+        "_surrogate_key",
+    }
+)
+
+# NOTE: Reserved keywords, type suffixes, and other naming patterns
+# are defined later in the file (see "NAMING PATTERN DETECTION" section below)
 
 # --- Data Representation Patterns ---
 NULL_REPRESENTATION_PATTERNS = {
@@ -603,7 +855,7 @@ NUMERIC_FIELD_INDICATORS = {
     "rank",
 }
 
-BOOLEAN_FIELD_PREFIXES = {"is_", "has_", "can_", "should_", "will_"}
+# BOOLEAN_FIELD_PREFIXES moved to line 677 with expanded set
 BOOLEAN_FIELD_KEYWORDS = {"enabled", "disabled", "active"}
 
 
@@ -762,3 +1014,511 @@ LOW_CARDINALITY_INDICATORS = frozenset(
 
 # Minimum shard count to flag sharded table pattern (Anti-pattern #46)
 MIN_SHARD_COUNT = 3
+
+
+# =============================================================================
+# SCHEMA ANTI-PATTERN DETECTION: NAMING & CONVENTIONS
+# =============================================================================
+
+# Generic field names that should be avoided (Anti-pattern detection)
+GENERIC_FIELD_NAMES = frozenset(
+    {
+        "data",
+        "value",
+        "info",
+        "details",
+        "metadata",
+        "content",
+    }
+)
+
+# Partition field name indicators (for nullable partition field detection)
+PARTITION_FIELD_NAMES = frozenset(
+    {
+        "partition_date",
+        "event_date",
+        "date",
+        "_partitiontime",
+    }
+)
+
+# Parent/hierarchy field indicators
+PARENT_FIELD_INDICATORS = frozenset(
+    {
+        "parent_id",
+        "parent_key",
+        "manager_id",
+        "superior_id",
+        "parent",
+    }
+)
+
+# Hierarchy helper field names
+HIERARCHY_HELPER_FIELDS = frozenset(
+    {
+        "level",
+        "depth",
+        "path",
+        "lineage",
+        "is_leaf",
+        "leaf_flag",
+    }
+)
+
+# Milestone date indicators for accumulating snapshot fact tables
+MILESTONE_DATE_INDICATORS = frozenset(
+    {
+        "order",
+        "ship",
+        "deliver",
+        "start",
+        "end",
+        "complete",
+        "cancel",
+        "approve",
+    }
+)
+
+
+# =============================================================================
+# DEGENERATE DIMENSION DETECTION
+# =============================================================================
+
+# Degenerate dimension suffixes (high-cardinality codes in fact tables)
+DEGENERATE_DIMENSION_SUFFIXES = frozenset(
+    {
+        "_number",
+        "_code",
+        "_id",
+        "_reference",
+        "_ref",
+        "_ticket",
+        "_confirmation",
+        "_tracking",
+    }
+)
+
+# Degenerate dimension prefixes
+DEGENERATE_DIMENSION_PREFIXES = frozenset(
+    {
+        "order_",
+        "invoice_",
+        "po_",
+        "ticket_",
+        "transaction_",
+        "confirmation_",
+        "tracking_",
+        "reference_",
+    }
+)
+
+# Common degenerate dimension patterns (exact matches)
+DEGENERATE_DIMENSION_PATTERNS = frozenset(
+    {
+        "order_number",
+        "invoice_number",
+        "po_number",
+        "transaction_id",
+        "confirmation_number",
+        "tracking_number",
+        "ticket_id",
+        "case_number",
+        "claim_number",
+        "serial_number",
+        "batch_number",
+        "lot_number",
+    }
+)
+
+
+# =============================================================================
+# DIMENSIONAL MODELING - ADVANCED DETECTION
+# =============================================================================
+
+# Bridge table detection thresholds
+BRIDGE_TABLE_MAX_FK_COUNT = 3  # Max FKs for bridge table
+BRIDGE_TABLE_MIN_FK_COUNT = 2  # Min FKs for bridge table
+BRIDGE_TABLE_MAX_MEASURES = 1  # Max numeric non-FK columns
+BRIDGE_TABLE_MAX_ATTRIBUTES = 3  # Max non-key attributes
+
+# Natural key indicators for dimensions
+DIMENSION_NATURAL_KEY_SUFFIXES = frozenset(
+    {
+        "_code",
+        "_number",
+        "_name",
+        "_identifier",
+        "_ref",
+    }
+)
+
+# Surrogate key indicators
+DIMENSION_SURROGATE_KEY_NAMES = frozenset(
+    {
+        "id",
+        "key",
+        "sk",
+        "surrogate_key",
+    }
+)
+
+DIMENSION_SURROGATE_KEY_SUFFIXES = frozenset(
+    {
+        "_key",
+        "_sk",
+        "_id",
+    }
+)
+
+# Snowflake depth limit
+SNOWFLAKE_MAX_DEPTH = 1  # Warn if chains deeper than this
+
+# Fact table FK density thresholds
+FACT_MIN_FK_COUNT = 2  # Too denormalized if fewer
+FACT_MAX_FK_COUNT = 12  # God fact if more
+
+# Snapshot fact indicators
+SNAPSHOT_FACT_DATE_FIELDS = frozenset(
+    {
+        "as_of_date",
+        "snapshot_date",
+        "valid_on",
+        "report_date",
+        "effective_date",
+    }
+)
+
+# Rapidly changing attribute keywords (mini-dimension candidates)
+RAPIDLY_CHANGING_ATTRIBUTE_KEYWORDS = frozenset(
+    {
+        "_preference",
+        "_status",
+        "_setting",
+        "_flag",
+        "_option",
+        "_choice",
+        "_state",
+    }
+)
+
+# Unit of measure indicators
+UOM_MEASURE_KEYWORDS = frozenset(
+    {
+        "length",
+        "width",
+        "height",
+        "depth",
+        "weight",
+        "amount",
+        "distance",
+        "volume",
+        "mass",
+        "temperature",
+        "duration",
+        "speed",
+        "velocity",
+    }
+)
+
+UOM_COLUMN_SUFFIXES = frozenset(
+    {
+        "_uom",
+        "_unit",
+        "_units",
+        "_measurement_unit",
+    }
+)
+
+# Code/value pair indicators
+CODE_VALUE_PAIRS = frozenset(
+    {
+        ("status_code", "status_text"),
+        ("status_code", "status_name"),
+        ("status_code", "status_description"),
+        ("type_code", "type_text"),
+        ("type_code", "type_name"),
+        ("type_code", "type_description"),
+        ("category_code", "category_text"),
+        ("category_code", "category_name"),
+        ("state_code", "state_text"),
+        ("state_code", "state_name"),
+    }
+)
+
+# Unknown/N/A member indicators
+UNKNOWN_MEMBER_VALUES = frozenset(
+    {
+        "unknown",
+        "n/a",
+        "na",
+        "not_applicable",
+        "none",
+        "unspecified",
+        "missing",
+        "pending",
+    }
+)
+
+# Mixed-grain identifiers (header + line)
+HEADER_ID_KEYWORDS = frozenset(
+    {
+        "order_id",
+        "invoice_id",
+        "document_id",
+        "header_id",
+        "parent_id",
+        "request_id",
+    }
+)
+
+LINE_ITEM_ID_KEYWORDS = frozenset(
+    {
+        "line_item_id",
+        "line_id",
+        "item_id",
+        "detail_id",
+        "position",
+        "line_number",
+        "sequence_number",
+    }
+)
+
+# Date dimension completeness indicators
+DATE_DIM_FISCAL_FIELDS = frozenset(
+    {
+        "fiscal_year",
+        "fiscal_quarter",
+        "fiscal_month",
+        "fiscal_week",
+        "fiscal_period",
+    }
+)
+
+DATE_DIM_WEEK_FIELDS = frozenset(
+    {
+        "week_of_year",
+        "iso_week",
+        "week_number",
+        "week_start_date",
+        "week_end_date",
+    }
+)
+
+
+# =============================================================================
+# SQL RESERVED KEYWORDS (BigQuery)
+# =============================================================================
+
+# BigQuery SQL reserved keywords that should be avoided as field names
+RESERVED_KEYWORDS = frozenset(
+    {
+        "all",
+        "and",
+        "any",
+        "array",
+        "as",
+        "asc",
+        "assert_rows_modified",
+        "at",
+        "between",
+        "by",
+        "case",
+        "cast",
+        "collate",
+        "contains",
+        "create",
+        "cross",
+        "cube",
+        "current",
+        "default",
+        "define",
+        "desc",
+        "distinct",
+        "else",
+        "end",
+        "enum",
+        "escape",
+        "except",
+        "exclude",
+        "exists",
+        "extract",
+        "false",
+        "fetch",
+        "following",
+        "for",
+        "from",
+        "full",
+        "group",
+        "grouping",
+        "groups",
+        "hash",
+        "having",
+        "if",
+        "ignore",
+        "in",
+        "inner",
+        "intersect",
+        "interval",
+        "into",
+        "is",
+        "join",
+        "lateral",
+        "left",
+        "like",
+        "limit",
+        "lookup",
+        "merge",
+        "natural",
+        "new",
+        "no",
+        "not",
+        "null",
+        "nulls",
+        "of",
+        "on",
+        "or",
+        "order",
+        "outer",
+        "over",
+        "partition",
+        "preceding",
+        "proto",
+        "range",
+        "recursive",
+        "respect",
+        "right",
+        "rollup",
+        "rows",
+        "select",
+        "set",
+        "some",
+        "struct",
+        "tablesample",
+        "then",
+        "to",
+        "treat",
+        "true",
+        "unbounded",
+        "union",
+        "unnest",
+        "using",
+        "when",
+        "where",
+        "window",
+        "with",
+        "within",
+    }
+)
+
+
+# =============================================================================
+# DATE/TIME TYPE DETECTION
+# =============================================================================
+
+# Fields that should use DATE instead of TIMESTAMP (date-only semantics)
+DATE_ONLY_FIELD_PATTERNS = frozenset(
+    {
+        "birth_date",
+        "birthdate",
+        "date_of_birth",
+        "dob",
+        "hire_date",
+        "hired_date",
+        "start_date",
+        "end_date",
+        "expiry_date",
+        "expiration_date",
+        "due_date",
+        "publish_date",
+        "published_date",
+        "release_date",
+    }
+)
+
+
+# =============================================================================
+# BINARY DATA DETECTION
+# =============================================================================
+
+# Keywords indicating binary data (should use BYTES, not STRING)
+BINARY_DATA_KEYWORDS = frozenset(
+    {
+        "hash",
+        "digest",
+        "signature",
+        "checksum",
+        "image_data",
+        "file_content",
+        "binary",
+        "hex",
+        "base64",
+    }
+)
+
+
+# =============================================================================
+# NAMING PATTERN DETECTION
+# =============================================================================
+
+# Negative boolean field name patterns (anti-pattern #22)
+NEGATIVE_BOOLEAN_PATTERNS = frozenset(
+    {
+        "is_not_",
+        "has_no_",
+        "cannot_",
+        "isnt_",
+        "hasnt_",
+        "no_",
+        "not_",
+        "non_",
+        "without_",
+        "disabled",
+        "inactive",
+    }
+)
+
+# Type suffix patterns that should be avoided in field names (anti-pattern #35)
+TYPE_SUFFIX_PATTERNS = frozenset(
+    {
+        "_string",
+        "_str",
+        "_int",
+        "_integer",
+        "_bool",
+        "_boolean",
+        "_array",
+        "_list",
+        "_dict",
+        "_map",
+    }
+)
+
+# Enum-like field indicators (anti-pattern #33)
+ENUM_FIELD_INDICATORS = frozenset(
+    {
+        "status",
+        "state",
+        "type",
+        "category",
+        "level",
+        "priority",
+        "role",
+        "kind",
+    }
+)
+
+# Float/money field keywords (anti-pattern #27)
+FLOAT_MONEY_KEYWORDS = frozenset(
+    {
+        "price",
+        "cost",
+        "amount",
+        "balance",
+        "tax",
+        "fee",
+        "payment",
+        "salary",
+        "revenue",
+        "total",
+    }
+)

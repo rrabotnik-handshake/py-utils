@@ -1055,6 +1055,132 @@ def generate_schema_report(schema: Schema) -> str:
     return "\n".join(report)
 
 
+def categorize_fields(schema: Schema) -> Dict[str, Any]:
+    """Categorize schema fields based on naming patterns and conventions.
+
+    Analyzes field names to classify them into standard categories like
+    audit timestamps, foreign keys, boolean flags, metrics, etc.
+
+    Args:
+        schema: Unified Schema object
+
+    Returns:
+        Dictionary with field categorization results and statistics
+    """
+    from . import analyze_config
+
+    categories: defaultdict[str, list[str]] = defaultdict(list)
+    field_count_by_category: defaultdict[str, int] = defaultdict(int)
+
+    def check_field(field, path=""):
+        """Recursively check field and nested fields."""
+        field_name = field.name.lower()
+        full_path = f"{path}.{field.name}" if path else field.name
+
+        # Track if field has been categorized to avoid duplicates
+        categorized = False
+
+        # 1. Check audit fields (lifecycle, tracking, versioning)
+        if not categorized and field_name in analyze_config.AUDIT_FIELDS:
+            categories["audit_fields"].append(full_path)
+            field_count_by_category["audit_fields"] += 1
+            categorized = True
+
+        # 2. Check temporal fields (business events)
+        if not categorized and field_name in analyze_config.TEMPORAL_FIELDS:
+            categories["temporal_fields"].append(full_path)
+            field_count_by_category["temporal_fields"] += 1
+            categorized = True
+
+        # 3. Check tracking identifiers (session/request/trace)
+        if not categorized and field_name in analyze_config.TRACKING_IDENTIFIERS:
+            categories["tracking_identifiers"].append(full_path)
+            field_count_by_category["tracking_identifiers"] += 1
+            categorized = True
+
+        # 4. Check system references (external systems)
+        if not categorized and field_name in analyze_config.SYSTEM_REFERENCES:
+            categories["system_references"].append(full_path)
+            field_count_by_category["system_references"] += 1
+            categorized = True
+
+        # 5. Check SCD fields (slowly changing dimensions)
+        if not categorized and field_name in analyze_config.SCD_FIELDS:
+            categories["scd_fields"].append(full_path)
+            field_count_by_category["scd_fields"] += 1
+            categorized = True
+
+        # 6. Check boolean prefixes (is_, has_, can_)
+        if not categorized:
+            for prefix in analyze_config.BOOLEAN_FIELD_PREFIXES:
+                if field_name.startswith(prefix):
+                    categories["boolean_fields"].append(full_path)
+                    field_count_by_category["boolean_fields"] += 1
+                    categorized = True
+                    break
+
+        # 7. Check classification suffixes (_type, _category, _status)
+        if not categorized:
+            for suffix in analyze_config.CLASSIFICATION_FIELD_SUFFIXES:
+                if field_name.endswith(suffix):
+                    categories["classification_fields"].append(full_path)
+                    field_count_by_category["classification_fields"] += 1
+                    categorized = True
+                    break
+
+        # 8. Check metric suffixes (_count, _sum, _avg)
+        if not categorized:
+            for suffix in analyze_config.METRIC_FIELD_SUFFIXES:
+                if field_name.endswith(suffix):
+                    categories["metric_fields"].append(full_path)
+                    field_count_by_category["metric_fields"] += 1
+                    categorized = True
+                    break
+
+        # 9. Check identifier fields (_id, _key, surrogate keys)
+        if not categorized:
+            if (
+                field_name.endswith("_id")
+                or field_name.endswith("_key")
+                or field_name.endswith("_sk")
+                or field_name in analyze_config.FACT_SURROGATE_KEY_NAMES
+            ):
+                categories["identifier_fields"].append(full_path)
+                field_count_by_category["identifier_fields"] += 1
+                categorized = True
+
+        # Recursively check nested fields for object types
+        if hasattr(field, "fields") and field.fields:
+            for nested_field in field.fields:
+                check_field(nested_field, full_path)
+
+    # Process all top-level fields
+    for field in schema.fields:
+        check_field(field)
+
+    # Calculate statistics
+    total_fields = sum(field_count_by_category.values())
+    category_percentages = {
+        cat: round(count / total_fields * 100, 1) if total_fields > 0 else 0
+        for cat, count in field_count_by_category.items()
+    }
+
+    # Sort categories by count
+    sorted_categories = sorted(
+        field_count_by_category.items(), key=lambda x: x[1], reverse=True
+    )
+
+    result: Dict[str, Any] = {
+        "categories": dict(categories),
+        "counts": dict(field_count_by_category),
+        "percentages": category_percentages,
+        "sorted_by_count": sorted_categories,
+        "total_categorized_fields": total_fields,
+        "total_schema_fields": len(schema.fields),
+    }
+    return _to_plain(result)  # type: ignore
+
+
 __all__ = [
     "analyze_schema_complexity",
     "find_schema_patterns",
@@ -1062,4 +1188,5 @@ __all__ = [
     "compare_schema_evolution_advanced",
     "generate_schema_report",
     "analyze_policy_tags",
+    "categorize_fields",
 ]

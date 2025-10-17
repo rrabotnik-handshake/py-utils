@@ -21,11 +21,24 @@ def add_analyze_subcommand(subparsers):
 Analyze schema complexity, detect patterns, and get optimization suggestions.
 
 {BOLD}{YELLOW}ANALYSIS TYPES:{RESET}
-  {BLUE}--complexity{RESET}    Nesting depth, field counts, type distribution
-  {BLUE}--patterns{RESET}      Repeated structures, naming conventions, semantic patterns
-  {BLUE}--suggestions{RESET}   Denormalization opportunities, index recommendations
-  {BLUE}--report{RESET}        Comprehensive report with all sections
-  {BLUE}--all{RESET}           All of the above
+  {BLUE}--complexity{RESET}          Nesting depth, field counts, type distribution
+  {BLUE}--patterns{RESET}            Repeated structures, naming conventions, semantic patterns
+  {BLUE}--suggestions{RESET}         Denormalization opportunities, index recommendations
+  {BLUE}--dimensional{RESET}         Fact/dimension patterns, star schema, SCD detection
+  {BLUE}--field-categories{RESET}    Field categorization by type (audit, metrics, identifiers, etc.)
+  {BLUE}--report{RESET}              Comprehensive report with all sections
+  {BLUE}--all{RESET}                 All of the above
+
+{BOLD}{YELLOW}FIELD CATEGORIES:{RESET}
+  {BLUE}audit_fields{RESET}          Lifecycle timestamps, actors, versions, soft delete
+  {BLUE}temporal_fields{RESET}       Business event dates (calendar_date, event_date, etc.)
+  {BLUE}tracking_identifiers{RESET}  Session/trace/correlation IDs
+  {BLUE}system_references{RESET}     External system IDs (ATS, SFDC, UTM parameters)
+  {BLUE}scd_fields{RESET}            Slowly changing dimension fields (_valid_from, _valid_to)
+  {BLUE}boolean_fields{RESET}        Fields with is_/has_/can_ prefixes
+  {BLUE}classification_fields{RESET} Fields with _type/_category/_status suffixes
+  {BLUE}metric_fields{RESET}         Aggregation fields (_count/_sum/_avg)
+  {BLUE}identifier_fields{RESET}     Primary/foreign keys (_id/_key)
 
 {BOLD}{YELLOW}OUTPUT FORMATS:{RESET}
   {BLUE}text{RESET}       Human-readable (default)
@@ -39,11 +52,17 @@ Analyze schema complexity, detect patterns, and get optimization suggestions.
   {GREEN}# Specific analyses{RESET}
   schema-diff analyze data.json --complexity --patterns
 
+  {GREEN}# Field categorization{RESET}
+  schema-diff analyze project:dataset.table --type bigquery --field-categories
+
+  {GREEN}# Show specific category{RESET}
+  schema-diff analyze project:dataset.table --field-categories --category audit_fields
+
   {GREEN}# SQL schema with table selection{RESET}
   schema-diff analyze schema.sql --type sql --table users --all
 
-  {GREEN}# BigQuery table with output{RESET}
-  schema-diff analyze project:dataset.table --type bigquery --output
+  {GREEN}# BigQuery dimensional analysis{RESET}
+  schema-diff analyze project:dataset.table --type bigquery --dimensional --output
         """,
     )
 
@@ -88,6 +107,11 @@ Analyze schema complexity, detect patterns, and get optimization suggestions.
         help="Show improvement suggestions: denormalization, indexing, type optimizations",
     )
     analyze_parser.add_argument(
+        "--dimensional",
+        action="store_true",
+        help="Show dimensional modeling analysis: fact/dimension patterns, star schema, SCD detection",
+    )
+    analyze_parser.add_argument(
         "--report",
         action="store_true",
         help="Generate comprehensive analysis report with all sections",
@@ -95,7 +119,17 @@ Analyze schema complexity, detect patterns, and get optimization suggestions.
     analyze_parser.add_argument(
         "--all",
         action="store_true",
-        help="Show all analysis types (complexity + patterns + suggestions + report)",
+        help="Show all analysis types (complexity + patterns + suggestions + dimensional + report)",
+    )
+    analyze_parser.add_argument(
+        "--field-categories",
+        action="store_true",
+        help="Show field categorization: count and list fields by category (audit, metrics, foreign keys, etc.)",
+    )
+    analyze_parser.add_argument(
+        "--category",
+        type=str,
+        help="Show only fields from a specific category (use with --field-categories)",
     )
 
     # Output options
@@ -206,10 +240,21 @@ def cmd_analyze(args) -> int:
         show_complexity = args.complexity or args.all
         show_patterns = args.patterns or args.all
         show_suggestions = args.suggestions or args.all
+        show_dimensional = args.dimensional or args.all
         show_report = args.report or args.all
+        show_field_categories = args.field_categories
 
         # If no specific analysis requested, show basic info
-        if not any([show_complexity, show_patterns, show_suggestions, show_report]):
+        if not any(
+            [
+                show_complexity,
+                show_patterns,
+                show_suggestions,
+                show_dimensional,
+                show_report,
+                show_field_categories,
+            ]
+        ):
             show_complexity = True
             show_patterns = True
 
@@ -240,10 +285,43 @@ def cmd_analyze(args) -> int:
             suggestions = suggest_schema_improvements(schema)
             results["suggestions"] = suggestions
 
+        if show_dimensional:
+            print("🔍 Analyzing dimensional modeling patterns...")
+            # Only applicable for BigQuery schemas with raw metadata
+            if schema.source_type == "bigquery" and schema.metadata.get(
+                "raw_bq_schema"
+            ):
+                from ..bigquery_ddl import detect_dimensional_patterns
+
+                # Get table name from schema file
+                table_name = (
+                    args.schema_file.split(".")[-1]
+                    if ":" in args.schema_file
+                    else args.table or "table"
+                )
+                dimensional = detect_dimensional_patterns(
+                    table_name=table_name,
+                    fields=schema.metadata["raw_bq_schema"],
+                    tables_meta=None,  # TODO: Support multi-table analysis
+                )
+                results["dimensional"] = dimensional
+            else:
+                print(
+                    "   ℹ️  Dimensional modeling analysis is currently only supported for BigQuery schemas"
+                )
+                results["dimensional"] = []
+
         if show_report:
             print("🔍 Generating comprehensive report...")
             report = generate_schema_report(schema)
             results["report"] = report
+
+        if show_field_categories:
+            print("🔍 Categorizing schema fields...")
+            from ..advanced_analytics import categorize_fields
+
+            field_categories = categorize_fields(schema)
+            results["field_categories"] = field_categories
 
         # Output results
         if args.format == "json":
@@ -573,7 +651,7 @@ def _format_as_text(results, schema):
                 output.append(f"    • {field}")
             if count > 10:
                 output.append(f"    {RED}... +{count - 10} more{RESET}")
-            output.append("")
+        output.append("")
 
         # Show policy tag distribution
         if policy_tags["policy_tag_distribution"]:
@@ -605,10 +683,184 @@ def _format_as_text(results, schema):
 
         output.append("")
 
+    # DIMENSIONAL MODELING ANALYSIS - show fact/dim patterns, SCD, star schema
+    if "dimensional" in results and results["dimensional"]:
+        from .colors import BLUE, BOLD, CYAN, GREEN, RED, RESET, YELLOW
+
+        dimensional = results["dimensional"]
+        output.append(f"\n{BOLD}{CYAN}🏛️  DIMENSIONAL MODELING ANALYSIS{RESET}")
+        output.append("─" * 70)
+
+        # Group by severity
+        errors = [d for d in dimensional if d["severity"] == "error"]
+        warnings = [d for d in dimensional if d["severity"] == "warning"]
+        infos = [d for d in dimensional if d["severity"] == "info"]
+
+        for group, icon, color, issues_list in [
+            ("CRITICAL ISSUES", "❌", RED, errors),
+            ("WARNINGS", "⚠️ ", YELLOW, warnings),
+            ("PATTERNS DETECTED", "ℹ️ ", BLUE, infos),
+        ]:
+            if issues_list:
+                output.append(
+                    f"\n  {BOLD}{color}{icon} {group} ({len(issues_list)}){RESET}"
+                )
+
+                # Group by category
+                by_category = {}
+                for issue in issues_list:
+                    category = issue.get("category", "other")
+                    by_category.setdefault(category, []).append(issue)
+
+                # Sort categories alphabetically
+                for category in sorted(by_category.keys()):
+                    category_issues = by_category[category]
+                    output.append(
+                        f"\n    {CYAN}{category.replace('_', ' ').title()}{RESET}"
+                    )
+
+                    for issue in category_issues:
+                        # Wrap long suggestions
+                        suggestion = issue["suggestion"]
+                        if len(suggestion) > 80:
+                            # Word wrap at 80 characters
+                            words = suggestion.split()
+                            lines = []
+                            current_line = []
+                            current_length = 0
+
+                            for word in words:
+                                if current_length + len(word) + 1 > 80:
+                                    lines.append(" ".join(current_line))
+                                    current_line = [word]
+                                    current_length = len(word)
+                                else:
+                                    current_line.append(word)
+                                    current_length += len(word) + 1
+
+                            if current_line:
+                                lines.append(" ".join(current_line))
+
+                            # Output wrapped lines
+                            output.append(f"      • {lines[0]}")
+                            for line in lines[1:]:
+                                output.append(f"        {line}")
+                        else:
+                            output.append(f"      • {suggestion}")
+
+                        # Show affected fields or count if available
+                        if issue.get("affected_count"):
+                            output.append(
+                                f"        {CYAN}→{RESET} Affects {issue['affected_count']} fields"
+                            )
+
+                        output.append("")  # Blank line between items
+
+        if not dimensional:
+            output.append("  ℹ️  No dimensional modeling issues detected")
+
+        output.append("")
+
     if "report" in results:
         output.append(f"\n{BOLD}📋 DETAILED REPORT{RESET}")
         output.append("─" * 70)
         output.append(results["report"])
+
+    if "field_categories" in results:
+        categories_data = results["field_categories"]
+        output.append(f"\n{BOLD}{CYAN}🏷️  FIELD CATEGORIZATION{RESET}")
+        output.append("─" * 70)
+        output.append("")
+
+        # Show summary statistics
+        total_categorized = categories_data.get("total_categorized_fields", 0)
+        total_schema = categories_data.get("total_schema_fields", 0)
+        output.append(f"{BOLD}Summary:{RESET}")
+        output.append(f"  Total fields in schema: {total_schema}")
+        output.append(f"  Fields categorized: {total_categorized}")
+        output.append("")
+
+        # Category display name mapping for better readability
+        CATEGORY_DISPLAY_NAMES = {
+            "audit_fields": "Audit Fields",
+            "temporal_fields": "Temporal Fields",
+            "tracking_identifiers": "Tracking Identifiers",
+            "system_references": "System References",
+            "scd_fields": "SCD Fields",
+            "boolean_fields": "Boolean Fields",
+            "classification_fields": "Classification Fields",
+            "metric_fields": "Metric Fields",
+            "identifier_fields": "Identifier Fields",
+        }
+
+        # Show counts by category
+        sorted_categories = categories_data.get("sorted_by_count", [])
+        if sorted_categories:
+            output.append(f"{BOLD}Field Counts by Category:{RESET}")
+            output.append("")
+
+            for category_name, count in sorted_categories:
+                percentage = categories_data.get("percentages", {}).get(
+                    category_name, 0
+                )
+                # Use custom display name or fall back to formatted name
+                display_name = CATEGORY_DISPLAY_NAMES.get(
+                    category_name, category_name.replace("_", " ").title()
+                )
+                output.append(
+                    f"  {BOLD}{CYAN}{display_name}:{RESET} {count} ({percentage}%)"
+                )
+            output.append("")
+
+        # If --category flag is used, show specific category fields
+        import sys
+
+        args = sys.argv
+        category_filter = None
+        if "--category" in args:
+            idx = args.index("--category")
+            if idx + 1 < len(args):
+                category_filter = args[idx + 1]
+
+        if category_filter:
+            categories = categories_data.get("categories", {})
+            if category_filter in categories:
+                fields = categories[category_filter]
+                display_name = CATEGORY_DISPLAY_NAMES.get(
+                    category_filter, category_filter.replace("_", " ").title()
+                )
+                output.append(f"{BOLD}Fields in '{display_name}' category:{RESET}")
+                output.append("")
+                for field in sorted(fields):
+                    output.append(f"  • {field}")
+                output.append("")
+            else:
+                available = ", ".join(sorted(categories.keys()))
+                output.append(
+                    f"{YELLOW}⚠️  Category '{category_filter}' not found.{RESET}"
+                )
+                output.append(f"Available categories: {available}")
+                output.append("")
+        else:
+            # Show all categories with fields
+            categories = categories_data.get("categories", {})
+            if categories:
+                output.append(f"{BOLD}All Categorized Fields:{RESET}")
+                output.append("")
+
+                for category_name in sorted(categories.keys()):
+                    fields = categories[category_name]
+                    if fields:
+                        display_name = CATEGORY_DISPLAY_NAMES.get(
+                            category_name, category_name.replace("_", " ").title()
+                        )
+                        output.append(f"{BOLD}{CYAN}{display_name}:{RESET}")
+                        # Show first 10 fields, then count if more
+                        for field in sorted(fields)[:10]:
+                            output.append(f"  • {field}")
+                        if len(fields) > 10:
+                            output.append(f"  ... and {len(fields) - 10} more")
+                        output.append("")
 
     return "\n".join(output)
 

@@ -27,6 +27,9 @@ validation = [
   "sqlparse",   # for SQL DDL validation
   "jsonschema", # for JSON Schema validation
 ]
+sqlglot = [
+  "sqlglot[rs]>=25.0.0", # for enhanced SQL parsing & cross-dialect translation (with Rust tokenizer)
+]
 modern-cli = ["typer>=0.9.0", "rich>=13.0.0"]
 models = ["pydantic>=2.0.0"]
 

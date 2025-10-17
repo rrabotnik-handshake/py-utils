@@ -167,6 +167,9 @@ def download_gcs_file(
         file_size = os.path.getsize(local_path)
         print(f"✅ Downloaded {file_size:,} bytes")
 
+        # Mark as notified to avoid "Using cached file" message on next access
+        _notified_cached_files.add(local_path)
+
         return local_path
 
     except Exception as e:

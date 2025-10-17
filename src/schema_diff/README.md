@@ -19,8 +19,11 @@
 ## 🚀 Quick Start
 
 ```bash
-# Install
+# Basic install
 pip install -e .
+
+# Install with enhanced SQL parsing (recommended)
+pip install -e '.[sqlglot]'
 
 # Basic comparison (most common use case)
 schema-diff compare file1.json file2.json
@@ -32,6 +35,26 @@ schema-diff compare data.json my-project:dataset.table --right bigquery
 # Generate schema from data
 schema-diff generate data.json --format json_schema
 ```
+
+### 🎯 Enhanced SQL Support with SQLGlot
+
+`schema-diff` supports **20+ SQL dialects** via optional [SQLGlot](https://github.com/tobymao/sqlglot) integration:
+
+```bash
+# Install with SQLGlot support
+pip install -e '.[sqlglot]'
+```
+
+**Benefits**:
+
+- ✅ Better type detection (`SERIAL` → `int`, `DECIMAL` → `float`)
+- ✅ Cross-dialect comparisons (Postgres ↔ BigQuery ↔ MySQL ↔ Snowflake)
+- ✅ Robust parsing of complex nested types (`STRUCT`, `ARRAY`)
+- ✅ Better error messages
+
+**Supported dialects**: `bigquery`, `postgres`, `mysql`, `snowflake`, `redshift`, `spark`, `hive`, `presto`, `trino`, `clickhouse`, `databricks`, `duckdb`, `oracle`, `tsql`, `athena`, `sqlite`
+
+See [SQLGlot Integration Guide](../../docs/sqlglot_integration.md) for details.
 
 ## 📋 Common Use Cases
 
@@ -168,6 +191,44 @@ schema-diff ddl table my-project:dataset.table --output
 schema-diff ddl dataset my-project:dataset --output
 ```
 
+### Field Categorization
+
+Automatically categorize and inventory fields by their semantic purpose:
+
+```bash
+# Show all field categories with counts
+schema-diff analyze project:dataset.table --type bigquery --field-categories
+
+# List all audit fields
+schema-diff analyze data.json --field-categories --category audit_fields
+
+# List all tracking identifiers
+schema-diff analyze schema.json --field-categories --category tracking_identifiers
+
+# Export categorization to JSON for programmatic use
+schema-diff analyze data.json --field-categories --format json --output
+```
+
+**Available Categories:**
+
+- **audit_fields** - Lifecycle tracking (created_at, updated_by, version, is_deleted)
+- **temporal_fields** - Business event dates (event_date, calendar_date)
+- **tracking_identifiers** - Session and correlation IDs (session_id, trace_id)
+- **system_references** - External system IDs (ats_id, sfdc_id, utm_source)
+- **scd_fields** - Slowly changing dimensions (\_valid_from, \_valid_to)
+- **boolean_fields** - Boolean indicators (is_active, has_email, can_edit)
+- **classification_fields** - Classification attributes (user_type, status, category)
+- **metric_fields** - Aggregation fields (view_count, total_amount, avg_score)
+- **identifier_fields** - Primary and foreign keys (user_id, \_key, \_surrogate_key)
+
+**Use Cases:**
+
+- **Data Governance:** Quickly identify all audit fields across tables
+- **Schema Documentation:** Auto-generate field inventories by type
+- **Migration Planning:** Count fields by category to assess complexity
+- **Data Quality:** Find tables missing required audit fields
+- **BI Reporting:** List all metrics for dashboard creation
+
 ---
 
 ## 📦 Supported Formats
@@ -261,6 +322,9 @@ schema-diff analyze [OPTIONS] schema_file
 - `--complexity` - Show complexity analysis
 - `--patterns` - Show pattern analysis
 - `--suggestions` - Show improvement suggestions
+- `--dimensional` - Show dimensional modeling analysis
+- `--field-categories` - Show field categorization by type
+- `--category CATEGORY` - Filter to specific category (use with --field-categories)
 - `--all` - Show all analysis types
 - `--format {text,json,markdown}` - Output format
 - `--output` - Save analysis to file
@@ -599,7 +663,7 @@ schema-diff config --gcs-info https://storage.cloud.google.com/bucket/file.json
 
 ### Subcommand: `analyze`
 
-Perform advanced schema analysis including complexity metrics, pattern detection, and improvement suggestions.
+Perform advanced schema analysis including complexity metrics, pattern detection, dimensional modeling, field categorization, and improvement suggestions.
 
 ```bash
 schema-diff analyze [OPTIONS] schema_file
@@ -614,8 +678,26 @@ schema-diff analyze [OPTIONS] schema_file
 - `--complexity` - Show complexity analysis (nesting depth, type distribution, field counts)
 - `--patterns` - Show pattern analysis (repeated structures, semantic patterns, naming conventions)
 - `--suggestions` - Show improvement suggestions (optimization recommendations, best practices)
+- `--dimensional` - Show dimensional modeling analysis (fact/dimension patterns, star schema, SCD detection)
+- `--field-categories` - Show field categorization by type (audit, metrics, identifiers, etc.)
 - `--report` - Generate comprehensive analysis report
-- `--all` - Show all analysis types (equivalent to --complexity --patterns --suggestions --report)
+- `--all` - Show all analysis types (complexity + patterns + suggestions + dimensional + report)
+
+#### Field Categorization
+
+The `--field-categories` flag categorizes fields into 9 semantic groups:
+
+1. **audit_fields** - Lifecycle timestamps, actors, versions, soft delete (created_at, updated_by, version, is_deleted)
+2. **temporal_fields** - Business event dates (calendar_date, event_date, graduation_date)
+3. **tracking_identifiers** - Session/trace/correlation IDs (session_id, trace_id, correlation_id)
+4. **system_references** - External system IDs (external_id, ats_id, sfdc_id, utm_source)
+5. **scd_fields** - Slowly changing dimension fields (\_valid_from, \_valid_to, is_current)
+6. **boolean_fields** - Fields with is*/has*/can\_ prefixes
+7. **classification_fields** - Fields with \_type/\_category/\_status suffixes
+8. **metric_fields** - Aggregation fields (\_count/\_sum/\_avg/\_score)
+9. **identifier_fields** - Primary/foreign keys (\_id/\_key/\_sk)
+
+Use `--category <name>` to filter results to a specific category.
 
 #### Schema Type Options
 
@@ -633,6 +715,7 @@ schema-diff analyze [OPTIONS] schema_file
 
 - `--format {text,json,markdown}` - Output format (default: text)
 - `--output` - Save analysis to output directory
+- `--category CATEGORY` - Show only fields from a specific category (use with --field-categories)
 
 #### Examples
 
@@ -651,6 +734,18 @@ schema-diff analyze schema.json --report --format markdown --output
 
 # Analyze BigQuery table schema
 schema-diff analyze my_table.sql --type sql --table users --suggestions
+
+# Show field categorization
+schema-diff analyze project:dataset.table --type bigquery --field-categories
+
+# Show specific category (audit fields)
+schema-diff analyze data.json --field-categories --category audit_fields
+
+# Dimensional modeling analysis
+schema-diff analyze project:dataset.fact_sales --type bigquery --dimensional
+
+# Export categorization to JSON
+schema-diff analyze schema.json --field-categories --format json --output
 ```
 
 ---
