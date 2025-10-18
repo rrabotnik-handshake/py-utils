@@ -146,7 +146,11 @@ def _sqlglot_type_to_internal(sql_type: exp.DataType) -> Any:
         for field_def in sql_type.expressions:
             if isinstance(field_def, exp.ColumnDef):
                 field_name = field_def.name
-                field_type = _sqlglot_type_to_internal(field_def.kind)
+                field_type = (
+                    _sqlglot_type_to_internal(field_def.kind)
+                    if field_def.kind
+                    else "any"
+                )
                 struct_dict[field_name] = field_type
         return struct_dict if struct_dict else "object"
 
@@ -187,7 +191,9 @@ def _extract_schema_from_create_table(
         for col_def in schema_node.expressions:
             if isinstance(col_def, exp.ColumnDef):
                 col_name = col_def.name
-                col_type = _sqlglot_type_to_internal(col_def.kind)
+                col_type = (
+                    _sqlglot_type_to_internal(col_def.kind) if col_def.kind else "any"
+                )
 
                 schema_dict[col_name] = col_type
 
