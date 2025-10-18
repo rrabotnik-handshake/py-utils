@@ -383,6 +383,8 @@ def print_report_text(
     left_source_type: str = "data",
     right_source_type: str = "data",
     only_common: bool = False,
+    left_samples: dict | None = None,
+    right_samples: dict | None = None,
 ) -> None:
     """Pretty-print a report structure returned by `build_report_struct`.
 
@@ -488,10 +490,21 @@ def print_report_text(
         mism = report["schema_mismatches"]
         print(f"\n{YEL}-- Type mismatches -- ({len(mism)}){RST}")
         for e in mism:
+            field_path = e["path"]
             print(
-                f"  {CYN}{fmt_dot_path(e['path'])}{RST}: "
+                f"  {CYN}{fmt_dot_path(field_path)}{RST}: "
                 f"{RED}{e['file1']}{RST} → {GRN}{e['file2']}{RST}"
             )
+
+            # Show sample values if available
+            if left_samples or right_samples:
+                from .sample_collector import format_samples_table
+
+                samples_output = format_samples_table(
+                    field_path, left_samples, right_samples, f1, f2
+                )
+                if samples_output:
+                    print(samples_output)
 
 
 def print_common_fields(

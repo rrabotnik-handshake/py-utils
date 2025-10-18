@@ -279,6 +279,7 @@ class ParserFactory:
 
     # Registry of available parsers
     _parsers: Dict[str, Type[Parser]] = {
+        # Legacy format names (for backward compatibility)
         "data": DataParser,
         "jsonschema": JsonSchemaParser,
         "spark": SparkSchemaParser,
@@ -287,6 +288,16 @@ class ParserFactory:
         "dbt-yml": DbtYmlParser,
         "dbt-model": DbtModelParser,
         "protobuf": ProtobufParser,
+        # New family:representation format
+        "data:json": DataParser,
+        "jsonschema:json": JsonSchemaParser,
+        "spark:json": SparkSchemaParser,
+        "spark:tree": SparkSchemaParser,  # Same parser handles both formats
+        "sql:ddl": SqlSchemaParser,
+        "dbt:manifest": DbtManifestParser,
+        "dbt:yml": DbtYmlParser,
+        "dbt:model": DbtModelParser,
+        "proto:sdl": ProtobufParser,
     }
 
     # Auto-detection order (most specific first)

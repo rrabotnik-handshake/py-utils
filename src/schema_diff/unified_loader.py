@@ -56,42 +56,42 @@ def _load_unified_schema(
     message: str | None = None,
 ) -> Schema:
     """Load schema in unified format."""
-    if schema_type == "json_schema":
+    if schema_type == "jsonschema:json":
         from .json_schema_parser import schema_from_json_schema_file_unified
 
         return schema_from_json_schema_file_unified(file_path)  # type: ignore[no-any-return]
 
-    elif schema_type == "spark":
+    elif schema_type in ("spark:json", "spark:tree"):
         from .spark_schema_parser import schema_from_spark_schema_file_unified
 
         return schema_from_spark_schema_file_unified(file_path)  # type: ignore[no-any-return]
 
-    elif schema_type == "sql":
+    elif schema_type == "sql:ddl":
         from .sql_schema_parser import schema_from_sql_schema_file_unified
 
         return schema_from_sql_schema_file_unified(file_path, table=table)  # type: ignore[no-any-return]
 
-    elif schema_type == "protobuf":
+    elif schema_type == "proto:sdl":
         from .protobuf_schema_parser import schema_from_protobuf_file_unified
 
         return schema_from_protobuf_file_unified(file_path, message=message)  # type: ignore[no-any-return]
 
-    elif schema_type == "dbt-manifest":
+    elif schema_type == "dbt:manifest":
         from .dbt_schema_parser import schema_from_dbt_manifest_unified
 
         return schema_from_dbt_manifest_unified(file_path, model=model)  # type: ignore[no-any-return]
 
-    elif schema_type == "dbt-yml":
+    elif schema_type == "dbt:yml":
         from .dbt_schema_parser import schema_from_dbt_schema_yml_unified
 
         return schema_from_dbt_schema_yml_unified(file_path, model=model)  # type: ignore[no-any-return]
 
-    elif schema_type == "dbt-model":
+    elif schema_type == "dbt:model":
         from .dbt_schema_parser import schema_from_dbt_model_unified
 
         return schema_from_dbt_model_unified(file_path)  # type: ignore[no-any-return]
 
-    elif schema_type == "bigquery":
+    elif schema_type == "bq:table":
         from google.cloud import bigquery
 
         from .bigquery_ddl import bigquery_schema_to_internal

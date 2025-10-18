@@ -14,6 +14,9 @@ from schema_diff.loader import (
     KIND_DBT_MODEL,
     KIND_DBT_MANIFEST,
     KIND_SPARK,
+    KIND_SPARK_TREE,
+    KIND_DBT_YML,
+    KIND_PROTOBUF,
 )
 
 
@@ -168,13 +171,9 @@ def test_guess_kind_by_extension(tmp_path):
     p_spark = tmp_path / "schema.txt"
     p_spark.write_text(spark_schema, encoding="utf-8")
 
-    # Note: .txt files need content-based detection, not just extension
-    # This test verifies that we check content, not just rely on extension
+    # Note: .txt files are detected as spark:tree (printSchema output)
     detected = _guess_kind(str(p_spark))
-    assert detected in [
-        KIND_SPARK,
-        KIND_DATA,
-    ]  # Could be either based on content parsing
+    assert detected == KIND_SPARK_TREE
 
 
 def test_guess_kind_yaml_files(tmp_path):
@@ -196,10 +195,8 @@ def test_guess_kind_yaml_files(tmp_path):
     p.write_text(dbt_yml, encoding="utf-8")
 
     # Should detect dbt schema YAML
-    # Note: This requires the actual _guess_kind to have YAML detection
     detected = _guess_kind(str(p))
-    # May default to KIND_DATA if YAML detection not fully implemented
-    assert detected in [KIND_DATA, "dbt-yml"]
+    assert detected == KIND_DBT_YML
 
 
 def test_guess_kind_protobuf_files(tmp_path):
@@ -220,7 +217,7 @@ def test_guess_kind_protobuf_files(tmp_path):
     p.write_text(proto_content, encoding="utf-8")
 
     detected = _guess_kind(str(p))
-    assert detected == "protobuf"
+    assert detected == KIND_PROTOBUF
 
 
 def test_guess_kind_compressed_files(tmp_path):

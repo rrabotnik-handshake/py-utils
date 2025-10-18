@@ -290,7 +290,7 @@ class TestDDLCommandLineIntegration:
         result = run_cli(["ddl", "table", "--help"])
         assert result.returncode == 0
         assert "table_ref" in result.stdout
-        assert "Table reference (project:dataset.table)" in result.stdout
+        assert "Table reference in format: project:dataset.table" in result.stdout
 
     def test_ddl_batch_help(self, run_cli):
         """Test DDL batch help command."""
@@ -303,7 +303,7 @@ class TestDDLCommandLineIntegration:
         result = run_cli(["ddl", "dataset", "--help"])
         assert result.returncode == 0
         assert "dataset_ref" in result.stdout
-        assert "Dataset reference (project:dataset)" in result.stdout
+        assert "Dataset reference in format: project:dataset" in result.stdout
 
     def test_ddl_table_command_integration(self, run_cli):
         """Test DDL table command end-to-end integration."""

@@ -67,37 +67,21 @@ Compare schemas from different sources and identify differences in:
     # Schema type arguments
     compare_parser.add_argument(
         "--left",
-        metavar="TYPE",
-        choices=[
-            "data",
-            "json_schema",
-            "jsonschema",
-            "spark",
-            "sql",
-            "protobuf",
-            "dbt-manifest",
-            "dbt-yml",
-            "dbt-model",
-            "bigquery",
-        ],
-        help="Override left type (auto-detected): data, sql, bigquery, json_schema, etc.",
+        metavar="FORMAT",
+        help=(
+            "Override left format (auto-detected). "
+            "Examples: spark:tree, bq:table, sql:ddl, data:parquet. "
+            "Legacy aliases supported: spark, bigquery, sql, etc."
+        ),
     )
     compare_parser.add_argument(
         "--right",
-        metavar="TYPE",
-        choices=[
-            "data",
-            "json_schema",
-            "jsonschema",
-            "spark",
-            "sql",
-            "protobuf",
-            "dbt-manifest",
-            "dbt-yml",
-            "dbt-model",
-            "bigquery",
-        ],
-        help="Override right type (auto-detected): data, sql, bigquery, json_schema, etc.",
+        metavar="FORMAT",
+        help=(
+            "Override right format (auto-detected). "
+            "Examples: spark:tree, bq:table, sql:ddl, data:parquet. "
+            "Legacy aliases supported: spark, bigquery, sql, etc."
+        ),
     )
 
     # Sampling arguments
@@ -198,10 +182,24 @@ Compare schemas from different sources and identify differences in:
 def cmd_compare(args) -> None:
     """Execute the compare command."""
     # Auto-detect file types if not specified
+    from ..format_resolver import get_family, resolve_format
     from ..loader import _guess_kind
 
     left_kind = args.left
     right_kind = args.right
+
+    # Resolve format if specified (handles new format and legacy aliases)
+    if left_kind is not None:
+        try:
+            left_kind = resolve_format(left_kind)
+        except ValueError as e:
+            raise ArgumentError(f"Invalid --left format: {e}") from e
+
+    if right_kind is not None:
+        try:
+            right_kind = resolve_format(right_kind)
+        except ValueError as e:
+            raise ArgumentError(f"Invalid --right format: {e}") from e
 
     # Auto-detect if not specified
     if left_kind is None:
@@ -209,9 +207,9 @@ def cmd_compare(args) -> None:
     if right_kind is None:
         right_kind = _guess_kind(args.file2)
 
-    # Normalize schema type aliases for internal use
-    left_kind = "jsonschema" if left_kind == "json_schema" else left_kind
-    right_kind = "jsonschema" if right_kind == "json_schema" else right_kind
+    # Extract family for comparison logic (e.g., "data:json" → "data")
+    left_family = get_family(left_kind) if left_kind else None
+    right_family = get_family(right_kind) if right_kind else None
 
     # Handle argument aliases
     if hasattr(args, "right_table") and args.right_table:
@@ -260,47 +258,40 @@ def cmd_compare(args) -> None:
         from ..compare import compare_schemas_unified
         from ..unified_loader import load_schema_unified
 
-        # Check if this is a data-to-schema comparison (left=data, right=schema)
-        schema_kinds = {
-            "jsonschema",
-            "json_schema",
-            "spark",
-            "sql",
-            "protobuf",
-            "dbt-manifest",
-            "dbt-yml",
-            "dbt-model",
-            "bigquery",
-        }
-
         # Show source information and format display
-        # Types that should NOT have "schema" suffix:
+        # Families that should NOT have "schema" suffix:
         # - data: raw data files
-        # - bigquery: live tables (shown as "live table")
-        # - dbt-manifest, dbt-yml, dbt-model: dbt metadata/model files
-        no_schema_suffix = {"data", "dbt-manifest", "dbt-yml", "dbt-model"}
+        # - bq: live tables (shown as "live table")
+        # - dbt: dbt metadata/model files
+        no_schema_suffix = {"data", "dbt"}
 
-        if left_kind == "bigquery":
-            left_display = "bigquery (live table)"
+        if left_family == "bq":
+            left_display = f"{left_kind} (live table)"
         else:
             left_source = "GCS" if is_gcs_path(args.file1) else "local"
             left_type = (
-                left_kind if left_kind in no_schema_suffix else f"{left_kind} schema"
+                left_kind if left_family in no_schema_suffix else f"{left_kind} schema"
             )
             left_display = f"{left_type} ({left_source})"
 
-        if right_kind == "bigquery":
-            right_display = "bigquery (live table)"
+        if right_family == "bq":
+            right_display = f"{right_kind} (live table)"
         else:
             right_source = "GCS" if is_gcs_path(args.file2) else "local"
             right_type = (
-                right_kind if right_kind in no_schema_suffix else f"{right_kind} schema"
+                right_kind
+                if right_family in no_schema_suffix
+                else f"{right_kind} schema"
             )
             right_display = f"{right_type} ({right_source})"
 
-        if left_kind == "data" and right_kind == "data":
+        if left_family == "data" and right_family == "data":
             # Data-to-data comparison - use legacy comparison logic
-            print(f"📊 Comparison: {left_display} → {right_display}")
+            from .colors import BLUE, BOLD, CYAN, RESET
+
+            print(
+                f"{BOLD}{CYAN}📊 Comparison:{RESET} {BLUE}{left_display}{RESET} → {BLUE}{right_display}{RESET}"
+            )
             from ..io_utils import all_records, nth_record, sample_records
             from ..json_data_file_parser import merged_schema_from_samples
 
@@ -319,6 +310,15 @@ def cmd_compare(args) -> None:
                 s2_records = all_records(args.file2)
             else:
                 s2_records = sample_records(args.file2, record_n or 1000)
+
+            # Collect sample values if --show-samples is enabled
+            left_samples = None
+            right_samples = None
+            if args.show_samples:
+                from ..sample_collector import collect_field_samples
+
+                left_samples = collect_field_samples(s1_records, max_samples=5)
+                right_samples = collect_field_samples(s2_records, max_samples=5)
 
             # Create schemas from both sides
             left_tree = merged_schema_from_samples(s1_records, cfg)
@@ -357,11 +357,24 @@ def cmd_compare(args) -> None:
                 right_source_type="data",
                 json_out=args.json_out,
                 title_suffix=sampling_info,
+                left_samples=left_samples,
+                right_samples=right_samples,
             )
 
-        elif left_kind == "data" and right_kind in schema_kinds:
+        elif left_family == "data" and right_family in {
+            "spark",
+            "bq",
+            "sql",
+            "jsonschema",
+            "proto",
+            "dbt",
+        }:
             # Data-to-schema comparison
-            print(f"📊 Comparison: {left_display} → {right_display}")
+            from .colors import BLUE, BOLD, CYAN, RESET
+
+            print(
+                f"{BOLD}{CYAN}📊 Comparison:{RESET} {BLUE}{left_display}{RESET} → {BLUE}{right_display}{RESET}"
+            )
             from ..io_utils import all_records, nth_record, sample_records
 
             if args.first_record:
@@ -370,6 +383,13 @@ def cmd_compare(args) -> None:
                 s1_records = all_records(args.file1)
             else:
                 s1_records = sample_records(args.file1, record_n or 1000)
+
+            # Collect sample values if --show-samples is enabled
+            left_samples = None
+            if args.show_samples:
+                from ..sample_collector import collect_field_samples
+
+                left_samples = collect_field_samples(s1_records, max_samples=5)
 
             # Convert data to unified schema
             from ..json_data_file_parser import merged_schema_from_samples
@@ -414,10 +434,16 @@ def cmd_compare(args) -> None:
                 left_label=args.file1,
                 right_label=args.file2,
                 title_suffix=sampling_info,
+                left_samples=left_samples,
+                right_samples=None,  # Schema side doesn't have samples
             )
         else:
             # Schema-to-schema comparison using unified format
-            print(f"📊 Comparison: {left_display} → {right_display}")
+            from .colors import BLUE, BOLD, CYAN, RESET
+
+            print(
+                f"{BOLD}{CYAN}📊 Comparison:{RESET} {BLUE}{left_display}{RESET} → {BLUE}{right_display}{RESET}"
+            )
             left_schema = load_schema_unified(
                 args.file1,
                 left_kind,
@@ -449,7 +475,7 @@ def cmd_compare(args) -> None:
             if "common_fields" not in report_struct:
                 # We need to calculate common fields for migration analysis
                 # This is a simplified approach - we'll extract from the trees used in comparison
-                if left_kind == "data" and right_kind == "data":
+                if left_family == "data" and right_family == "data":
                     # For data-to-data, calculate from the trees we created
                     from ..utils import flatten_paths
 

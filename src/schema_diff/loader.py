@@ -31,6 +31,7 @@ __all__ = [
     "KIND_DATA",
     "KIND_JSONSCHEMA",
     "KIND_SPARK",
+    "KIND_SPARK_TREE",
     "KIND_SQL",
     "KIND_DBT_MANIFEST",
     "KIND_DBT_YML",
@@ -40,15 +41,16 @@ __all__ = [
 
 # ---- Kind constants -------------------------------------------------------
 
-KIND_DATA = "data"
-KIND_JSONSCHEMA = "jsonschema"
-KIND_SPARK = "spark"
-KIND_SQL = "sql"
-KIND_DBT_MANIFEST = "dbt-manifest"
-KIND_DBT_YML = "dbt-yml"
-KIND_DBT_MODEL = "dbt-model"
-KIND_PROTOBUF = "protobuf"
-KIND_BIGQUERY = "bigquery"
+KIND_DATA = "data:json"
+KIND_JSONSCHEMA = "jsonschema:json"
+KIND_SPARK = "spark:json"  # Spark StructType JSON
+KIND_SPARK_TREE = "spark:tree"  # Spark printSchema() text output
+KIND_SQL = "sql:ddl"
+KIND_DBT_MANIFEST = "dbt:manifest"
+KIND_DBT_YML = "dbt:yml"
+KIND_DBT_MODEL = "dbt:model"
+KIND_PROTOBUF = "proto:sdl"
+KIND_BIGQUERY = "bq:table"
 KIND_AUTO = "auto"
 
 
@@ -210,7 +212,7 @@ def _guess_kind(path: str) -> str:
     if p.endswith(".yml") or p.endswith(".yaml"):
         return KIND_DBT_YML
     if p.endswith(".txt"):
-        return KIND_SPARK
+        return KIND_SPARK_TREE  # .txt files contain printSchema() tree output
     if p.endswith(".proto"):
         return KIND_PROTOBUF
 

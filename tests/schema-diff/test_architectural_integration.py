@@ -564,8 +564,9 @@ class TestErrorHandling:
                 "--left", "invalid_type", "--right", "data"
             ])
 
-        # Should contain argument validation error
-        assert "invalid choice" in str(exc_info.value)
+        # Should contain format validation error (from format_resolver)
+        error_msg = str(exc_info.value).lower()
+        assert "invalid" in error_msg or "unknown" in error_msg or "failed" in error_msg
 
 
 class TestRegressionPrevention:

@@ -140,7 +140,9 @@ def download_gcs_file(
     if os.path.exists(local_path) and not force:
         # Only print the message once per file per session
         if local_path not in _notified_cached_files:
-            print(f"📁 Using cached file: {local_path}")
+            from .cli.colors import DIM, RESET
+
+            print(f"{DIM}📁 Using cached file: {local_path}{RESET}")
             _notified_cached_files.add(local_path)
         return local_path
 
@@ -157,7 +159,9 @@ def download_gcs_file(
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
         # Download the file
-        print(f"☁️  Downloading {gcs_path} → {local_path}")
+        from .cli.colors import CYAN, GREEN, RESET
+
+        print(f"{CYAN}☁️  Downloading {gcs_path} → {local_path}{RESET}")
         blob.download_to_filename(local_path)
 
         # Verify download
@@ -165,7 +169,7 @@ def download_gcs_file(
             raise Exception(f"Download failed: {local_path} was not created")
 
         file_size = os.path.getsize(local_path)
-        print(f"✅ Downloaded {file_size:,} bytes")
+        print(f"{GREEN}✅ Downloaded {file_size:,} bytes{RESET}")
 
         # Mark as notified to avoid "Using cached file" message on next access
         _notified_cached_files.add(local_path)

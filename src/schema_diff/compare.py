@@ -62,6 +62,8 @@ def compare_trees(
     only_common: bool = False,
     left_source_type: str | None = None,
     right_source_type: str | None = None,
+    left_samples: dict | None = None,
+    right_samples: dict | None = None,
 ) -> dict | None:
     """Compare two *type trees* (schemas) and print a human-friendly diff with. enhanced
     presence injection.
@@ -180,6 +182,8 @@ def compare_trees(
         left_source_type=left_source_type or "data",
         right_source_type=right_source_type or "data",
         only_common=only_common,
+        left_samples=left_samples,
+        right_samples=right_samples,
     )
 
     # Show common fields when only_common or show_common is True
@@ -219,6 +223,8 @@ def compare_schemas_unified(
     only_common: bool = False,
     left_label: str | None = None,
     right_label: str | None = None,
+    left_samples: dict | None = None,
+    right_samples: dict | None = None,
 ) -> dict | None:
     """Compare two Schema objects (unified format) and return comparison. results.
 
@@ -283,6 +289,8 @@ def compare_schemas_unified(
         only_common=only_common,
         left_source_type=left_source_type,
         right_source_type=right_source_type,
+        left_samples=left_samples,
+        right_samples=right_samples,
     )
 
 
