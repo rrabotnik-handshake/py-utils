@@ -17,6 +17,7 @@ Usage:
     python validate.py --fail-on error    # Exit non-zero on any failed check
     python validate.py --timeout 600      # Set check timeout (seconds)
     python validate.py --verbose          # Show detailed command outputs
+    python validate.py --no-config        # Ignore .refactor-toolkit.yaml (show all issues)
 """
 
 import argparse
@@ -241,16 +242,22 @@ def _shell_cmd(cmd: str) -> str:
 class RefactorValidator:
     """Simple, focused refactor validation tool."""
 
-    def __init__(self, project_dir: str = ".", verbose: bool = False):
+    def __init__(
+        self, project_dir: str = ".", verbose: bool = False, no_config: bool = False
+    ):
         self.project_dir = Path(project_dir).resolve()
         self.start_time = time.time()
         self.verbose = verbose
         self.python_cmd = self._detect_python_command()
         self.pip_cmd = self._detect_pip_command()
 
-        # Load optional project-specific configuration
-        self.config = load_project_config(str(self.project_dir))
-        self.whitelists = self.config.get("whitelists", {})
+        # Load optional project-specific configuration (unless --no-config)
+        if no_config:
+            self.config = {}
+            self.whitelists = {}
+        else:
+            self.config = load_project_config(str(self.project_dir))
+            self.whitelists = self.config.get("whitelists", {})
 
     def _detect_python_command(self) -> str:
         """Detect the correct Python command to use."""
@@ -2071,6 +2078,10 @@ for m in ['pytest','mypy','ruff']:
             print(f"{Colors.BOLD_CYAN}PROJECT:{Colors.RESET} {self.project_dir.name}")
             print(f"{Colors.BOLD_CYAN}TECH STACK:{Colors.RESET} {tech_stack.value}")
             print(f"{Colors.BOLD_CYAN}DIRECTORY:{Colors.RESET} {self.project_dir}")
+            if not self.whitelists:
+                print(
+                    f"{Colors.BOLD_CYAN}CONFIG:{Colors.RESET} {Colors.RED}⚠️  Ignoring whitelist filters in .refactor-toolkit.yaml{Colors.RESET}"
+                )
             print(f"{Colors.GRAY}{'═' * 60}{Colors.RESET}")
             print(f"{Colors.BOLD_CYAN}RUNNING:{Colors.RESET}")
         elif self.verbose and category_filter != "all":
@@ -2082,6 +2093,10 @@ for m in ['pytest','mypy','ruff']:
             print(f"{Colors.BOLD_YELLOW}{'═' * 50}{Colors.RESET}")
             print(f"{Colors.BOLD_CYAN}CATEGORY:{Colors.RESET} {category_filter}")
             print(f"{Colors.BOLD_CYAN}DIRECTORY:{Colors.RESET} {self.project_dir.name}")
+            if not self.whitelists:
+                print(
+                    f"{Colors.BOLD_CYAN}CONFIG:{Colors.RESET} {Colors.RED}⚠️  Ignoring whitelist filters in .refactor-toolkit.yaml{Colors.RESET}"
+                )
             print(f"{Colors.GRAY}{'═' * 50}{Colors.RESET}")
             print(f"{Colors.BOLD_CYAN}RUNNING:{Colors.RESET}")
         elif not self.verbose:
@@ -2098,6 +2113,10 @@ for m in ['pytest','mypy','ruff']:
                 )
             print(f"{Colors.BOLD_YELLOW}{'═' * separator_width}{Colors.RESET}")
             print(f"{Colors.BOLD_CYAN}DIRECTORY:{Colors.RESET} {self.project_dir.name}")
+            if not self.whitelists:
+                print(
+                    f"{Colors.RED}⚠️  Ignoring whitelist filters in .refactor-toolkit.yaml{Colors.RESET}"
+                )
             print(f"{Colors.GRAY}{'═' * separator_width}{Colors.RESET}\n")
             print(f"{Colors.BOLD_CYAN}RUNNING:{Colors.RESET}")
 
@@ -2370,6 +2389,11 @@ def main():
         default=None,
         help="Timeout for individual checks in seconds (default: 300)",
     )
+    parser.add_argument(
+        "--no-config",
+        action="store_true",
+        help="Ignore .refactor-toolkit.yaml configuration (show all issues, even filtered ones)",
+    )
 
     args = parser.parse_args()
 
@@ -2411,7 +2435,7 @@ def main():
             "Tool Versions",
             "Design Patterns",
         ]
-        v = RefactorValidator(args.project_dir, verbose=True)
+        v = RefactorValidator(args.project_dir, verbose=True, no_config=args.no_config)
         for name in all_checks:
             if v.should_run_check(name, args.category):
                 why = v._will_skip(name)
@@ -2427,7 +2451,9 @@ def main():
     tech_stack = TechStack(args.tech)
 
     # Run validation (always uses standard/comprehensive mode)
-    validator = RefactorValidator(args.project_dir, verbose=args.verbose)
+    validator = RefactorValidator(
+        args.project_dir, verbose=args.verbose, no_config=args.no_config
+    )
     summary = validator.validate(
         tech_stack, since=args.since, category_filter=args.category
     )
