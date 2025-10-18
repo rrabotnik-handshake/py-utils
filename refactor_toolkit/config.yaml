@@ -1,30 +1,44 @@
-# Simple Refactor Validation Configuration
+# Refactor Toolkit Configuration (Optional)
+#
+# This file allows you to customize validation behavior for your project.
+# All settings are optional - the toolkit works fine without this file.
+#
+# To use: Copy this file to your project root as `.refactor-toolkit.yaml`
+# or place it in the directory you're validating.
 
-# Validation modes and time limits
-modes:
-  emergency:
-    description: Critical checks only (30 seconds)
-    time_limit: 30
+# Whitelist patterns to eliminate false positives
+whitelists:
+  # Dead code detection - files/patterns to ignore
+  # Use this for configuration files, constants, or public APIs
+  dead_code_ignore:
+    # Example: Ignore all config files
+    # - "**/*_config.py"
+    # - "**/constants.py"
+    # - "**/settings.py"
 
-  quick:
-    description: Essential validation (5-10 minutes)
-    time_limit: 600
+  # Security scan - error codes to ignore
+  # Use this for intentional patterns (e.g., try-except-pass)
+  security_ignore:
+    # Example: Ignore intentional try-except patterns
+    # - "B110"  # try-except-pass
+    # - "B112"  # try-except-continue
 
-  standard:
-    description: Comprehensive validation (15-30 minutes)
-    time_limit: 1800
+  # Import checks - files to skip
+  import_ignore:
+    # Example: Skip test files
+    # - "**/test_*.py"
+    # - "**/conftest.py"
 
-# Success criteria
-thresholds:
-  ready: 90 # ≥90% = Ready to proceed
-  attention: 70 # 70-89% = Needs attention
-  # <70% = Not ready
+# Path configurations (relative to target directory)
+paths:
+  # Where to look for tests
+  test_directories:
+    - tests
+    - ../tests # For when validating src/ directory
+    - test
 
-# Technology detection patterns (currently Python-focused)
-tech_detection:
-  python: [requirements.txt, pyproject.toml, setup.py, "*.py"]
-  # Future language support:
-  # javascript: [package.json, "*.js", "*.ts"]
-  # java: [pom.xml, build.gradle, "*.java"]
-  # go: [go.mod, "*.go"]
-  # rust: [Cargo.toml, "*.rs"]
+  # Where to look for documentation
+  doc_files:
+    - README.md
+    - ../README.md # For when validating src/ directory
+    - docs/README.md

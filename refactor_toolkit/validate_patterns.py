@@ -105,6 +105,11 @@ def _normalize_args(args: ast.arguments) -> ast.arguments:
             ast.arg(arg="ARG", annotation=None, type_comment=None) for _ in args_list
         ]
 
+    # Type checker requires expr nodes for defaults, not None
+    # We use Constant(None) as placeholder for normalization
+    def blank_defaults(count: int) -> list[ast.expr]:
+        return [ast.Constant(value=None) for _ in range(count)]
+
     return ast.arguments(
         posonlyargs=blank(getattr(args, "posonlyargs", [])),
         args=blank(args.args),
@@ -112,7 +117,7 @@ def _normalize_args(args: ast.arguments) -> ast.arguments:
         kwonlyargs=blank(args.kwonlyargs),
         kw_defaults=[None] * len(args.kwonlyargs),
         kwarg=ast.arg(arg="KWARG", annotation=None) if args.kwarg else None,
-        defaults=[None] * len(args.defaults),
+        defaults=blank_defaults(len(args.defaults)),
     )
 
 
@@ -159,9 +164,12 @@ class _Normalizer(ast.NodeTransformer):
             ast.arg(arg="ARG", annotation=None, type_comment=None), node
         )
 
-    def visit_Attribute(self, node: ast.Attribute):
-        node = self.generic_visit(node)
-        return ast.Attribute(value=node.value, attr="ATTR", ctx=node.ctx)
+    def visit_Attribute(self, node: ast.Attribute) -> ast.Attribute:
+        visited = self.generic_visit(node)
+        # generic_visit returns AST, need to cast back to Attribute
+        if isinstance(visited, ast.Attribute):
+            return ast.Attribute(value=visited.value, attr="ATTR", ctx=visited.ctx)
+        return visited  # type: ignore[return-value]
 
     def visit_Name(self, node: ast.Name):
         return ast.copy_location(ast.Name(id="NAME", ctx=node.ctx), node)
@@ -192,7 +200,7 @@ def function_fingerprint(fn: ast.AST) -> str:
     return h.hexdigest()
 
 
-def _param_count(fn: ast.FunctionDef) -> int:
+def _param_count(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
     """Count total parameters including kwonly, *args, **kwargs."""
     a = fn.args
     count = len(getattr(a, "posonlyargs", [])) + len(a.args) + len(a.kwonlyargs)
@@ -215,8 +223,11 @@ def _param_count(fn: ast.FunctionDef) -> int:
 
 def _loc(node: ast.AST, source: str = "") -> int:
     """Calculate lines of code for a node."""
-    if getattr(node, "end_lineno", None):
-        return node.end_lineno - node.lineno + 1
+    end_lineno: int | None = getattr(node, "end_lineno", None)
+    lineno: int | None = getattr(node, "lineno", None)
+
+    if end_lineno is not None and lineno is not None:
+        return int(end_lineno) - int(lineno) + 1
 
     # Fallback to source segment
     if source:
@@ -231,7 +242,7 @@ def _loc(node: ast.AST, source: str = "") -> int:
 
 def _children_body(n: ast.AST) -> List[ast.stmt]:
     """Extract all statement bodies from a node (including branches)"""
-    parts = []
+    parts: list[ast.stmt] = []
     for attr in ("body", "orelse", "finalbody", "handlers"):
         x = getattr(n, attr, [])
         if isinstance(x, list):
@@ -412,7 +423,9 @@ class PatternValidator:
         issues = []
 
         # Build fingerprint index: {fingerprint: [(file, func_node)]}
-        fingerprint_map: Dict[str, List[Tuple[Path, ast.FunctionDef]]] = {}
+        fingerprint_map: Dict[
+            str, List[Tuple[Path, ast.FunctionDef | ast.AsyncFunctionDef]]
+        ] = {}
         min_lines = int(self.config.get("min_function_lines_for_dry", 5))
 
         for file_path in python_files:
@@ -541,7 +554,10 @@ class PatternValidator:
         return issues
 
     def _check_long_method(
-        self, node: ast.FunctionDef, file_path: Path, content: str = ""
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        file_path: Path,
+        content: str = "",
     ) -> List[PatternIssue]:
         """Check for Long Method anti-pattern."""
         issues = []
@@ -564,7 +580,7 @@ class PatternValidator:
         return issues
 
     def _check_too_many_parameters(
-        self, node: ast.FunctionDef, file_path: Path
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef, file_path: Path
     ) -> List[PatternIssue]:
         """Check for too many function parameters."""
         issues = []
@@ -588,7 +604,7 @@ class PatternValidator:
         return issues
 
     def _check_deep_nesting_in_function(
-        self, node: ast.FunctionDef, file_path: Path
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef, file_path: Path
     ) -> List[PatternIssue]:
         """Check for deeply nested code in a function."""
         issues = []
@@ -670,10 +686,9 @@ class PatternValidator:
 
             # TODO/FIXME markers (only flag FIXME and XXX as issues, TODO is acceptable)
             if not is_test_or_example:
-                if re.search(r"#\s*(FIXME|XXX|HACK)\b", line, re.IGNORECASE):
-                    marker = re.search(
-                        r"#\s*(FIXME|XXX|HACK)\b", line, re.IGNORECASE
-                    ).group(1)
+                match = re.search(r"#\s*(FIXME|XXX|HACK)\b", line, re.IGNORECASE)
+                if match:
+                    marker = match.group(1)
                     issues.append(
                         PatternIssue(
                             category=Category.CODE_SMELL.value,
@@ -805,7 +820,11 @@ def load_config(config_path: Optional[Path]) -> Dict:
 
     try:
         with open(config_path, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            # Ensure we return a dict
+            if isinstance(data, dict):
+                return data
+            return {}
     except Exception as e:
         print(f"Warning: Could not load config file: {e}", file=sys.stderr)
         return {}

@@ -33,9 +33,52 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+try:
+    import yaml  # type: ignore[import]
+
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
 # Constants
 DEFAULT_TIMEOUT = 300  # seconds - timeout for individual checks
 MAX_OUTPUT_BYTES = 60_000  # Maximum bytes to capture from command output
+
+
+def load_project_config(target_dir: str) -> dict:
+    """Load optional project-specific configuration.
+
+    Looks for .refactor-toolkit.yaml in:
+    1. Target directory
+    2. Parent directory (for when validating src/)
+    3. Current working directory
+
+    Args:
+        target_dir: Directory being validated
+
+    Returns:
+        Configuration dict (empty if no config found or YAML not available)
+    """
+    if not HAS_YAML:
+        return {}
+
+    # Search locations in order of priority
+    search_paths = [
+        Path(target_dir) / ".refactor-toolkit.yaml",
+        Path(target_dir).parent / ".refactor-toolkit.yaml",
+        Path.cwd() / ".refactor-toolkit.yaml",
+    ]
+
+    for config_path in search_paths:
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    return yaml.safe_load(f) or {}
+            except Exception:
+                # Silently ignore malformed config files
+                pass
+
+    return {}
 
 
 def _quote(path: str) -> str:
@@ -205,6 +248,10 @@ class RefactorValidator:
         self.python_cmd = self._detect_python_command()
         self.pip_cmd = self._detect_pip_command()
 
+        # Load optional project-specific configuration
+        self.config = load_project_config(str(self.project_dir))
+        self.whitelists = self.config.get("whitelists", {})
+
     def _detect_python_command(self) -> str:
         """Detect the correct Python command to use."""
         import shutil
@@ -218,16 +265,6 @@ class RefactorValidator:
         """Detect the correct pip command to use."""
         # Always prefer python -m pip for consistency
         return f"{self.python_cmd} -m pip"
-
-    def _ensure_tool(self, tool: str, install_hint: str = "") -> Optional[str]:
-        """Return None if tool exists.
-
-        Otherwise return a human-readable message.
-        """
-        if shutil.which(tool):
-            return None
-        hint = install_hint or f"Install `{tool}` or add it to PATH."
-        return f"Missing tool: `{tool}`. {hint}"
 
     def _has_git(self) -> bool:
         """Check if project is in a git repository."""
@@ -257,6 +294,11 @@ class RefactorValidator:
         execution.
         """
         import re
+
+        # Skip substitution if command already contains the full python path
+        # (avoids double-substitution when commands are pre-built with self.python_cmd)
+        if self.python_cmd in command:
+            return command
 
         # Replace python module invocations
         for py_cmd in ("python -m", "python3 -m", "py -m"):
@@ -540,6 +582,11 @@ sys.exit(0 if ok else 1)
             remediation_tip="Fix type errors shown above; add type hints where missing",
         )
 
+        # Build security ignore list from config
+        security_ignore = self.whitelists.get("security_ignore", [])
+        skip_codes = ["B101", "B311"] + security_ignore
+        skip_flag = ",".join(skip_codes)
+
         run_and_add_if_match(
             "Security Scan",
             self._py_inline(
@@ -555,7 +602,7 @@ if not candidates:
     candidates = [d for d in os.listdir('.') if os.path.isdir(d) and os.path.isfile(os.path.join(d,'__init__.py'))]
 if not candidates:
     candidates = ['.']
-cmd = [{self.python_cmd!r}, '-m', 'bandit', '-r', *candidates, '-f', 'txt', '--skip', 'B101,B311']
+cmd = [{self.python_cmd!r}, '-m', 'bandit', '-r', *candidates, '-f', 'txt', '--skip', {skip_flag!r}]
 sys.exit(subprocess.run(cmd).returncode)
 """
             ),
@@ -592,9 +639,23 @@ sys.exit(subprocess.run(['pre-commit','run','--all-files','--show-diff-on-failur
             remediation_tip="Fix issues shown by pre-commit hooks; run `pre-commit run --all-files` locally",
         )
 
+        # Find test directory from config
+        test_directories = self.config.get("paths", {}).get(
+            "test_directories", ["tests", "../tests", "test"]
+        )
+        test_dir = None
+        for test_path in test_directories:
+            full_path = os.path.join(self.project_dir, test_path)
+            if os.path.exists(full_path):
+                test_dir = test_path
+                break
+
+        if not test_dir:
+            test_dir = "tests"  # fallback
+
         run_and_add_if_match(
             "Unit Tests",
-            f"{self.python_cmd} -m pytest tests/ --tb=short -v --durations=5 || (echo 'Installing pytest...' && {self.pip_cmd} install pytest && {self.python_cmd} -m pytest tests/ --tb=short -v --durations=5) || {self.python_cmd} -m unittest discover -s tests -p \\\"test_*\\.py\\\" -v",
+            f"{self.python_cmd} -m pytest {test_dir}/ --tb=short -v --durations=5 || (echo 'Installing pytest...' && {self.pip_cmd} install pytest && {self.python_cmd} -m pytest {test_dir}/ --tb=short -v --durations=5) || {self.python_cmd} -m unittest discover -s {test_dir} -p \\\"test_*\\.py\\\" -v",
             "All tests passed successfully",
             "Test failures or errors detected",
             required=True,
@@ -668,10 +729,23 @@ except Exception:
             remediation_tip="Improve code structure, reduce complexity, and enhance readability",
         )
 
-        # Dead code detection
+        # Dead code detection - build exclude list from config
+        dead_code_ignore = self.whitelists.get("dead_code_ignore", [])
+        base_excludes = [
+            "*/lib/python*",
+            "*venv*",
+            "__pycache__",
+            "node_modules",
+            "build",
+            "dist",
+            ".git",
+        ]
+        all_excludes = base_excludes + dead_code_ignore
+        exclude_str = ",".join(all_excludes)
+
         run_and_add_if_match(
             "Dead Code Analysis",
-            f'vulture . --min-confidence 60 --exclude="*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git" || (echo \'Installing vulture...\' && {self.pip_cmd} install vulture && vulture . --min-confidence 60 --exclude="*/lib/python*,*venv*,__pycache__,node_modules,build,dist,.git")',
+            f'vulture . --min-confidence 60 --exclude="{exclude_str}" || (echo \'Installing vulture...\' && {self.pip_cmd} install vulture && vulture . --min-confidence 60 --exclude="{exclude_str}")',
             "No obvious dead code detected",
             "Dead code candidates found",
             required=True,
@@ -755,9 +829,15 @@ sys.exit(0 if not r.stdout.strip() else 1)
             )
 
         # Repository metadata checks
+        # Find README from config
+        doc_files = self.config.get("paths", {}).get(
+            "doc_files", ["README.md", "../README.md", "docs/README.md"]
+        )
+        readme_check = " or ".join([f"os.path.isfile('{f}')" for f in doc_files])
+
         run_and_add_if_match(
             "Repository Metadata",
-            f"""{self.python_cmd} -c "import os,sys; sys.exit(0 if os.path.isfile('README.md') else 1)" """,
+            f"""{self.python_cmd} -c "import os,sys; sys.exit(0 if ({readme_check}) else 1)" """,
             "README file present",
             "Missing README.md (informational)",
             required=False,  # informational
@@ -1073,7 +1153,7 @@ for m in ['pytest','mypy','ruff']:
         self, results: List[ValidationResult]
     ) -> List[LayerSummary]:
         """Calculate per-layer validation summaries."""
-        layer_results = {}
+        layer_results: dict[ValidationLayer, list[ValidationResult]] = {}
 
         # Group results by layer
         for result in results:
@@ -1116,7 +1196,7 @@ for m in ['pytest','mypy','ruff']:
         readiness = ProductionReadiness()
 
         # Group results by layer
-        by_layer = {}
+        by_layer: dict[ValidationLayer, list[ValidationResult]] = {}
         for r in results:
             layer = r.layer or ValidationLayer.CODE_QUALITY
             by_layer.setdefault(layer, []).append(r)
@@ -1203,7 +1283,7 @@ for m in ['pytest','mypy','ruff']:
 
     def extract_categorized_errors(self, results: List[ValidationResult]) -> dict:
         """Extract errors grouped by category for better readability."""
-        categories = {
+        categories: dict[str, dict[str, Any]] = {
             "Code Quality": {"errors": [], "commands": set()},
             "Security": {"errors": [], "commands": set()},
             "Dependencies": {"errors": [], "commands": set()},
@@ -1350,7 +1430,7 @@ for m in ['pytest','mypy','ruff']:
 
         # Parse different types of errors based on the check name
         if "Code Quality" in result.name:
-            if "trunk check" in result.command:
+            if result.command and "trunk check" in result.command:
                 errors.extend(self._parse_trunk_errors(output))
             else:
                 errors.extend(self._parse_ruff_errors(output))
@@ -1367,7 +1447,7 @@ for m in ['pytest','mypy','ruff']:
         elif "Package Dependencies" in result.name:
             errors.extend(self._parse_pip_errors(output))
         elif "Vulnerability Scan" in result.name:
-            if "npm audit" in result.command:
+            if result.command and "npm audit" in result.command:
                 errors.extend(self._parse_npm_audit_errors(output))
             else:
                 errors.extend(self._parse_pip_audit_errors(output))
@@ -2402,7 +2482,8 @@ def main():
                         )
                         first_category = False
 
-                        max_display = 10
+                        # Never truncate when filtering by specific category
+                        max_display = len(errors) if args.category != "all" else 10
                         for error in errors[:max_display]:
                             # Remove markdown and technical formatting from error messages
                             cleaned_error = (
@@ -2485,27 +2566,29 @@ def main():
                             else:
                                 print(f"  {Colors.GRAY}•{Colors.RESET} {cleaned_error}")
 
-                        cli_category = category_filter_name.get(
-                            category, category.lower()
-                        )
-                        script_name = (
-                            "python refactor_toolkit/validate.py"
-                            if not hasattr(sys, "_MEIPASS")
-                            else "validate"
-                        )
-                        if count > max_display:
-                            remaining = count - max_display
-                            print(
-                                f"  {Colors.DIM}... and {remaining} more ({count} total){Colors.RESET}"
+                        # Only show truncation message and run command when not in category mode
+                        if args.category == "all":
+                            cli_category = category_filter_name.get(
+                                category, category.lower()
                             )
-                            print(
-                                f"\n  {Colors.BLUE}→ Run '{Colors.BOLD}{script_name} . --category {cli_category}{Colors.RESET}{Colors.BLUE}' for full list and details{Colors.RESET}"
+                            script_name = (
+                                "python refactor_toolkit/validate.py"
+                                if not hasattr(sys, "_MEIPASS")
+                                else "validate"
                             )
-                        else:
-                            # Always show run command for detailed category view
-                            print(
-                                f"\n  {Colors.BLUE}→ Run '{Colors.BOLD}{script_name} . --category {cli_category}{Colors.RESET}{Colors.BLUE}' for details{Colors.RESET}"
-                            )
+                            if count > max_display:
+                                remaining = count - max_display
+                                print(
+                                    f"  {Colors.DIM}... and {remaining} more ({count} total){Colors.RESET}"
+                                )
+                                print(
+                                    f"\n  {Colors.BLUE}→ Run '{Colors.BOLD}{script_name} . --category {cli_category}{Colors.RESET}{Colors.BLUE}' for full list and details{Colors.RESET}"
+                                )
+                            else:
+                                # Always show run command for detailed category view
+                                print(
+                                    f"\n  {Colors.BLUE}→ Run '{Colors.BOLD}{script_name} . --category {cli_category}{Colors.RESET}{Colors.BLUE}' for details{Colors.RESET}"
+                                )
                 else:
                     # Fallback to basic error list if no actionable errors parsed
                     for result in failed_results:
