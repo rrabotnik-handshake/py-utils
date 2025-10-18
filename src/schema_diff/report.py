@@ -417,9 +417,30 @@ def print_report_text(
         print(f"\n{YEL}-- Only in {f1} -- ({len(only1)}){RST}")
         for p in only1:
             print(f"  {RED}{fmt_dot_path(p)}{RST}")
+
+            # Show sample values if available (only for left side)
+            if left_samples and p in left_samples:
+                from .sample_collector import format_sample_value
+
+                samples = [
+                    format_sample_value(v, max_length=50) for v in left_samples[p][:5]
+                ]
+                samples_str = f"{CYN}{', '.join(samples)}{RST}"
+                print(f"    {CYN}→{RST} {samples_str}")
+
         print(f"\n{YEL}-- Only in {f2} -- ({len(only2)}){RST}")
         for p in only2:
             print(f"  {GRN}{fmt_dot_path(p)}{RST}")
+
+            # Show sample values if available (only for right side)
+            if right_samples and p in right_samples:
+                from .sample_collector import format_sample_value
+
+                samples = [
+                    format_sample_value(v, max_length=50) for v in right_samples[p][:5]
+                ]
+                samples_str = f"{CYN}{', '.join(samples)}{RST}"
+                print(f"    {CYN}→{RST} {samples_str}")
 
     # Always show presence section if enabled, even if empty (but skip if only_common)
     if show_presence and not only_common:
@@ -498,13 +519,31 @@ def print_report_text(
 
             # Show sample values if available
             if left_samples or right_samples:
-                from .sample_collector import format_samples_table
+                from .sample_collector import format_sample_value
 
-                samples_output = format_samples_table(
-                    field_path, left_samples, right_samples, f1, f2
-                )
-                if samples_output:
-                    print(samples_output)
+                # Get samples from both sides
+                left_vals = []
+                right_vals = []
+
+                if left_samples and field_path in left_samples:
+                    left_vals = [
+                        format_sample_value(v, max_length=50)
+                        for v in left_samples[field_path][:5]
+                    ]
+
+                if right_samples and field_path in right_samples:
+                    right_vals = [
+                        format_sample_value(v, max_length=50)
+                        for v in right_samples[field_path][:5]
+                    ]
+
+                # Display samples
+                if left_vals:
+                    samples_str = f"{CYN}{', '.join(left_vals)}{RST}"
+                    print(f"    {RED}{f1}:{RST} {samples_str}")
+                if right_vals:
+                    samples_str = f"{CYN}{', '.join(right_vals)}{RST}"
+                    print(f"    {GRN}{f2}:{RST} {samples_str}")
 
 
 def print_common_fields(

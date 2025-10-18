@@ -268,7 +268,7 @@ def cmd_compare(args) -> None:
         if left_family == "bq":
             left_display = f"{left_kind} (live table)"
         else:
-            left_source = "GCS" if is_gcs_path(args.file1) else "local"
+            left_source = "remote" if is_gcs_path(args.file1) else "local"
             left_type = (
                 left_kind if left_family in no_schema_suffix else f"{left_kind} schema"
             )
@@ -277,7 +277,7 @@ def cmd_compare(args) -> None:
         if right_family == "bq":
             right_display = f"{right_kind} (live table)"
         else:
-            right_source = "GCS" if is_gcs_path(args.file2) else "local"
+            right_source = "remote" if is_gcs_path(args.file2) else "local"
             right_type = (
                 right_kind
                 if right_family in no_schema_suffix
