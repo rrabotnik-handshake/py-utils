@@ -523,21 +523,33 @@ class RefactorValidator:
             remediation_tip=remediation,
         )
 
+        # Build import ignore list from config
+        import_ignore = self.whitelists.get("import_ignore", [])
+        import_ignore_patterns = repr(
+            import_ignore
+        )  # Convert to Python string representation
+
         run_and_add_if_match(
             "Import Dependencies",
             self._py_inline(
-                """
-import os, sys, hashlib
+                f"""
+import os, sys, hashlib, fnmatch
 from pathlib import Path
 import importlib.util
 
 root = Path('.').resolve()
-exclude_dirs = {'.git','__pycache__','venv','.venv','build','dist','site-packages','lib','node_modules','tests'}
+exclude_dirs = {{'git','__pycache__','venv','.venv','build','dist','site-packages','lib','node_modules','tests'}}
+ignore_patterns = {import_ignore_patterns}
+
 def in_excluded(p: Path) -> bool:
     return any(part in exclude_dirs for part in p.parts)
 
+def matches_ignore_pattern(p: Path) -> bool:
+    rel_path = p.relative_to(root)
+    return any(rel_path.match(pattern) for pattern in ignore_patterns)
+
 files = [p for p in root.rglob('*.py')
-         if not in_excluded(p) and p.name not in ('__init__.py','conftest.py')]
+         if not in_excluded(p) and not matches_ignore_pattern(p) and p.name not in ('__init__.py','conftest.py')]
 ok = True
 for f in files:
     try:
@@ -547,7 +559,7 @@ for f in files:
             m = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(m)
     except Exception as e:
-        print(f"Import error in {f}: {e}")
+        print(f"Import error in {{f}}: {{e}}")
         ok = False
 sys.exit(0 if ok else 1)
 """
@@ -1051,8 +1063,16 @@ for m in ['pytest','mypy','ruff']:
             if cfg and cfg.endswith(("mypy.ini", "setup.cfg"))
             else ""
         )
+
+        # Add exclude patterns from config
+        type_check_ignore = self.whitelists.get("type_check_ignore", [])
+        exclude_flags = " ".join(
+            f'--exclude "{pattern}"' for pattern in type_check_ignore
+        )
+        exclude_str = f" {exclude_flags}" if exclude_flags else ""
+
         target = self._mypy_target()
-        base = f"{self.python_cmd} -m mypy {target}{cfg_flag} --show-error-codes"
+        base = f"{self.python_cmd} -m mypy {target}{cfg_flag}{exclude_str} --show-error-codes"
         return f"{base} || (echo 'Installing mypy...' && {self.pip_cmd} install mypy && {base})"
 
     def _pip_audit_cmd(self) -> str:
@@ -1284,14 +1304,14 @@ for m in ['pytest','mypy','ruff']:
     def extract_categorized_errors(self, results: List[ValidationResult]) -> dict:
         """Extract errors grouped by category for better readability."""
         categories: dict[str, dict[str, Any]] = {
-            "Code Quality": {"errors": [], "commands": set()},
-            "Security": {"errors": [], "commands": set()},
-            "Dependencies": {"errors": [], "commands": set()},
-            "Tests": {"errors": [], "commands": set()},
-            "Dead Code": {"errors": [], "commands": set()},
-            "Documentation": {"errors": [], "commands": set()},
-            "Performance": {"errors": [], "commands": set()},
-            "Other": {"errors": [], "commands": set()},
+            "Code Quality": {"errors": [], "commands": set(), "filtered": []},
+            "Security": {"errors": [], "commands": set(), "filtered": []},
+            "Dependencies": {"errors": [], "commands": set(), "filtered": []},
+            "Tests": {"errors": [], "commands": set(), "filtered": []},
+            "Dead Code": {"errors": [], "commands": set(), "filtered": []},
+            "Documentation": {"errors": [], "commands": set(), "filtered": []},
+            "Performance": {"errors": [], "commands": set(), "filtered": []},
+            "Other": {"errors": [], "commands": set(), "filtered": []},
         }
 
         seen_errors = set()
@@ -1299,7 +1319,15 @@ for m in ['pytest','mypy','ruff']:
         for result in results:
             if not result.passed:
                 error_details = self._parse_specific_errors(result)
-                errors = error_details if error_details else [f"{result.message}"]
+
+                # If error_details is empty, it means all errors were filtered out
+                # Track which checks had filtered errors for informative messages
+                if not error_details:
+                    category = self._categorize_result(result)
+                    categories[category]["filtered"].append(result.name)
+                    continue
+
+                errors = error_details
 
                 # Determine category and get run command
                 category = self._categorize_result(result)
@@ -1316,10 +1344,11 @@ for m in ['pytest','mypy','ruff']:
         # Remove empty categories and convert to simpler format
         result_dict = {}
         for category, data in categories.items():
-            if data["errors"]:
+            if data["errors"] or data["filtered"]:
                 result_dict[category] = {
                     "errors": data["errors"],
                     "commands": list(data["commands"]),
+                    "filtered": data["filtered"],
                 }
 
         return result_dict
@@ -1722,6 +1751,9 @@ for m in ['pytest','mypy','ruff']:
         """Parse pip-audit vulnerability errors."""
         errors: List[str] = []
         current_package: Optional[str] = None
+        current_vuln_id: Optional[str] = None
+        vulnerability_ignore = self.whitelists.get("vulnerability_ignore", [])
+
         for raw in output.split("\n"):
             line = raw.strip()
             if not line:
@@ -1731,12 +1763,30 @@ for m in ['pytest','mypy','ruff']:
                 continue
             elif line.startswith("Name:"):
                 current_package = line.replace("Name:", "").strip()
+                current_vuln_id = None  # Reset for new package
             elif line.startswith("Version:") and current_package:
                 version = line.replace("Version:", "").strip()
                 errors.append(f"**Vulnerable Package**: {current_package} {version}")
             elif "CVE-" in line or "GHSA-" in line:
+                # Extract vulnerability ID
+                for part in line.split():
+                    if "CVE-" in part or "GHSA-" in part:
+                        current_vuln_id = part.strip("(),")
+                        break
+
+                # Skip if this vulnerability is in the ignore list
+                if current_vuln_id and any(
+                    ignored in current_vuln_id for ignored in vulnerability_ignore
+                ):
+                    # Remove the package info we just added
+                    if errors and "Vulnerable Package" in errors[-1]:
+                        errors.pop()
+                    current_vuln_id = None  # Mark as ignored
+                    continue
+
                 errors.append(f"**Vulnerability ID**: {line}")
-            elif line.startswith("Description:"):
+            elif line.startswith("Description:") and current_vuln_id:
+                # Only add description if vulnerability wasn't ignored
                 desc = line.replace("Description:", "").strip()
                 if len(desc) > 100:
                     desc = desc[:100] + "..."
@@ -2454,11 +2504,13 @@ def main():
                 categorized_errors = validator.extract_categorized_errors(
                     summary.results
                 )
-                # Structured issues section with prominent separator
-                separator_width = 60
-                print(f"{Colors.GRAY}{'═' * separator_width}{Colors.RESET}\n")
-                print(f"{Colors.RED}{Colors.BOLD}ISSUES FOUND:{Colors.RESET}\n")
+
+                # If all errors were filtered out, don't show "ISSUES FOUND" section
                 if categorized_errors:
+                    # Structured issues section with prominent separator
+                    separator_width = 60
+                    print(f"{Colors.GRAY}{'═' * separator_width}{Colors.RESET}\n")
+                    print(f"{Colors.RED}{Colors.BOLD}ISSUES FOUND:{Colors.RESET}\n")
                     category_filter_name = {
                         "Code Quality": "code-quality",
                         "Security": "security",
@@ -2566,6 +2618,15 @@ def main():
                             else:
                                 print(f"  {Colors.GRAY}•{Colors.RESET} {cleaned_error}")
 
+                        # Show filtered checks message if any
+                        filtered = data.get("filtered", [])
+                        if filtered:
+                            print(
+                                f"\n  {Colors.DIM}ℹ️  {len(filtered)} check{'s' if len(filtered) != 1 else ''} had issues filtered by .refactor-toolkit.yaml:{Colors.RESET}"
+                            )
+                            for check_name in filtered:
+                                print(f"     {Colors.DIM}• {check_name}{Colors.RESET}")
+
                         # Only show truncation message and run command when not in category mode
                         if args.category == "all":
                             cli_category = category_filter_name.get(
@@ -2589,19 +2650,15 @@ def main():
                                 print(
                                     f"\n  {Colors.BLUE}→ Run '{Colors.BOLD}{script_name} . --category {cli_category}{Colors.RESET}{Colors.BLUE}' for details{Colors.RESET}"
                                 )
-                else:
-                    # Fallback to basic error list if no actionable errors parsed
-                    for result in failed_results:
-                        print(f"  • {result.name}: {result.message}")
 
-                # Footer with helpful tips
-                print(f"\n{Colors.GRAY}{'═' * 60}{Colors.RESET}\n")
-                print(
-                    f"{Colors.BLUE}→ Run with {Colors.BOLD}--verbose{Colors.RESET}{Colors.BLUE} for detailed error information{Colors.RESET}"
-                )
-                print(
-                    f"{Colors.BLUE}→ Run with {Colors.BOLD}--output report.md{Colors.RESET}{Colors.BLUE} to save full report{Colors.RESET}"
-                )
+                    # Footer with helpful tips
+                    print(f"\n{Colors.GRAY}{'═' * 60}{Colors.RESET}\n")
+                    print(
+                        f"{Colors.BLUE}→ Run with {Colors.BOLD}--verbose{Colors.RESET}{Colors.BLUE} for detailed error information{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.BLUE}→ Run with {Colors.BOLD}--output report.md{Colors.RESET}{Colors.BLUE} to save full report{Colors.RESET}"
+                    )
 
     # Determine exit code based on strict mode
     exit_code = 0
