@@ -6,8 +6,7 @@ from typing import Any
 def collect_field_samples(
     records: list[Any], max_samples: int = 5
 ) -> dict[str, list[Any]]:
-    """
-    Collect sample values for each field from a list of records.
+    """Collect sample values for each field from a list of records.
 
     Parameters
     ----------
@@ -64,8 +63,7 @@ def collect_field_samples(
 
 
 def format_sample_value(value: Any, max_length: int = 50) -> str:
-    """
-    Format a sample value for display.
+    """Format a sample value for display.
 
     Parameters
     ----------
@@ -109,8 +107,7 @@ def format_samples_for_field(
     left_samples: dict[str, list[Any]] | None,
     right_samples: dict[str, list[Any]] | None,
 ) -> str:
-    """
-    Format sample values for a field from both sides of a comparison.
+    """Format sample values for a field from both sides of a comparison.
 
     Parameters
     ----------
@@ -148,8 +145,7 @@ def format_samples_table(
     left_label: str = "Left",
     right_label: str = "Right",
 ) -> str:
-    """
-    Format sample values in a side-by-side table format.
+    """Format sample values in a side-by-side table format.
 
     Parameters
     ----------

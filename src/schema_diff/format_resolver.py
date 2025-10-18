@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Format resolver for schema-diff CLI.
 
-Handles parsing and validation of <family>:<representation> format strings.
-Provides backward compatibility through aliases.
+Handles parsing and validation of <family>:<representation> format strings. Provides
+backward compatibility through aliases.
 """
 from __future__ import annotations
 

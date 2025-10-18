@@ -645,8 +645,8 @@ def get_batch_constraints(
 def _render_scalar_type(bq_type: str) -> str:
     """Render scalar type using canonical DDL forms from config.
 
-    Uses analyze_config.SCALAR_TYPE_MAP which normalizes type aliases
-    to BigQuery DDL preferred forms (FLOAT64, INT64, BOOL).
+    Uses analyze_config.SCALAR_TYPE_MAP which normalizes type aliases to BigQuery DDL
+    preferred forms (FLOAT64, INT64, BOOL).
     """
     return analyze_config.SCALAR_TYPE_MAP.get(bq_type, bq_type)
 
@@ -654,8 +654,8 @@ def _render_scalar_type(bq_type: str) -> str:
 def _render_col_options(field: SchemaField) -> str:
     """Render column-level OPTIONS(...): description + policy tags.
 
-    Supports BigQuery's PolicyTagList (field.policy_tags.names) as well as
-    older shapes (iterables / dicts). Applies to nested fields too.
+    Supports BigQuery's PolicyTagList (field.policy_tags.names) as well as older shapes
+    (iterables / dicts). Applies to nested fields too.
     """
 
     def _extract_policy_tag_names(f: SchemaField) -> list[str]:
@@ -771,7 +771,8 @@ def _render_type_for_field(field: SchemaField, level: int) -> str:
 
 
 def _render_default(field: SchemaField, level: int) -> str:
-    """Render DEFAULT expression (BigQuery supports DEFAULT on top-level non-STRUCT columns)."""
+    """Render DEFAULT expression (BigQuery supports DEFAULT on top-level non-STRUCT
+    columns)."""
     # BigQuery supports DEFAULT on columns (not nested STRUCT members)
     if level == 1 and field.field_type != "RECORD":
         expr = getattr(field, "default_value_expression", None)
@@ -808,7 +809,8 @@ def _render_columns(schema: list[SchemaField]) -> str:
 
 
 def _collect_table_options(tbl: bigquery.Table) -> dict[str, Any]:
-    """Collect all table-level options (description, partition settings, labels, etc.)."""
+    """Collect all table-level options (description, partition settings, labels,
+    etc.)."""
     opts: dict[str, Any] = {}
 
     # Table description
@@ -837,7 +839,8 @@ def _collect_table_options(tbl: bigquery.Table) -> dict[str, Any]:
 
 
 def _render_options_line(opts: dict[str, Any]) -> str | None:
-    """Render a single OPTIONS(...) block with all options (deterministic label order)."""
+    """Render a single OPTIONS(...) block with all options (deterministic label
+    order)."""
     if not opts:
         return None
 

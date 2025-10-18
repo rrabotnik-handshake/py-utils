@@ -45,7 +45,7 @@ class TestComparisonPaths:
         file2.write_text('{"name": "Bob", "age": null, "email": "bob@example.com"}\n')
 
         result = run_cli([str(file1), str(file2), "--no-color"])
-        
+
         assert result.returncode == 0
         # Should skip presence mismatches for data-to-data
         assert "Skipped for data-to-data comparison" in result.stdout

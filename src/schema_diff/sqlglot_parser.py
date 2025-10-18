@@ -23,11 +23,10 @@ Usage:
         dialect="bigquery"
     )
 
-    # Parse and translate from Postgres to BigQuery types
+    # Parse Postgres DDL
     tree, required = schema_from_sql_ddl_sqlglot(
         "path/to/schema.sql",
-        dialect="postgres",
-        normalize_to="bigquery"
+        dialect="postgres"
     )
 
 Requirements:
@@ -210,7 +209,6 @@ def schema_from_sql_ddl_sqlglot(
     path: str,
     dialect: str = "bigquery",
     table_name: str | None = None,
-    normalize_to: str | None = None,
 ) -> tuple[dict[str, Any], set[str]]:
     """Parse SQL DDL file using SQLGlot for enhanced cross-dialect support.
 
@@ -218,7 +216,6 @@ def schema_from_sql_ddl_sqlglot(
         path: Path to SQL DDL file
         dialect: Source SQL dialect (bigquery, postgres, mysql, snowflake, etc.)
         table_name: Optional table name to extract (if file has multiple tables)
-        normalize_to: Optional target dialect for type normalization
 
     Returns:
         Tuple of (schema_tree, required_paths)

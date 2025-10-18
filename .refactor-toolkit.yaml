@@ -1,0 +1,63 @@
+# Refactor Toolkit Configuration for Coresignal Project
+#
+# This file customizes validation behavior for this specific project.
+
+# Whitelist patterns to eliminate false positives
+whitelists:
+  # Dead code detection - configuration files with constants used across modules
+  dead_code_ignore:
+    - "**/analyze_config.py" # BigQuery analysis configuration constants
+    - "**/*_config.py" # All config files (used by other modules)
+    - "**/constants.py" # Constants files
+    - "**/models.py" # Data models with constants and methods used via introspection
+    - "**/colors.py" # Utility functions that are part of the public API
+    - "**/decorators.py" # Decorator attributes accessed dynamically
+    - "**/parser_factory.py" # Factory methods that are part of public API
+    - "**/sample_collector.py" # Formatting functions for future use
+    - "**/schema_generator.py" # Public API functions
+    - "**/type_analysis.py" # Analysis helper functions
+    - "**/unified_loader.py" # Loader attributes used via introspection
+    - "**/bigquery_ddl.py" # Large module with many utility functions
+    - "**/validate_patterns.py" # Dataclass fields used via introspection
+    - "**/experimental/**" # Experimental code, not production
+
+  # Security scan - intentional error handling patterns
+  security_ignore:
+    - B110 # try-except-pass (intentional error suppression)
+    - B112 # try-except-continue (intentional error handling)
+    - B404 # subprocess module (intentional - validation tool needs to run commands)
+    - B602 # shell=True (intentional - needed for complex shell commands)
+    - B603 # subprocess without shell (intentional - validation tool)
+    - B607 # partial path (intentional - using system commands)
+    - B105 # hardcoded password (false positive - these are command strings, not passwords)
+
+  # Vulnerability scan - known low-severity issues to ignore
+  vulnerability_ignore:
+    - GHSA-4xh5-x5gv-qwph # pip 25.2 - low severity, waiting for upstream fix
+
+  # Import checks - skip test files and package modules (they use relative imports)
+  import_ignore:
+    - "**/test_*.py"
+    - "**/conftest.py"
+    - schema_diff/** # Package modules use relative imports, can't be imported standalone
+    - "**/schema_diff/**" # Also match when running from root
+    - cli/** # CLI modules also use relative imports
+    - "**/experimental/**" # Experimental code
+
+  # Type checking - skip experimental code
+  type_check_ignore:
+    - "**/experimental/**" # Experimental code, not production
+
+# Path configurations
+paths:
+  # Test directories (relative to target directory)
+  test_directories:
+    - tests
+    - ../tests # For when validating src/ directory
+    - test
+
+  # Documentation files
+  doc_files:
+    - README.md
+    - ../README.md # For when validating src/ directory
+    - docs/README.md
