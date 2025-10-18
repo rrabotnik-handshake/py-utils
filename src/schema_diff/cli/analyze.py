@@ -261,13 +261,15 @@ def cmd_analyze(args) -> int:
         results: dict[str, Any] = {}
 
         # Perform requested analysis
+        from .colors import GREEN, RESET
+
         if show_complexity:
-            print("🔍 Analyzing schema complexity...")
+            print(f"{GREEN}🔍 Analyzing schema complexity...{RESET}")
             complexity = analyze_schema_complexity(schema)
             results["complexity"] = complexity
 
         if show_patterns:
-            print("🔍 Finding schema patterns...")
+            print(f"{GREEN}🔍 Finding schema patterns...{RESET}")
             patterns = find_schema_patterns(schema)
             results["patterns"] = patterns
 
@@ -281,12 +283,12 @@ def cmd_analyze(args) -> int:
                 results["policy_tags"] = policy_tags
 
         if show_suggestions:
-            print("🔍 Generating improvement suggestions...")
+            print(f"{GREEN}🔍 Generating improvement suggestions...{RESET}")
             suggestions = suggest_schema_improvements(schema)
             results["suggestions"] = suggestions
 
         if show_dimensional:
-            print("🔍 Analyzing dimensional modeling patterns...")
+            print(f"{GREEN}🔍 Analyzing dimensional modeling patterns...{RESET}")
             # Only applicable for BigQuery schemas with raw metadata
             if schema.source_type == "bigquery" and schema.metadata.get(
                 "raw_bq_schema"
@@ -312,12 +314,12 @@ def cmd_analyze(args) -> int:
                 results["dimensional"] = []
 
         if show_report:
-            print("🔍 Generating comprehensive report...")
+            print(f"{GREEN}🔍 Generating comprehensive report...{RESET}")
             report = generate_schema_report(schema)
             results["report"] = report
 
         if show_field_categories:
-            print("🔍 Categorizing schema fields...")
+            print(f"{GREEN}🔍 Categorizing schema fields...{RESET}")
             from ..advanced_analytics import categorize_fields
 
             field_categories = categorize_fields(schema)
@@ -337,12 +339,16 @@ def cmd_analyze(args) -> int:
             # Save to output directory
             filename = f"schema_analysis_{Path(args.schema_file).stem}.{args.format}"
             write_output_file(output, filename, "analysis")
-            print(f"✅ Analysis saved to output/analysis/{filename}")
+            from .colors import GREEN, RESET
+
+            print(f"{GREEN}✅ Analysis saved to output/analysis/{filename}{RESET}")
         else:
             print(output)
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        from .colors import RED, RESET
+
+        print(f"{RED}❌ Error: {e}{RESET}")
         return 1
 
     return 0

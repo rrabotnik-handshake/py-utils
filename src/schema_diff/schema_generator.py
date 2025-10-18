@@ -348,14 +348,16 @@ def generate_schema_from_data(
     validated_output, is_valid, error_msg = validate_schema(output, format, validate)
 
     if validate and not is_valid:
+        from .cli.colors import RESET, YELLOW
+
         error_details = f"Schema validation failed for format '{format}': {error_msg}"
-        print(f"⚠️  WARNING: {error_details}", file=sys.stderr)
+        print(f"{YELLOW}⚠️  WARNING: {error_details}{RESET}", file=sys.stderr)
 
         # Check if validation failed due to missing dependencies
         if sqlparse is None or jsonschema is None:
             print(
-                "💡 Enhanced validation requires optional dependencies. "
-                "Install with: pip install -e '.[validation]'",
+                f"{YELLOW}💡 Enhanced validation requires optional dependencies. "
+                f"Install with: pip install -e '.[validation]'{RESET}",
                 file=sys.stderr,
             )
         else:

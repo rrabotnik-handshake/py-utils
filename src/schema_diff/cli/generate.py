@@ -156,7 +156,9 @@ def cmd_generate(args) -> None:
         if is_gcs_path(args.data_file):
             get_gcs_status()
         else:
-            print("No GCS paths provided.")
+            from .colors import GREEN, RESET
+
+            print(f"{GREEN}No GCS paths provided.{RESET}")
         return
 
     # Show GCS status if GCS path is involved
@@ -174,8 +176,9 @@ def cmd_generate(args) -> None:
         from ..io_utils import set_force_download_context
 
         set_force_download_context(args.force_download)
+        from .colors import GREEN, RESET
 
-        print(f"🔍 Generating {args.format} schema from {args.data_file}")
+        print(f"{GREEN}🔍 Generating {args.format} schema from {args.data_file}{RESET}")
 
         # Load data records
         from ..config import Config
@@ -206,7 +209,9 @@ def cmd_generate(args) -> None:
         if args.output:
             filename = generate_filename(args.data_file, args.format)
             write_output_file(schema, filename, "schemas")
-            print(f"✅ Schema saved to output/schemas/{filename}")
+            from .colors import GREEN, RESET
+
+            print(f"{GREEN}✅ Schema saved to output/schemas/{filename}{RESET}")
         else:
             print(schema)
 

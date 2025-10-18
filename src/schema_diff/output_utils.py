@@ -53,5 +53,7 @@ def print_output_success(output_path: Path, description: str = "File") -> None:
         output_path: Path to the written file
         description: Description of what was written
     """
-    print(f"✅ {description} written to: {output_path}")
-    print(f"📁 Output directory: {output_path.parent.absolute()}")
+    from .cli.colors import GREEN, RESET
+
+    print(f"{GREEN}✅ {description} written to: {output_path}{RESET}")
+    print(f"{GREEN}📁 Output directory: {output_path.parent.absolute()}{RESET}")

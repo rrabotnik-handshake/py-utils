@@ -228,7 +228,9 @@ def cmd_compare(args) -> None:
         if is_gcs_path(args.file1) or is_gcs_path(args.file2):
             get_gcs_status()
         else:
-            print("No GCS paths provided.")
+            from .colors import GREEN, RESET
+
+            print(f"{GREEN}No GCS paths provided.{RESET}")
         return
 
     # Show GCS status if GCS paths are involved
@@ -287,10 +289,25 @@ def cmd_compare(args) -> None:
 
         if left_family == "data" and right_family == "data":
             # Data-to-data comparison - use legacy comparison logic
-            from .colors import BLUE, BOLD, CYAN, RESET
+            from .colors import BOLD, CYAN, RESET, YELLOW
+
+            # Highlight family:representation in yellow, "schema" in yellow, location in white (default)
+            left_highlighted = left_display.replace(
+                left_kind, f"{YELLOW}{left_kind}{RESET}"
+            )
+            left_highlighted = left_highlighted.replace(
+                " schema", f" {YELLOW}schema{RESET}"
+            )
+
+            right_highlighted = right_display.replace(
+                right_kind, f"{YELLOW}{right_kind}{RESET}"
+            )
+            right_highlighted = right_highlighted.replace(
+                " schema", f" {YELLOW}schema{RESET}"
+            )
 
             print(
-                f"{BOLD}{CYAN}📊 Comparison:{RESET} {BLUE}{left_display}{RESET} → {BLUE}{right_display}{RESET}"
+                f"{BOLD}{CYAN}📊 Comparison:{RESET} {left_highlighted} → {right_highlighted}"
             )
             from ..io_utils import all_records, nth_record, sample_records
             from ..json_data_file_parser import merged_schema_from_samples
@@ -370,10 +387,25 @@ def cmd_compare(args) -> None:
             "dbt",
         }:
             # Data-to-schema comparison
-            from .colors import BLUE, BOLD, CYAN, RESET
+            from .colors import BOLD, CYAN, RESET, YELLOW
+
+            # Highlight family:representation in yellow, "schema" in yellow, location in white (default)
+            left_highlighted = left_display.replace(
+                left_kind, f"{YELLOW}{left_kind}{RESET}"
+            )
+            left_highlighted = left_highlighted.replace(
+                " schema", f" {YELLOW}schema{RESET}"
+            )
+
+            right_highlighted = right_display.replace(
+                right_kind, f"{YELLOW}{right_kind}{RESET}"
+            )
+            right_highlighted = right_highlighted.replace(
+                " schema", f" {YELLOW}schema{RESET}"
+            )
 
             print(
-                f"{BOLD}{CYAN}📊 Comparison:{RESET} {BLUE}{left_display}{RESET} → {BLUE}{right_display}{RESET}"
+                f"{BOLD}{CYAN}📊 Comparison:{RESET} {left_highlighted} → {right_highlighted}"
             )
             from ..io_utils import all_records, nth_record, sample_records
 
@@ -439,10 +471,25 @@ def cmd_compare(args) -> None:
             )
         else:
             # Schema-to-schema comparison using unified format
-            from .colors import BLUE, BOLD, CYAN, RESET
+            from .colors import BOLD, CYAN, RESET, YELLOW
+
+            # Highlight family:representation in yellow, "schema" in yellow, location in white (default)
+            left_highlighted = left_display.replace(
+                left_kind, f"{YELLOW}{left_kind}{RESET}"
+            )
+            left_highlighted = left_highlighted.replace(
+                " schema", f" {YELLOW}schema{RESET}"
+            )
+
+            right_highlighted = right_display.replace(
+                right_kind, f"{YELLOW}{right_kind}{RESET}"
+            )
+            right_highlighted = right_highlighted.replace(
+                " schema", f" {YELLOW}schema{RESET}"
+            )
 
             print(
-                f"{BOLD}{CYAN}📊 Comparison:{RESET} {BLUE}{left_display}{RESET} → {BLUE}{right_display}{RESET}"
+                f"{BOLD}{CYAN}📊 Comparison:{RESET} {left_highlighted} → {right_highlighted}"
             )
             left_schema = load_schema_unified(
                 args.file1,
@@ -504,17 +551,25 @@ def cmd_compare(args) -> None:
                 "reports",
             )
 
-            print("✅ Migration analysis saved to output/reports/")
+            from .colors import GREEN, RESET
+
+            print(f"{GREEN}✅ Migration analysis saved to output/reports/{RESET}")
         elif args.output:
-            print("ℹ️ Migration analysis not available for data-to-schema comparisons")
+            from .colors import GREEN, RESET
+
+            print(
+                f"{GREEN}ℹ️ Migration analysis not available for data-to-schema comparisons{RESET}"
+            )
 
         # Handle legacy JSON output
         if hasattr(args, "json_out") and args.json_out and report_struct:
             import json
 
+            from .colors import GREEN, RESET
+
             with open(args.json_out, "w") as f:
                 json.dump(report_struct, f, indent=2)
-            print(f"✅ JSON report written to: {args.json_out}")
+            print(f"{GREEN}✅ JSON report written to: {args.json_out}{RESET}")
 
     except ArgumentError as e:
         raise ArgumentError(f"Comparison failed: {e}") from e

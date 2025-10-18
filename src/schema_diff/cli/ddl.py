@@ -178,7 +178,11 @@ def _get_bigquery_client():
 def cmd_ddl(args) -> None:
     """Execute the DDL command."""
     if not args.ddl_command:
-        print("❌ DDL command required. Use 'table', 'batch', or 'dataset'.")
+        from .colors import RED, RESET
+
+        print(
+            f"{RED}❌ DDL command required. Use 'table', 'batch', or 'dataset'.{RESET}"
+        )
         import sys
 
         sys.exit(1)
@@ -190,8 +194,9 @@ def cmd_ddl(args) -> None:
             # Generate DDL for single table
             project, dataset, table = _parse_table_ref(args.table_ref)
             client = _get_bigquery_client()
+            from .colors import GREEN, RESET
 
-            print(f"🔍 Generating DDL for {project}:{dataset}.{table}")
+            print(f"{GREEN}🔍 Generating DDL for {project}:{dataset}.{table}{RESET}")
             ddl = generate_table_ddl(client, project, dataset, table)
 
             if args.output:
@@ -207,9 +212,13 @@ def cmd_ddl(args) -> None:
             # Generate DDL for multiple tables
             client = _get_bigquery_client()
             ddls = {}
+            from .colors import GREEN, RESET
+
             for table_ref in args.table_refs:
                 project, dataset, table = _parse_table_ref(table_ref)
-                print(f"🔍 Generating DDL for {project}:{dataset}.{table}")
+                print(
+                    f"{GREEN}🔍 Generating DDL for {project}:{dataset}.{table}{RESET}"
+                )
                 ddl = generate_table_ddl(client, project, dataset, table)
                 ddls[f"{dataset}.{table}"] = ddl
 
@@ -217,7 +226,7 @@ def cmd_ddl(args) -> None:
                 for table_name, ddl in ddls.items():
                     filename = f"{table_name.replace('.', '_')}_ddl.sql"
                     write_output_file(ddl, filename, "ddl")
-                print(f"✅ {len(ddls)} DDL files saved to output/ddl/")
+                print(f"{GREEN}✅ {len(ddls)} DDL files saved to output/ddl/{RESET}")
             else:
                 for table_name, ddl in ddls.items():
                     print(f"\n-- DDL for {table_name}")
@@ -227,15 +236,18 @@ def cmd_ddl(args) -> None:
             # Generate DDL for entire dataset
             project, dataset = _parse_dataset_ref(args.dataset_ref)
             client = _get_bigquery_client()
+            from .colors import GREEN, RESET
 
-            print(f"🔍 Generating DDL for all tables in {project}:{dataset}")
+            print(
+                f"{GREEN}🔍 Generating DDL for all tables in {project}:{dataset}{RESET}"
+            )
             ddls = generate_dataset_ddl(client, project, dataset)
 
             if args.output:
                 for table_name, ddl in ddls.items():
                     filename = f"{dataset}_{table_name}_ddl.sql"
                     write_output_file(ddl, filename, "ddl")
-                print(f"✅ {len(ddls)} DDL files saved to output/ddl/")
+                print(f"{GREEN}✅ {len(ddls)} DDL files saved to output/ddl/{RESET}")
             else:
                 for table_name, ddl in ddls.items():
                     print(f"\n-- DDL for {dataset}.{table_name}")
@@ -244,10 +256,20 @@ def cmd_ddl(args) -> None:
     except BigQueryError as e:
         import sys
 
-        print(f"❌ Error: BigQuery DDL generation failed: {e}", file=sys.stderr)
+        from .colors import RED, RESET
+
+        print(
+            f"{RED}❌ Error: BigQuery DDL generation failed: {e}{RESET}",
+            file=sys.stderr,
+        )
         sys.exit(1)
     except Exception as e:
         import sys
 
-        print(f"❌ Error: Unexpected error during DDL generation: {e}", file=sys.stderr)
+        from .colors import RED, RESET
+
+        print(
+            f"{RED}❌ Error: Unexpected error during DDL generation: {e}{RESET}",
+            file=sys.stderr,
+        )
         sys.exit(1)

@@ -340,7 +340,9 @@ class ParserFactory:
             parser, detected_kind = cls.auto_detect_parser(path)
             if kind is None:
                 logger.info("Auto-detected format for %s: %s", path, detected_kind)
-                print(f"🔍 Auto-detected format: {detected_kind}")
+                from .cli.colors import GREEN, RESET
+
+                print(f"{GREEN}🔍 Auto-detected format: {detected_kind}{RESET}")
         else:
             parser = cls.create_parser(kind)
 

@@ -80,10 +80,14 @@ def main() -> int:
 
         return 0
     except KeyboardInterrupt:
-        print("\n⚠️ Operation cancelled by user")
+        from .colors import RESET, YELLOW
+
+        print(f"\n{YELLOW}⚠️ Operation cancelled by user{RESET}")
         return 130
     except Exception as e:
-        print(f"❌ Error: {e}")
+        from .colors import RED, RESET
+
+        print(f"{RED}❌ Error: {e}{RESET}")
         return 1
 
 

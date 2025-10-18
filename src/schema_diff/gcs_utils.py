@@ -140,9 +140,9 @@ def download_gcs_file(
     if os.path.exists(local_path) and not force:
         # Only print the message once per file per session
         if local_path not in _notified_cached_files:
-            from .cli.colors import DIM, RESET
+            from .cli.colors import GREEN, RESET
 
-            print(f"{DIM}📁 Using cached file: {local_path}{RESET}")
+            print(f"{GREEN}📁 Using cached file: {local_path}{RESET}")
             _notified_cached_files.add(local_path)
         return local_path
 
@@ -159,9 +159,9 @@ def download_gcs_file(
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
         # Download the file
-        from .cli.colors import CYAN, GREEN, RESET
+        from .cli.colors import GREEN, RESET
 
-        print(f"{CYAN}☁️  Downloading {gcs_path} → {local_path}{RESET}")
+        print(f"{GREEN}☁️  Downloading {gcs_path} → {local_path}{RESET}")
         blob.download_to_filename(local_path)
 
         # Verify download
