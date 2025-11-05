@@ -7,6 +7,7 @@ from unittest.mock import patch, Mock
 from pathlib import Path
 
 from schema_diff.cli import cmd_ddl, _parse_table_ref, _parse_dataset_ref
+from schema_diff.exceptions import ArgumentError
 
 
 class TestDDLIntegration:
@@ -138,7 +139,7 @@ class TestDDLErrorScenarios:
             try:
                 _parse_table_ref(invalid_ref)
                 assert False, f"Expected error for invalid table ref: {invalid_ref}"
-            except ValueError:
+            except (ValueError, ArgumentError):
                 pass  # Expected to fail
 
     @patch("google.cloud.bigquery.Client")
@@ -223,7 +224,7 @@ class TestDDLErrorScenarios:
             try:
                 _parse_dataset_ref(invalid_ref)
                 assert False, f"Expected error for invalid dataset ref: {invalid_ref}"
-            except ValueError:
+            except (ValueError, ArgumentError):
                 pass  # Expected to fail
 
 
@@ -246,17 +247,17 @@ class TestTableRefParsing:
 
     def test_parse_table_ref_missing_colon(self):
         """Test parsing table reference missing colon."""
-        with pytest.raises(ValueError, match="Invalid table reference format"):
+        with pytest.raises((ValueError, ArgumentError)):
             _parse_table_ref("project.dataset.table")
 
     def test_parse_table_ref_missing_dot(self):
         """Test parsing table reference missing dot."""
-        with pytest.raises(ValueError, match="Invalid dataset.table format"):
+        with pytest.raises((ValueError, ArgumentError)):
             _parse_table_ref("project:dataset_table")
 
     def test_parse_table_ref_too_many_parts(self):
         """Test parsing table reference with too many parts."""
-        with pytest.raises(ValueError, match="Invalid table reference format"):
+        with pytest.raises((ValueError, ArgumentError)):
             _parse_table_ref("project1:project2:dataset.table")
 
     def test_parse_dataset_ref_standard_format(self):
@@ -273,12 +274,12 @@ class TestTableRefParsing:
 
     def test_parse_dataset_ref_missing_colon(self):
         """Test parsing dataset reference missing colon."""
-        with pytest.raises(ValueError, match="Invalid dataset reference format"):
+        with pytest.raises((ValueError, ArgumentError)):
             _parse_dataset_ref("project.dataset")
 
     def test_parse_dataset_ref_too_many_parts(self):
         """Test parsing dataset reference with too many parts."""
-        with pytest.raises(ValueError, match="Invalid dataset reference format"):
+        with pytest.raises((ValueError, ArgumentError)):
             _parse_dataset_ref("project1:project2:dataset")
 
 

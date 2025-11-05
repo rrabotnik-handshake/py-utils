@@ -7,7 +7,7 @@ import tempfile
 import json
 from pathlib import Path
 
-from src.schema_diff.parser_factory import (
+from schema_diff.parser_factory import (
     ParserFactory,
     ParseResult,
     DataParser,
@@ -100,7 +100,7 @@ class TestParserFactory:
             json.dump({"id": 1, "name": "test"}, f)
             f.flush()
 
-            from src.schema_diff.config import Config
+            from schema_diff.config import Config
             cfg = Config()
 
             result = ParserFactory.parse_file(f.name, kind='data', cfg=cfg, samples=1)

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-from src.schema_diff.decorators import (
+from schema_diff.decorators import (
     cache_results,
     retry_on_failure,
     timing_decorator,
@@ -70,7 +70,7 @@ class TestCacheDecorator:
     def test_cache_results_basic(self):
         """Test basic caching functionality."""
         # Clear cache to ensure clean test state
-        from src.schema_diff.decorators import _cache_manager
+        from schema_diff.decorators import _cache_manager
         _cache_manager.clear()
 
         call_count = 0
@@ -127,7 +127,7 @@ class TestCacheDecorator:
     def test_cache_expensive_operation(self):
         """Test the cache_expensive_operation convenience decorator."""
         # Clear cache to ensure clean test state
-        from src.schema_diff.decorators import _cache_manager
+        from schema_diff.decorators import _cache_manager
         _cache_manager.clear()
 
         call_count = 0

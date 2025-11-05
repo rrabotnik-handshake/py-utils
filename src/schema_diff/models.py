@@ -11,7 +11,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ScalarType(str, Enum):
@@ -41,11 +41,12 @@ class FieldConstraint(str, Enum):
 class SchemaType(BaseModel):
     """Base class for all schema types."""
 
-    class Config:
+    model_config = ConfigDict(
         # Allow arbitrary types for flexibility
-        arbitrary_types_allowed = True
+        arbitrary_types_allowed=True,
         # Use enum values for serialization
-        use_enum_values = True
+        use_enum_values=True,
+    )
 
 
 class ScalarSchemaType(SchemaType):

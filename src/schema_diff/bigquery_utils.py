@@ -116,10 +116,9 @@ def get_default_bigquery_project() -> str:
 def parse_bigquery_table_ref(table_ref: str) -> tuple[str, str, str]:
     """Parse a BigQuery table reference into components.
 
-    Supports multiple formats:
-    - project:dataset.table
-    - project.dataset.table
-    - dataset.table (uses default project)
+    Accepts only standard BigQuery format:
+    - project:dataset.table (standard format)
+    - dataset.table (uses default project from GOOGLE_CLOUD_PROJECT env var)
 
     Parameters
     ----------
@@ -133,7 +132,7 @@ def parse_bigquery_table_ref(table_ref: str) -> tuple[str, str, str]:
 
     Raises
     ------
-    BigQueryError
+    ArgumentError
         If table reference format is invalid
 
     Examples
@@ -142,43 +141,84 @@ def parse_bigquery_table_ref(table_ref: str) -> tuple[str, str, str]:
     >>> print(f"{project}.{dataset}.{table}")
     proj.ds.tbl
 
-    >>> # Uses default project
+    >>> # Uses default project from GOOGLE_CLOUD_PROJECT env var
     >>> project, dataset, table = parse_bigquery_table_ref("dataset.table")
     """
     from .exceptions import ArgumentError
 
-    # Handle project:dataset.table format
+    # Standard format: project:dataset.table
     if ":" in table_ref:
-        project_part, table_part = table_ref.split(":", 1)
+        parts = table_ref.split(":")
+
+        # Reject if multiple colons (e.g., "project1:project2:dataset.table")
+        if len(parts) != 2:
+            raise ArgumentError(
+                f"Invalid BigQuery table reference: {table_ref}. "
+                "Expected format: project:dataset.table",
+                argument_value=table_ref,
+            )
+
+        project_part = parts[0]
+        table_part = parts[1]
+
+        # Validate project part is not empty
+        if not project_part:
+            raise ArgumentError(
+                f"Invalid BigQuery table reference: {table_ref}. "
+                "Project name cannot be empty. Expected format: project:dataset.table",
+                argument_value=table_ref,
+            )
+
+        # Validate dataset.table part
         if "." not in table_part:
             raise ArgumentError(
                 f"Invalid BigQuery table reference: {table_ref}. "
                 "Expected format: project:dataset.table",
                 argument_value=table_ref,
             )
-        dataset_id, table_id = table_part.split(".", 1)
+
+        dataset_table_parts = table_part.split(".", 1)
+        dataset_id = dataset_table_parts[0]
+        table_id = dataset_table_parts[1]
+
+        # Validate dataset and table are not empty
+        if not dataset_id or not table_id:
+            raise ArgumentError(
+                f"Invalid BigQuery table reference: {table_ref}. "
+                "Dataset and table names cannot be empty. Expected format: project:dataset.table",
+                argument_value=table_ref,
+            )
+
         return project_part, dataset_id, table_id
 
-    # Handle project.dataset.table or dataset.table format
+    # Alternative format: dataset.table (requires default project)
     parts = table_ref.split(".")
-    if len(parts) == 3:
-        # project.dataset.table
-        return parts[0], parts[1], parts[2]
-    elif len(parts) == 2:
+    if len(parts) == 2:
         # dataset.table - need default project
+        dataset_id = parts[0]
+        table_id = parts[1]
+
+        if not dataset_id or not table_id:
+            raise ArgumentError(
+                f"Invalid BigQuery table reference: {table_ref}. "
+                "Dataset and table names cannot be empty.",
+                argument_value=table_ref,
+            )
+
         try:
             project_id = get_default_bigquery_project()
         except BigQueryError:
             raise ArgumentError(
                 f"No project specified in table reference '{table_ref}' and unable to determine default project. "
-                "Use format: project:dataset.table or set GOOGLE_CLOUD_PROJECT",
+                "Use format: project:dataset.table or set GOOGLE_CLOUD_PROJECT env var",
                 argument_value=table_ref,
             ) from None
-        return project_id, parts[0], parts[1]
+        return project_id, dataset_id, table_id
     else:
+        # Reject project.dataset.table format and other invalid formats
         raise ArgumentError(
             f"Invalid BigQuery table reference: {table_ref}. "
-            "Expected format: project:dataset.table, project.dataset.table, or dataset.table",
+            "Expected format: project:dataset.table or dataset.table",
             argument_value=table_ref,
         )
 
@@ -186,10 +226,9 @@ def parse_bigquery_table_ref(table_ref: str) -> tuple[str, str, str]:
 def parse_bigquery_dataset_ref(dataset_ref: str) -> tuple[str, str]:
     """Parse a BigQuery dataset reference into components.
 
-    Supports formats:
-    - project:dataset
-    - project.dataset
-    - dataset (uses default project)
+    Accepts only standard BigQuery format:
+    - project:dataset (standard format)
+    - dataset (uses default project from GOOGLE_CLOUD_PROJECT env var)
 
     Parameters
     ----------
@@ -203,7 +242,7 @@ def parse_bigquery_dataset_ref(dataset_ref: str) -> tuple[str, str]:
 
     Raises
     ------
-    BigQueryError
+    ArgumentError
         If dataset reference format is invalid
 
     Examples
@@ -214,36 +253,56 @@ def parse_bigquery_dataset_ref(dataset_ref: str) -> tuple[str, str]:
     """
     from .exceptions import ArgumentError
 
-    # Handle project:dataset format
+    # Standard format: project:dataset
     if ":" in dataset_ref:
-        parts = dataset_ref.split(":", 1)
+        parts = dataset_ref.split(":")
+
+        # Reject if multiple colons
         if len(parts) != 2:
             raise ArgumentError(
                 f"Invalid BigQuery dataset reference: {dataset_ref}. "
                 "Expected format: project:dataset",
                 argument_value=dataset_ref,
             )
-        return parts[0], parts[1]
 
-    # Handle project.dataset or just dataset
-    parts = dataset_ref.split(".")
-    if len(parts) == 2:
-        return parts[0], parts[1]
-    elif len(parts) == 1:
-        # Just dataset - need default project
+        project_part = parts[0]
+        dataset_part = parts[1]
+
+        # Validate both parts are not empty
+        if not project_part or not dataset_part:
+            raise ArgumentError(
+                f"Invalid BigQuery dataset reference: {dataset_ref}. "
+                "Project and dataset names cannot be empty. Expected format: project:dataset",
+                argument_value=dataset_ref,
+            )
+
+        return project_part, dataset_part
+
+    # Single name format: just dataset (requires default project)
+    if "." not in dataset_ref:
+        dataset_id = dataset_ref.strip()
+
+        if not dataset_id:
+            raise ArgumentError(
+                f"Invalid BigQuery dataset reference: {dataset_ref}. "
+                "Dataset name cannot be empty.",
+                argument_value=dataset_ref,
+            )
+
         try:
             project_id = get_default_bigquery_project()
         except BigQueryError:
             raise ArgumentError(
                 f"No project specified in dataset reference '{dataset_ref}' and unable to determine default project. "
-                "Use format: project:dataset or set GOOGLE_CLOUD_PROJECT",
+                "Use format: project:dataset or set GOOGLE_CLOUD_PROJECT env var",
                 argument_value=dataset_ref,
             ) from None
-        return project_id, parts[0]
+        return project_id, dataset_id
     else:
+        # Reject project.dataset format and other invalid formats
         raise ArgumentError(
             f"Invalid BigQuery dataset reference: {dataset_ref}. "
-            "Expected format: project:dataset, project.dataset, or dataset",
+            "Expected format: project:dataset or dataset",
             argument_value=dataset_ref,
         )
 

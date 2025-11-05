@@ -111,6 +111,7 @@ def compare_trees(
         "dbt-yml",
         "dbt-model",
         "bigquery",
+        "bigquery_api_json",  # BigQuery API JSON format
     }
 
     if left_source_type in SCHEMA_SOURCES:

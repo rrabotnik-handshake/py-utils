@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from schema_diff.exceptions import ArgumentError, DependencyError
 from schema_diff.gcs_utils import (
     download_gcs_file,
     get_local_filename,
@@ -65,13 +66,13 @@ class TestGCSPathDetection:
 
     def test_parse_gcs_path_invalid(self):
         """Test error handling for invalid paths."""
-        with pytest.raises(ValueError, match="Not a valid GCS path"):
+        with pytest.raises(ArgumentError, match="Not a valid GCS path"):
             parse_gcs_path("s3://bucket/file.json")
 
-        with pytest.raises(ValueError, match="Invalid GCS path format"):
+        with pytest.raises(ArgumentError, match="Invalid GCS path format"):
             parse_gcs_path("gs://")
 
-        with pytest.raises(ValueError, match="Invalid GCS HTTPS URL format"):
+        with pytest.raises(ArgumentError, match="Invalid GCS HTTPS URL format"):
             parse_gcs_path("https://storage.cloud.google.com/bucket-only")
 
 
@@ -135,12 +136,12 @@ class TestGCSFileOperations:
     @patch('schema_diff.gcs_utils._HAS_GCS', False)
     def test_download_gcs_file_no_gcs_library(self):
         """Test error when GCS library is not available."""
-        with pytest.raises(ImportError, match="Google Cloud Storage support requires"):
+        with pytest.raises(DependencyError, match="Google Cloud Storage support requires"):
             download_gcs_file("gs://bucket/file.json")
 
     def test_download_gcs_file_invalid_path(self):
         """Test error for invalid GCS paths."""
-        with pytest.raises(ValueError, match="Not a valid GCS path"):
+        with pytest.raises(ArgumentError, match="Not a valid GCS path"):
             download_gcs_file("local/file.json")
 
 

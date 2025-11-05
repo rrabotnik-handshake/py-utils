@@ -25,6 +25,9 @@ pip install -e .
 # Install with enhanced SQL parsing (recommended)
 pip install -e '.[sqlglot]'
 
+# Install with MCP server support (for AI assistants)
+pip install -e '.[mcp,bigquery,gcs]'
+
 # Basic comparison (most common use case)
 schema-diff compare file1.json file2.json
 
@@ -1192,6 +1195,61 @@ schema-diff compare complex1.json complex2.json --show-samples -k 3
 
 ---
 
+## 🤖 MCP Server (AI Assistant Integration)
+
+`schema-diff` can be used as an MCP (Model Context Protocol) server, enabling AI assistants like Claude to compare schemas, analyze data structures, and generate DDL statements.
+
+### Quick Setup
+
+```bash
+# Install with MCP support
+pip install -e '.[mcp,bigquery,gcs]'
+
+# Test the server
+python3 -m mcp_server
+```
+
+### Configure Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "schema-diff": {
+      "command": "/Users/rostislav.rabotnik/coresignal/coresignal/bin/python",
+      "args": ["-m", "mcp_server"],
+      "cwd": "/Users/rostislav.rabotnik/coresignal"
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+- **compare_schemas** - Compare two schemas/data files
+- **generate_schema** - Generate schema from data in various formats
+- **analyze_schema** - Analyze complexity, patterns, field categories
+- **generate_bigquery_ddl** - Generate DDL from live BigQuery tables
+
+### Example Usage
+
+Once configured, ask your AI assistant:
+
+```
+"Compare the BigQuery API JSON schemas in src_schema.json
+and tgt_schema.json and identify all field changes"
+
+"Analyze the schema complexity of my_data.json and
+categorize the fields by type"
+
+"Generate BigQuery DDL for the users.json data file"
+```
+
+**📖 Full Documentation:** See [MCP_SERVER.md](../../MCP_SERVER.md) for complete setup and usage instructions.
+
+---
+
 ## 🤝 Contributing
 
 ### Development Setup
@@ -1200,7 +1258,7 @@ schema-diff compare complex1.json complex2.json --show-samples -k 3
 # Clone and install in development mode
 git clone <repository>
 cd schema-diff
-pip install -e ".[dev,bigquery,validation]"
+pip install -e ".[dev,bigquery,validation,mcp]"
 
 # Run tests
 pytest tests/
@@ -1237,3 +1295,4 @@ pytest tests/test_json_schema_parser.py -v
 - **dbt:** Data transformation tool
 - **JSON Schema:** Schema validation standard
 - **Apache Spark:** Big data processing framework
+- **Model Context Protocol:** https://modelcontextprotocol.io/
