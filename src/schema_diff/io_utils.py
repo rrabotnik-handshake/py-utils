@@ -59,6 +59,7 @@ __all__ = [
     "sample_records",
     "nth_record",
     "all_records",
+    "load_records_with_sampling",
 ]
 
 
@@ -266,3 +267,50 @@ def all_records(path: str, max_records: int | None = None) -> list[Any]:
             break
         records.append(rec)
     return records
+
+
+def load_records_with_sampling(
+    file_path: str,
+    *,
+    first_record: bool = False,
+    all_records_flag: bool = False,
+    sample_size: int = 1000,
+) -> list[Any]:
+    """Load records from a file with specified sampling strategy.
+
+    This is a convenience function that consolidates the common pattern of
+    loading records with different sampling strategies based on CLI flags.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the data file
+    first_record : bool, default False
+        If True, load only the first record
+    all_records_flag : bool, default False
+        If True, load all records (overrides sample_size)
+    sample_size : int, default 1000
+        Number of records to sample if neither first_record nor all_records_flag is set
+
+    Returns
+    -------
+    List[Any]
+        List of loaded records
+
+    Examples
+    --------
+    >>> # Load first record only
+    >>> records = load_records_with_sampling("data.json", first_record=True)
+
+    >>> # Load all records
+    >>> records = load_records_with_sampling("data.json", all_records_flag=True)
+
+    >>> # Load 500 samples
+    >>> records = load_records_with_sampling("data.json", sample_size=500)
+    """
+    if first_record:
+        return nth_record(file_path, 1)
+    elif all_records_flag:
+        return all_records(file_path)
+    else:
+        return sample_records(file_path, sample_size)

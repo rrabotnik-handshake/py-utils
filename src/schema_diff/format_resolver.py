@@ -11,7 +11,7 @@ from typing import Tuple
 # Supported families and their valid representations
 FAMILY_REPRESENTATIONS = {
     "spark": ["json", "ddl", "tree"],
-    "bq": ["table", "json", "ddl"],
+    "bq": ["table", "json", "ddl", "api-json"],
     "sql": ["ddl"],
     "dbt": ["manifest", "yml", "model"],
     "jsonschema": ["json"],
@@ -42,7 +42,10 @@ ALIASES = {
     "bigquery": "bq:table",
     "bq-table": "bq:table",
     "bq-json": "bq:json",
+    "bq-api-json": "bq:api-json",
     "bq-ddl": "bq:ddl",
+    "bigquery-json": "bq:json",
+    "bigquery-api-json": "bq:api-json",
     # SQL formats
     "sql": "sql:ddl",
     "sql-ddl": "sql:ddl",

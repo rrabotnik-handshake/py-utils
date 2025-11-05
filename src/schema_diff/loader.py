@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .exceptions import ArgumentError, ConfigurationError
 from .io_utils import open_text, sniff_ndjson
 from .parser_factory import ParserFactory
 from .protobuf_schema_parser import list_protobuf_messages
@@ -97,6 +98,14 @@ def _sniff_json_kind(path: str) -> str | None:
 
         if not isinstance(obj, dict):
             return KIND_DATA
+
+        # BigQuery API JSON signatures (check before dbt manifest)
+        if (
+            obj.get("kind", "").startswith("bigquery#")
+            and isinstance(obj.get("schema"), dict)
+            and "fields" in obj["schema"]
+        ):
+            return "bq:api-json"
 
         # dbt manifest signatures
         if (
@@ -325,7 +334,12 @@ def load_left_or_right(
 
     except ValueError as e:
         if "Unknown parser kind" in str(e):
-            raise ValueError(f"Unknown kind: {chosen}") from e
+            raise ArgumentError(
+                f"Unknown kind: {chosen}",
+                argument_name="kind",
+                argument_value=chosen,
+                cause=e,
+            ) from e
         raise
 
 
@@ -345,17 +359,23 @@ def _handle_bigquery_live_table(path: str) -> tuple[Any, set[str], str]:
     if "." in table_part:
         dataset_id, table_id = table_part.split(".", 1)
     else:
-        raise ValueError(
-            f"Invalid BigQuery table reference: {path}. Expected format: project:dataset.table or dataset.table"
+        raise ArgumentError(
+            f"Invalid BigQuery table reference: {path}. Expected format: project:dataset.table or dataset.table",
+            argument_name="table_reference",
+            argument_value=path,
         )
 
     # Use default project if not specified
     try:
         from google.cloud import bigquery
     except ImportError as e:
-        raise ImportError(
+        from .exceptions import DependencyError
+
+        raise DependencyError(
             "BigQuery functionality requires optional dependencies. "
-            "Install with: pip install -e '.[bigquery]'"
+            "Install with: pip install -e '.[bigquery]'",
+            dependency_name="google-cloud-bigquery",
+            cause=e,
         ) from e
 
     if project_part:
@@ -366,8 +386,10 @@ def _handle_bigquery_live_table(path: str) -> tuple[Any, set[str], str]:
             client = bigquery.Client()
             project_id = client.project
         except Exception as e:
-            raise ValueError(
-                "No project specified and unable to determine default project. Use format: project:dataset.table"
+            raise ConfigurationError(
+                "No project specified and unable to determine default project. Use format: project:dataset.table",
+                config_key="default_project",
+                cause=e,
             ) from e
 
     tree, required = get_live_table_schema(project_id, dataset_id, table_id)
@@ -393,10 +415,11 @@ def _handle_protobuf_parsing(
             # Show a reasonable preview; avoid dumping thousands
             preview = ", ".join(msgs[:50])
             more = f" (+{len(msgs)-50} more)" if len(msgs) > 50 else ""
-            raise ValueError(
+            raise ArgumentError(
                 f"Multiple Protobuf messages in {path}. "
                 "Choose one with --left-message/--right-message. "
-                f"Available: {preview}{more}"
+                f"Available: {preview}{more}",
+                argument_name="proto_message",
             )
         # else: zero → let the parser raise a clear error
 

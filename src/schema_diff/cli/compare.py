@@ -181,9 +181,11 @@ Compare schemas from different sources and identify differences in:
 
 def cmd_compare(args) -> None:
     """Execute the compare command."""
+    # Import colors once for all comparison types
     # Auto-detect file types if not specified
     from ..format_resolver import get_family, resolve_format
     from ..loader import _guess_kind
+    from .colors import BOLD, CYAN, GREEN, RESET, YELLOW
 
     left_kind = args.left
     right_kind = args.right
@@ -228,8 +230,6 @@ def cmd_compare(args) -> None:
         if is_gcs_path(args.file1) or is_gcs_path(args.file2):
             get_gcs_status()
         else:
-            from .colors import GREEN, RESET
-
             print(f"{GREEN}No GCS paths provided.{RESET}")
         return
 
@@ -289,8 +289,6 @@ def cmd_compare(args) -> None:
 
         if left_family == "data" and right_family == "data":
             # Data-to-data comparison - use legacy comparison logic
-            from .colors import BOLD, CYAN, RESET, YELLOW
-
             # Highlight family:representation in yellow, "schema" in yellow, location in white (default)
             left_highlighted = left_display.replace(
                 left_kind, f"{YELLOW}{left_kind}{RESET}"
@@ -309,24 +307,23 @@ def cmd_compare(args) -> None:
             print(
                 f"{BOLD}{CYAN}📊 Comparison:{RESET} {left_highlighted} → {right_highlighted}"
             )
-            from ..io_utils import all_records, nth_record, sample_records
+            from ..io_utils import load_records_with_sampling
             from ..json_data_file_parser import merged_schema_from_samples
 
-            # Load left side data
-            if args.first_record:
-                s1_records = nth_record(args.file1, 1)
-            elif args.all_records:
-                s1_records = all_records(args.file1)
-            else:
-                s1_records = sample_records(args.file1, record_n or 1000)
+            # Load left and right side data using helper function
+            s1_records = load_records_with_sampling(
+                args.file1,
+                first_record=args.first_record,
+                all_records_flag=args.all_records,
+                sample_size=record_n or 1000,
+            )
 
-            # Load right side data
-            if args.first_record:
-                s2_records = nth_record(args.file2, 1)
-            elif args.all_records:
-                s2_records = all_records(args.file2)
-            else:
-                s2_records = sample_records(args.file2, record_n or 1000)
+            s2_records = load_records_with_sampling(
+                args.file2,
+                first_record=args.first_record,
+                all_records_flag=args.all_records,
+                sample_size=record_n or 1000,
+            )
 
             # Collect sample values if --show-samples is enabled
             left_samples = None
@@ -387,8 +384,6 @@ def cmd_compare(args) -> None:
             "dbt",
         }:
             # Data-to-schema comparison
-            from .colors import BOLD, CYAN, RESET, YELLOW
-
             # Highlight family:representation in yellow, "schema" in yellow, location in white (default)
             left_highlighted = left_display.replace(
                 left_kind, f"{YELLOW}{left_kind}{RESET}"
@@ -407,14 +402,14 @@ def cmd_compare(args) -> None:
             print(
                 f"{BOLD}{CYAN}📊 Comparison:{RESET} {left_highlighted} → {right_highlighted}"
             )
-            from ..io_utils import all_records, nth_record, sample_records
+            from ..io_utils import load_records_with_sampling
 
-            if args.first_record:
-                s1_records = nth_record(args.file1, 1)
-            elif args.all_records:
-                s1_records = all_records(args.file1)
-            else:
-                s1_records = sample_records(args.file1, record_n or 1000)
+            s1_records = load_records_with_sampling(
+                args.file1,
+                first_record=args.first_record,
+                all_records_flag=args.all_records,
+                sample_size=record_n or 1000,
+            )
 
             # Collect sample values if --show-samples is enabled
             left_samples = None
@@ -471,8 +466,6 @@ def cmd_compare(args) -> None:
             )
         else:
             # Schema-to-schema comparison using unified format
-            from .colors import BOLD, CYAN, RESET, YELLOW
-
             # Highlight family:representation in yellow, "schema" in yellow, location in white (default)
             left_highlighted = left_display.replace(
                 left_kind, f"{YELLOW}{left_kind}{RESET}"
@@ -551,12 +544,8 @@ def cmd_compare(args) -> None:
                 "reports",
             )
 
-            from .colors import GREEN, RESET
-
             print(f"{GREEN}✅ Migration analysis saved to output/reports/{RESET}")
         elif args.output:
-            from .colors import GREEN, RESET
-
             print(
                 f"{GREEN}ℹ️ Migration analysis not available for data-to-schema comparisons{RESET}"
             )
@@ -564,8 +553,6 @@ def cmd_compare(args) -> None:
         # Handle legacy JSON output
         if hasattr(args, "json_out") and args.json_out and report_struct:
             import json
-
-            from .colors import GREEN, RESET
 
             with open(args.json_out, "w") as f:
                 json.dump(report_struct, f, indent=2)

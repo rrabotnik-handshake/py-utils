@@ -214,14 +214,16 @@ def cmd_analyze(args) -> int:
 
         # Handle data files differently
         if schema_type == "data":
-            from ..io_utils import all_records, sample_records
+            from ..io_utils import load_records_with_sampling
             from ..json_data_file_parser import merged_schema_from_samples
             from ..models import from_legacy_tree
 
-            if args.all_records:
-                records = all_records(args.schema_file)
-            else:
-                records = sample_records(args.schema_file, args.sample_size)
+            records = load_records_with_sampling(
+                args.schema_file,
+                first_record=False,
+                all_records_flag=args.all_records,
+                sample_size=args.sample_size,
+            )
 
             # Convert data to schema
             data_tree = merged_schema_from_samples(records, cfg)

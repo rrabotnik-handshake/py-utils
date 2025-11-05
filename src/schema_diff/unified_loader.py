@@ -132,6 +132,19 @@ def _load_unified_schema(
 
         return schema
 
+    elif schema_type in ("bq:api-json", "bq:json"):
+        from .bigquery_api_json_parser import schema_from_bigquery_api_json_file
+        from .models import from_legacy_tree
+
+        # Load BigQuery API JSON file
+        tree, required = schema_from_bigquery_api_json_file(file_path)
+
+        # Create Schema object
+        schema = from_legacy_tree(tree, required, source_type="bigquery_api_json")
+        schema.source_path = file_path
+
+        return schema
+
     else:
         raise ValueError(f"Unsupported schema type for unified loading: {schema_type}")
 

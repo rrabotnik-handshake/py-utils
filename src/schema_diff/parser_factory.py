@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Protocol, Set, Tuple, Type
 
+from .bigquery_api_json_parser import (
+    is_bigquery_api_json,
+    schema_from_bigquery_api_json_file,
+)
 from .constants import DEFAULT_SAMPLE_SIZE
 from .dbt_schema_parser import (
     schema_from_dbt_manifest,
@@ -274,6 +278,21 @@ class ProtobufParser:
         return path.lower().endswith(".proto")
 
 
+class BigQueryApiJsonParser:
+    """Parser for BigQuery API JSON schema files."""
+
+    def parse(self, path: str, **kwargs) -> ParseResult:
+        """Parse BigQuery API JSON file."""
+        schema_tree, required_paths = schema_from_bigquery_api_json_file(path)
+        schema_tree = coerce_root_to_field_dict(schema_tree)
+        label = f"{path} (BigQuery API JSON)"
+        return ParseResult(schema_tree, required_paths, label, "bq-api-json")
+
+    def can_handle(self, path: str) -> bool:
+        """Check if file appears to be BigQuery API JSON."""
+        return is_bigquery_api_json(path)
+
+
 class ParserFactory:
     """Factory for creating appropriate parsers based on file type and kind."""
 
@@ -288,6 +307,7 @@ class ParserFactory:
         "dbt-yml": DbtYmlParser,
         "dbt-model": DbtModelParser,
         "protobuf": ProtobufParser,
+        "bq-api-json": BigQueryApiJsonParser,
         # New family:representation format
         "data:json": DataParser,
         "jsonschema:json": JsonSchemaParser,
@@ -298,6 +318,8 @@ class ParserFactory:
         "dbt:yml": DbtYmlParser,
         "dbt:model": DbtModelParser,
         "proto:sdl": ProtobufParser,
+        "bq:json": BigQueryApiJsonParser,
+        "bq:api-json": BigQueryApiJsonParser,
     }
 
     # Auto-detection order (most specific first)
@@ -306,6 +328,7 @@ class ParserFactory:
         "dbt-yml",
         "dbt-model",
         "protobuf",
+        "bq-api-json",  # Check before jsonschema since it's JSON
         "jsonschema",
         "spark",
         "sql",

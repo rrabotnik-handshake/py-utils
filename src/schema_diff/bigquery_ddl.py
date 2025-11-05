@@ -5548,3 +5548,35 @@ def detect_dimensional_patterns(
     issues.extend(single_table_issues)
 
     return issues
+
+
+# =============================================================================
+# Note: Modular Architecture
+# =============================================================================
+# This module's functionality has been split into focused modules for better
+# organization and maintainability:
+#
+# - bigquery_schema.py: Schema conversion and type rendering
+#   Functions: bigquery_schema_to_internal(), get_live_table_schema(),
+#              render_columns(), render_type_for_field(), etc.
+#
+# - bigquery_queries.py: SQL templates and constraint handling
+#   Functions: get_constraints(), get_batch_constraints(),
+#              get_dataset_location(), SQL query templates
+#
+# - bigquery_ddl_generator.py: DDL generation and formatting
+#   Functions: generate_table_ddl(), generate_dataset_ddl(),
+#              pretty_print_ddl(), colorize_sql()
+#
+# - bigquery_utils.py: Client utilities
+#   Functions: get_bigquery_client(), parse_bigquery_table_ref(),
+#              parse_bigquery_dataset_ref()
+#
+# The functions remain available in this module for backward compatibility.
+# New code can import from the specialized modules for cleaner dependencies:
+#
+#   from .bigquery_schema import get_live_table_schema
+#   from .bigquery_queries import get_constraints
+#   from .bigquery_ddl_generator import generate_table_ddl
+#
+# =============================================================================

@@ -31,6 +31,7 @@ schema-diff compare file1.json file2.json
 # Compare with different formats
 schema-diff compare data.json schema.sql --right sql
 schema-diff compare data.json my-project:dataset.table --right bigquery
+schema-diff compare old_bq_schema.json new_bq_schema.json  # BigQuery API JSON (auto-detected)
 
 # Generate schema from data
 schema-diff generate data.json --format json_schema
@@ -82,6 +83,9 @@ schema-diff compare data.json schema.sql --right sql --right-table users
 
 # Data vs BigQuery table
 schema-diff compare data.json my-project:dataset.table --right bigquery
+
+# Data vs BigQuery API JSON
+schema-diff compare data.json bq_table_schema.json --right bq:api-json
 ```
 
 ### Compare Schemas
@@ -92,6 +96,9 @@ schema-diff compare schema.json db.sql --left jsonschema --right sql
 
 # BigQuery table vs BigQuery table
 schema-diff compare project:dataset.table1 project:dataset.table2
+
+# BigQuery API JSON schemas
+schema-diff compare old_table_schema.json new_table_schema.json
 
 # Spark schema vs data
 schema-diff compare data.json spark_schema.txt --left data --right spark
@@ -235,28 +242,277 @@ schema-diff analyze data.json --field-categories --format json --output
 
 ### Data Files
 
-- **JSON:** `.json` files with single objects or arrays
-- **NDJSON/JSONL:** `.ndjson`, `.jsonl` files with one JSON object per line
-- **Compressed:** All formats support `.gz` compression
-- **Large Files:** Streaming support for files of any size
-- **Google Cloud Storage:** `gs://bucket/path`, `https://storage.cloud.google.com/bucket/path`
+#### JSON / NDJSON
+
+**Format identifiers:** `data`, `data:json`, `data:jsonl`
+
+**File extensions:** `.json`, `.ndjson`, `.jsonl`, `.json.gz`
+
+**Features:**
+
+- Single JSON objects or arrays of objects
+- Newline-delimited JSON (one object per line)
+- Automatic compression support (`.gz`)
+- Streaming for large files
+- Schema inference from samples
+
+**Example:**
+
+```bash
+schema-diff compare data1.json data2.json
+schema-diff compare large_file.ndjson.gz another.json --sample-size 5000
+```
+
+#### Google Cloud Storage
+
+**Supported paths:** `gs://bucket/path`, `https://storage.cloud.google.com/bucket/path`
+
+**Features:**
+
+- Automatic download and caching
+- Metadata inspection with `--gcs-info`
+- Force re-download with `--force-download`
+- Works with all data formats (JSON, compressed, etc.)
+
+**Requirements:** `pip install 'schema-diff[gcs]'`
+
+**Example:**
+
+```bash
+schema-diff compare gs://my-bucket/data.json local-file.json --force-download
+```
+
+---
 
 ### Schema Formats
 
-- **JSON Schema:** Draft-07 compatible schemas
-- **Spark Schema:** Output from `df.printSchema()` with deep nested parsing
-- **SQL DDL:** PostgreSQL and BigQuery DDL including `ARRAY<...>`, `STRUCT<...>`
-- **dbt:** `manifest.json`, `schema.yml`, and model `.sql` files
-- **BigQuery Live:** Direct table access via `project:dataset.table` references
-- **Protobuf:** `.proto` files with explicit message selection
+#### JSON Schema
+
+**Format identifiers:** `jsonschema`, `jsonschema:json`, `json_schema`, `json-schema`
+
+**File extensions:** `.json` (with JSON Schema markers)
+
+**Features:**
+
+- Draft-07 compatible schemas
+- Support for `oneOf`, `anyOf`, `allOf` combinators
+- Handles `required` arrays for nullability tracking
+- Supports nested objects and array schemas
+- Format-specific types (date, datetime, timestamp)
+
+**Auto-detection:** Files with `$schema` field or schema-like structure
+
+**Example:**
+
+```bash
+schema-diff compare schema_v1.json schema_v2.json --left jsonschema --right jsonschema
+```
+
+#### Spark Schema
+
+**Format identifiers:** `spark`, `spark:json`, `spark:tree`
+
+**File extensions:** `.txt`, `.json`
+
+**Features:**
+
+- `spark:tree` - Text output from `df.printSchema()`
+- `spark:json` - StructType JSON representation
+- Deep nested structure parsing
+- Support for complex types (StructType, ArrayType)
+
+**Auto-detection:** Files containing `root`, `|--`, or `nullable =` patterns
+
+**Example:**
+
+```bash
+# Tree format (printSchema output)
+schema-diff compare old_spark.txt new_spark.txt --left spark:tree --right spark:tree
+
+# JSON format
+schema-diff compare spark_struct.json data.json --left spark:json --right data
+```
+
+#### SQL DDL
+
+**Format identifiers:** `sql`, `sql:ddl`
+
+**File extensions:** `.sql`
+
+**Features:**
+
+- PostgreSQL and BigQuery DDL syntax
+- `CREATE TABLE` statements
+- Support for `ARRAY<...>`, `STRUCT<...>` nested types
+- NOT NULL constraints
+- Enhanced parsing with SQLGlot (20+ dialects)
+
+**Requirements (optional):** `pip install 'schema-diff[sqlglot]'` for better type detection
+
+**Auto-detection:** Files containing `CREATE TABLE` or `.sql` extension
+
+**Example:**
+
+```bash
+schema-diff compare old_schema.sql new_schema.sql
+schema-diff compare schema.sql data.json --left sql --right data --table users
+```
+
+#### BigQuery Live Tables
+
+**Format identifiers:** `bigquery`, `bq:table`, `bq-table`
+
+**Reference format:** `project:dataset.table`
+
+**Features:**
+
+- Direct access to live BigQuery tables
+- Real-time schema inspection
+- Full support for nested STRUCT and ARRAY types
+- Clustering and partitioning metadata
+- Policy tags and descriptions
+
+**Requirements:** `pip install 'schema-diff[bigquery]'`
+
+**Authentication:** `gcloud auth application-default login`
+
+**Auto-detection:** Paths containing `:` and `.` in format `project:dataset.table`
+
+**Example:**
+
+```bash
+schema-diff compare my-project:dataset.table1 my-project:dataset.table2
+schema-diff compare project:dataset.old_table project:dataset.new_table --show-common
+```
+
+#### BigQuery API JSON
+
+**Format identifiers:** `bq:api-json`, `bq-api-json`, `bigquery-api-json`
+
+**File extensions:** `.json`
+
+**Features:**
+
+- Schema JSON from `bq show --format=json`
+- Schema JSON from BigQuery API `get_table()` calls
+- Full support for nested STRUCT and ARRAY types
+- Handles NULLABLE, REQUIRED, and REPEATED modes
+- Preserves table metadata (clustering, partitioning)
+
+**Requirements:** `pip install 'schema-diff[bigquery]'`
+
+**Auto-detection:** JSON files with `"kind": "bigquery#table"` and `"schema": {"fields": [...]}`
+
+**Example:**
+
+```bash
+# Export from BigQuery
+bq show --format=json my-project:dataset.table > table_schema.json
+
+# Compare (auto-detected)
+schema-diff compare old_schema.json new_schema.json
+
+# Explicit format
+schema-diff compare schema1.json schema2.json --left bq:api-json --right bq:api-json
+```
+
+**File structure:**
+
+```json
+{
+  "id": "project:dataset.table",
+  "kind": "bigquery#table",
+  "schema": {
+    "fields": [
+      { "name": "id", "type": "INTEGER", "mode": "REQUIRED" },
+      { "name": "name", "type": "STRING", "mode": "NULLABLE" }
+    ]
+  }
+}
+```
+
+#### dbt (Data Build Tool)
+
+**Format identifiers:**
+
+- `dbt:manifest` / `dbt-manifest` - manifest.json
+- `dbt:yml` / `dbt-yml` - schema.yml
+- `dbt:model` / `dbt-model` - model.sql
+
+**File extensions:** `.json`, `.yml`, `.yaml`, `.sql`
+
+**Features:**
+
+- Parse dbt project metadata
+- Extract column definitions and tests
+- Support for dbt docs and descriptions
+- Model dependency tracking
+
+**Auto-detection:**
+
+- `manifest.json` - Contains `nodes`, `sources`, or `dbt_version` fields
+- `.yml` files with `schema` in filename
+- `.sql` files with Jinja syntax (`{{`, `}}`) or `ref()` calls
+
+**Example:**
+
+```bash
+# Manifest comparison
+schema-diff compare old_manifest.json new_manifest.json --model my_model
+
+# Schema YAML
+schema-diff compare schema_v1.yml schema_v2.yml --model customers
+
+# Model file
+schema-diff compare models/old_customers.sql models/new_customers.sql
+```
+
+#### Protobuf
+
+**Format identifiers:** `protobuf`, `proto:sdl`
+
+**File extensions:** `.proto`
+
+**Features:**
+
+- Parse Protocol Buffer definitions
+- Support for nested messages
+- Field number and type tracking
+- Required message selection for comparison
+
+**Auto-detection:** Files with `.proto` extension
+
+**Example:**
+
+```bash
+schema-diff compare old_schema.proto new_schema.proto --message UserProfile
+```
+
+---
 
 ### Auto-Detection
 
-`schema-diff` automatically detects file types:
+`schema-diff` automatically detects file types using multiple strategies:
 
-- **Extension-based:** `.sql`, `.yml`, `.txt`, `.proto`, `.json`
-- **Content-based:** Analyzes file contents to determine format
-- **No configuration needed** for most comparisons
+**Detection Order:**
+
+1. **dbt manifest** - Check for dbt-specific JSON structure
+2. **dbt schema YAML** - Check for `.yml` with `schema` in filename
+3. **dbt model** - Check for `.sql` with Jinja/dbt patterns
+4. **Protobuf** - Check for `.proto` extension
+5. **BigQuery API JSON** - Check for `kind: "bigquery#table"` structure
+6. **JSON Schema** - Check for `$schema` or schema-like patterns
+7. **Spark schema** - Check for `root`, `|--`, or Spark patterns
+8. **SQL DDL** - Check for `CREATE TABLE` or `.sql` extension
+9. **Data files** - Default for JSON/NDJSON files
+
+**Override auto-detection:**
+
+```bash
+schema-diff compare file1.json file2.json --left jsonschema --right data
+```
+
+**No configuration needed** - Most files are correctly detected automatically
 
 ---
 
@@ -514,8 +770,8 @@ schema-diff compare [OPTIONS] file1 file2
 
 #### Schema Type Selection
 
-- `--left {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Left file type (auto-detected if not specified)
-- `--right {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Right file type (auto-detected if not specified)
+- `--left {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model,bigquery,bq:api-json,bq-api-json}` - Left file type (auto-detected if not specified)
+- `--right {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model,bigquery,bq:api-json,bq-api-json}` - Right file type (auto-detected if not specified)
 
 #### Schema-Specific Options
 
@@ -701,7 +957,7 @@ Use `--category <name>` to filter results to a specific category.
 
 #### Schema Type Options
 
-- `--type {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model,bigquery}` - Schema type (auto-detected if not specified)
+- `--type {data,json_schema,jsonschema,spark,sql,protobuf,dbt-manifest,dbt-yml,dbt-model,bigquery,bq:api-json,bq-api-json}` - Schema type (auto-detected if not specified)
 - `--table TABLE` - BigQuery table name (for SQL schemas)
 - `--model MODEL` - dbt model name (for dbt schemas)
 - `--message MESSAGE` - Protobuf message name (for protobuf schemas)
@@ -743,6 +999,9 @@ schema-diff analyze data.json --field-categories --category audit_fields
 
 # Dimensional modeling analysis
 schema-diff analyze project:dataset.fact_sales --type bigquery --dimensional
+
+# Analyze BigQuery API JSON schema
+schema-diff analyze bq_table_schema.json --field-categories
 
 # Export categorization to JSON
 schema-diff analyze schema.json --field-categories --format json --output

@@ -14,6 +14,7 @@ from typing import Optional
 from urllib.parse import unquote, urlparse
 
 from .decorators import retry_gcs_operation
+from .exceptions import ArgumentError, DependencyError, FileOperationError, GCSError
 
 try:
     from google.cloud import storage  # type: ignore
@@ -43,10 +44,14 @@ def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
         Tuple of (bucket_name, object_path)
 
     Raises:
-        ValueError: If the path is not a valid GCS URI
+        ArgumentError: If the path is not a valid GCS URI
     """
     if not is_gcs_path(gcs_path):
-        raise ValueError(f"Not a valid GCS path: {gcs_path}")
+        raise ArgumentError(
+            f"Not a valid GCS path: {gcs_path}",
+            argument_name="gcs_path",
+            argument_value=gcs_path,
+        )
 
     if gcs_path.startswith("gs://"):
         # Handle gs:// format
@@ -57,7 +62,11 @@ def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
         # Handle https://storage.cloud.google.com/bucket/object format
         path_part = gcs_path[len("https://storage.cloud.google.com/") :]
         if "/" not in path_part:
-            raise ValueError(f"Invalid GCS HTTPS URL format: {gcs_path}")
+            raise ArgumentError(
+                f"Invalid GCS HTTPS URL format: {gcs_path}",
+                argument_name="gcs_path",
+                argument_value=gcs_path,
+            )
         bucket_name, object_path = path_part.split("/", 1)
         # URL decode the object path to handle encoded characters
         object_path = unquote(object_path)
@@ -65,15 +74,27 @@ def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
         # Handle https://storage.googleapis.com/bucket/object format
         path_part = gcs_path[len("https://storage.googleapis.com/") :]
         if "/" not in path_part:
-            raise ValueError(f"Invalid GCS HTTPS URL format: {gcs_path}")
+            raise ArgumentError(
+                f"Invalid GCS HTTPS URL format: {gcs_path}",
+                argument_name="gcs_path",
+                argument_value=gcs_path,
+            )
         bucket_name, object_path = path_part.split("/", 1)
         # URL decode the object path to handle encoded characters
         object_path = unquote(object_path)
     else:
-        raise ValueError(f"Unsupported GCS path format: {gcs_path}")
+        raise ArgumentError(
+            f"Unsupported GCS path format: {gcs_path}",
+            argument_name="gcs_path",
+            argument_value=gcs_path,
+        )
 
     if not bucket_name or not object_path:
-        raise ValueError(f"Invalid GCS path format: {gcs_path}")
+        raise ArgumentError(
+            f"Invalid GCS path format: {gcs_path}",
+            argument_name="gcs_path",
+            argument_value=gcs_path,
+        )
 
     return bucket_name, object_path
 
@@ -120,17 +141,23 @@ def download_gcs_file(
         Path to the downloaded local file
 
     Raises:
-        ImportError: If google-cloud-storage is not installed
-        Exception: If download fails
+        DependencyError: If google-cloud-storage is not installed
+        GCSError: If download fails
+        ArgumentError: If the path is not a valid GCS URI
     """
     if not _HAS_GCS:
-        raise ImportError(
+        raise DependencyError(
             "Google Cloud Storage support requires 'google-cloud-storage'. "
-            "Install with: pip install google-cloud-storage"
+            "Install with: pip install google-cloud-storage",
+            dependency_name="google-cloud-storage",
         )
 
     if not is_gcs_path(gcs_path):
-        raise ValueError(f"Not a valid GCS path: {gcs_path}")
+        raise ArgumentError(
+            f"Not a valid GCS path: {gcs_path}",
+            argument_name="gcs_path",
+            argument_value=gcs_path,
+        )
 
     # Determine local path
     if local_path is None:
@@ -166,7 +193,11 @@ def download_gcs_file(
 
         # Verify download
         if not os.path.exists(local_path):
-            raise Exception(f"Download failed: {local_path} was not created")
+            raise FileOperationError(
+                f"Download failed: {local_path} was not created",
+                file_path=local_path,
+                operation="download_verify",
+            )
 
         file_size = os.path.getsize(local_path)
         print(f"{GREEN}✅ Downloaded {file_size:,} bytes{RESET}")
@@ -176,29 +207,49 @@ def download_gcs_file(
 
         return local_path
 
+    except (GCSError, ArgumentError, DependencyError, FileOperationError):
+        # Re-raise schema-diff exceptions as-is
+        raise
     except Exception as e:
         # Clean up partial download
         if os.path.exists(local_path):
-            os.remove(local_path)
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass  # Best effort cleanup
 
         error_msg = str(e).lower()
         if "project" in error_msg and "environment" in error_msg:
-            raise Exception(
-                f"Failed to download {gcs_path}: {str(e)}\n"
+            raise GCSError(
+                f"Failed to download from GCS: {str(e)}\n"
                 "💡 Fix: Set up GCS authentication:\n"
                 "   gcloud config set project YOUR_PROJECT_ID\n"
                 "   gcloud auth application-default login\n"
-                "   OR export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json"
+                "   OR export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json",
+                bucket_name=bucket_name,
+                object_name=object_path,
+                operation="download",
+                cause=e,
             ) from e
         elif "credentials" in error_msg or "authentication" in error_msg:
-            raise Exception(
-                f"Failed to download {gcs_path}: {str(e)}\n"
+            raise GCSError(
+                f"Failed to download from GCS: {str(e)}\n"
                 "💡 Fix: Authenticate with GCS:\n"
                 "   gcloud auth application-default login\n"
-                "   OR export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json"
+                "   OR export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json",
+                bucket_name=bucket_name,
+                object_name=object_path,
+                operation="download",
+                cause=e,
             ) from e
         else:
-            raise Exception(f"Failed to download {gcs_path}: {str(e)}") from e
+            raise GCSError(
+                f"Failed to download from GCS: {str(e)}",
+                bucket_name=bucket_name,
+                object_name=object_path,
+                operation="download",
+                cause=e,
+            ) from e
 
 
 # Convenience functions for common operations

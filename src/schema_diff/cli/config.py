@@ -113,7 +113,7 @@ def _show_system_info() -> None:
 
 def _check_dependencies() -> None:
     """Check optional dependencies."""
-    from .colors import GREEN, RESET
+    from .colors import GREEN, RED, RESET
 
     print(f"{GREEN}📋 Dependency Status:{RESET}")
 
@@ -141,58 +141,41 @@ def _check_dependencies() -> None:
         for dep_name, description in deps:
             try:
                 __import__(dep_name.replace("-", "_"))
-                from .colors import GREEN, RESET
-
                 status = f"{GREEN}✅ Available{RESET}"
             except ImportError:
-                from .colors import RED, RESET
-
                 status = f"{RED}❌ Not installed{RESET}"
 
             print(f"     {dep_name:<25} {description:<25} {status}")
 
     # Check for BigQuery authentication
-    from .colors import GREEN, RESET
-
     print(f"\n   {GREEN}BigQuery Authentication:{RESET}")
     try:
         from google.cloud import bigquery
-
-        from .colors import GREEN, RESET
 
         client = bigquery.Client()
         project = client.project
         print(f"     Project: {project} {GREEN}✅{RESET}")
     except Exception as e:
-        from .colors import RED, RESET
-
         print(f"     Status: {RED}❌ Not configured ({str(e)[:50]}...){RESET}")
 
     # Check for GCS authentication
-    from .colors import GREEN, RESET
-
     print(f"\n   {GREEN}GCS Authentication:{RESET}")
     try:
         from google.cloud import storage  # type: ignore[attr-defined]
-
-        from .colors import GREEN, RESET
 
         client = storage.Client()
         project = client.project
         print(f"     Project: {project} {GREEN}✅{RESET}")
     except Exception as e:
-        from .colors import RED, RESET
-
         print(f"     Status: {RED}❌ Not configured ({str(e)[:50]}...){RESET}")
 
 
 def _show_gcs_info(gcs_path: str) -> None:
     """Show information about a GCS file."""
+    from ..cli.colors import GREEN, RED, RESET
     from ..gcs_utils import is_gcs_path, parse_gcs_path
 
     if not is_gcs_path(gcs_path):
-        from ..cli.colors import RED, RESET
-
         print(f"{RED}❌ Not a valid GCS path: {gcs_path}{RESET}")
         print("Valid formats:")
         print("  - gs://bucket-name/path/to/file")
@@ -202,7 +185,6 @@ def _show_gcs_info(gcs_path: str) -> None:
 
     try:
         bucket_name, object_path = parse_gcs_path(gcs_path)
-        from ..cli.colors import GREEN, RESET
 
         print(f"{GREEN}📁 GCS File Information:{RESET}")
         print(f"   Path: {gcs_path}")
@@ -218,23 +200,15 @@ def _show_gcs_info(gcs_path: str) -> None:
             blob = bucket.blob(object_path)
 
             if blob.exists():
-                from ..cli.colors import GREEN, RESET
-
                 print(f"   Size: {blob.size:,} bytes")
                 print(f"   Content Type: {blob.content_type}")
                 print(f"   Updated: {blob.updated}")
                 print(f"   Status: {GREEN}✅ File exists and is accessible{RESET}")
             else:
-                from ..cli.colors import RED, RESET
-
                 print(f"   Status: {RED}❌ File does not exist{RESET}")
 
         except Exception as e:
-            from ..cli.colors import RED, RESET
-
             print(f"   Status: {RED}❌ Cannot access file ({str(e)}){RESET}")
 
     except Exception as e:
-        from ..cli.colors import RED, RESET
-
         print(f"{RED}❌ Error processing GCS path: {str(e)}{RESET}")

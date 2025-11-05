@@ -182,12 +182,14 @@ def cmd_generate(args) -> None:
 
         # Load data records
         from ..config import Config
-        from ..io_utils import all_records, sample_records
+        from ..io_utils import load_records_with_sampling
 
-        if args.all_records:
-            records = all_records(args.data_file)
-        else:
-            records = sample_records(args.data_file, record_n or 1000)
+        records = load_records_with_sampling(
+            args.data_file,
+            first_record=False,
+            all_records_flag=args.all_records,
+            sample_size=record_n or 1000,
+        )
 
         # Generate schema
         cfg = Config()

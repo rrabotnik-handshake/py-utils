@@ -5,8 +5,9 @@ Handles BigQuery DDL generation from live tables with proper argument parsing.
 """
 from __future__ import annotations
 
-from typing import Tuple
-
+from ..bigquery_utils import get_bigquery_client as _get_bigquery_client
+from ..bigquery_utils import parse_bigquery_dataset_ref as _parse_dataset_ref
+from ..bigquery_utils import parse_bigquery_table_ref as _parse_table_ref
 from ..exceptions import BigQueryError
 from ..output_utils import write_output_file
 
@@ -104,77 +105,6 @@ Extracts complete table schemas including:
     )
 
 
-def _parse_table_ref(table_ref: str) -> Tuple[str, str, str]:
-    """Parse table reference into project, dataset, table components."""
-    # Handle project:dataset.table format
-    if ":" in table_ref:
-        parts = table_ref.split(":")
-        if len(parts) != 2:
-            raise ValueError(f"Invalid table reference format: {table_ref}")
-        project_part, table_part = parts
-        if "." not in table_part:
-            raise ValueError(f"Invalid dataset.table format: {table_ref}")
-        table_parts = table_part.split(".")
-        if len(table_parts) != 2:
-            raise ValueError(f"Invalid table reference format: {table_ref}")
-        dataset, table = table_parts
-        return project_part, dataset, table
-
-    # Handle dataset.table format
-    if "." in table_ref:
-        parts = table_ref.split(".")
-        if len(parts) != 2:
-            raise ValueError(f"Invalid table reference format: {table_ref}")
-        dataset, table = parts
-        # Try to get project from environment or use default
-        try:
-            from ..bigquery_ddl import get_default_project
-
-            project = get_default_project()
-        except Exception as e:
-            raise ValueError(
-                "No project specified and unable to determine default project"
-            ) from e
-        return project, dataset, table
-
-    raise ValueError(f"Invalid table reference format: {table_ref}")
-
-
-def _parse_dataset_ref(dataset_ref: str) -> Tuple[str, str]:
-    """Parse dataset reference into project, dataset components."""
-    if ":" in dataset_ref:
-        parts = dataset_ref.split(":")
-        if len(parts) != 2:
-            raise ValueError(f"Invalid dataset reference format: {dataset_ref}")
-        project, dataset = parts
-        return project, dataset
-
-    # Reject ambiguous formats like "project.dataset" - should be "project:dataset"
-    if "." in dataset_ref:
-        raise ValueError(f"Invalid dataset reference format: {dataset_ref}")
-
-    # Try to get project from environment
-    try:
-        from ..bigquery_ddl import get_default_project
-
-        project = get_default_project()
-        return project, dataset_ref
-    except Exception as e:
-        raise ValueError(
-            "No project specified and unable to determine default project"
-        ) from e
-
-
-def _get_bigquery_client():
-    """Get a BigQuery client instance."""
-    try:
-        from google.cloud import bigquery
-
-        return bigquery.Client()
-    except Exception as e:
-        raise Exception(f"Failed to create BigQuery client: {e}") from e
-
-
 def cmd_ddl(args) -> None:
     """Execute the DDL command."""
     if not args.ddl_command:
@@ -258,18 +188,22 @@ def cmd_ddl(args) -> None:
 
         from .colors import RED, RESET
 
+        # BigQueryError already has structured details
         print(
-            f"{RED}❌ Error: BigQuery DDL generation failed: {e}{RESET}",
+            f"{RED}❌ Error: {e}{RESET}",
             file=sys.stderr,
         )
         sys.exit(1)
     except Exception as e:
         import sys
 
+        from ..exceptions import wrap_exception
         from .colors import RED, RESET
 
+        # Wrap unexpected errors in structured exception
+        wrapped = wrap_exception(e, exception_class=BigQueryError)
         print(
-            f"{RED}❌ Error: Unexpected error during DDL generation: {e}{RESET}",
+            f"{RED}❌ Error: {wrapped}{RESET}",
             file=sys.stderr,
         )
         sys.exit(1)
