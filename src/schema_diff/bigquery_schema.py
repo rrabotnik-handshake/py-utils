@@ -148,7 +148,8 @@ def render_type_for_field(field: SchemaField, level: int) -> str:
 
 
 def render_default(field: SchemaField, level: int) -> str:
-    """Render DEFAULT expression (BigQuery supports DEFAULT on top-level non-STRUCT columns)."""
+    """Render DEFAULT expression (BigQuery supports DEFAULT on top-level non-STRUCT
+    columns)."""
     # BigQuery supports DEFAULT on columns (not nested STRUCT members)
     if level == 1 and field.field_type != "RECORD":
         expr = getattr(field, "default_value_expression", None)
@@ -258,7 +259,8 @@ def bigquery_schema_to_internal(
 
 
 def normalize_bigquery_arrays(tree: Any) -> Any:
-    """Normalize BigQuery array wrapper patterns like {'list': [{'element': ...}]} to [...].
+    """Normalize BigQuery array wrapper patterns like {'list': [{'element': ...}]} to
+    [...].
 
     This removes the BigQuery-specific array wrapper structure to match the cleaner
     array notation used elsewhere in schema-diff.

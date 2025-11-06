@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """BigQuery INFORMATION_SCHEMA queries and constraint handling.
 
-This module provides SQL query templates and functions for retrieving
-primary key and foreign key constraints from BigQuery tables via INFORMATION_SCHEMA.
+This module provides SQL query templates and functions for retrieving primary key and
+foreign key constraints from BigQuery tables via INFORMATION_SCHEMA.
 """
 from __future__ import annotations
 

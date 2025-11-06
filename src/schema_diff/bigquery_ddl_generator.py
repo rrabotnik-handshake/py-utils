@@ -173,7 +173,8 @@ def colorize_sql(sql: str, mode: str = "auto") -> str:
 
 
 def collect_table_options(tbl: bigquery.Table) -> dict[str, Any]:
-    """Collect all table-level options (description, partition settings, labels, etc.)."""
+    """Collect all table-level options (description, partition settings, labels,
+    etc.)."""
     opts: dict[str, Any] = {}
 
     # Table description
@@ -202,7 +203,8 @@ def collect_table_options(tbl: bigquery.Table) -> dict[str, Any]:
 
 
 def render_options_line(opts: dict[str, Any]) -> str | None:
-    """Render a single OPTIONS(...) block with all options (deterministic label order)."""
+    """Render a single OPTIONS(...) block with all options (deterministic label
+    order)."""
     if not opts:
         return None
 
